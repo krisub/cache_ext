@@ -7,7 +7,7 @@ USERSPACE_CFLAGS = -O2 -fsanitize=address -g -Wall
 USERSPACE_LINKER_FLAGS = -L/usr/local/lib64 -lbpf
 
 # Define the BPF program source and the output object file
-BPF_SRC = cache_ext_simple.bpf.c cache_ext_mru.bpf.c cache_ext_mglru.bpf.c
+BPF_SRC = cache_ext_simple.bpf.c cache_ext_mru.bpf.c cache_ext_mglru.bpf.c cache_ext_net.bpf.c
 BPF_OBJ = $(BPF_SRC:.c=.o)
 BPF_SKEL = $(BPF_SRC:bpf.c=skel.h)
 
@@ -35,7 +35,7 @@ CLANG_BPF_SYS_INCLUDES ?= $(shell $(CLANG) -v -E - </dev/null 2>&1 \
 
 all: 	cache_ext_mru.out cache_ext_mglru.out cache_ext_fifo.out \
 		cache_ext_sampling.out cache_ext_get_scan.out cache_ext_s3fifo.out \
-		cache_ext_lhd.out   \
+		cache_ext_lhd.out cache_ext_net.out \
 		# cache_ext_debug.out cache_ext_simple.out
 
 $(VMLINUX_H):

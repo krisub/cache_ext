@@ -160,7 +160,8 @@ class LevelDBBenchmark(BenchmarkFramework):
         configs = add_config_option(
             "benchmark", parse_strings_string(self.args.benchmark), configs
         )
-        configs = add_config_option("cgroup_size", [10 * GiB], configs)
+        # configs = add_config_option("cgroup_size", [10 * GiB], configs)
+        configs = add_config_option("cgroup_size", [0.5 * GiB], configs)
         if self.args.default_only:
             configs = add_config_option(
                 "cgroup_name", [DEFAULT_BASELINE_CGROUP], configs
