@@ -1,0 +1,36 @@
+[
+    {
+        "config": {
+            "name": "leveldb_benchmark",
+            "cpus": 8,
+            "enable_mmap": false,
+            "runtime_seconds": 240,
+            "warmup_runtime_seconds": 45,
+            "benchmark": "ycsb_a",
+            "cgroup_size": 536870912.0,
+            "cgroup_name": "baseline_test",
+            "fadvise": "",
+            "iteration": 1
+        },
+        "results": {
+            "update_throughput_avg": 1798.97,
+            "insert_throughput_avg": 0.0,
+            "read_throughput_avg": 1805.66,
+            "scan_throughput_avg": 0.0,
+            "read_modify_write_throughput_avg": 0.0,
+            "throughput_avg": 3604.63,
+            "update_latency_avg": 1894813.05,
+            "update_latency_p99": 35260618.75,
+            "insert_latency_avg": 0.0,
+            "insert_latency_p99": 0.0,
+            "read_latency_avg": 2535670.65,
+            "latency_avg": 2535670.65,
+            "read_latency_p99": 36019781.15,
+            "latency_p99": 36019781.15,
+            "scan_latency_avg": 0.0,
+            "scan_latency_p99": 0.0,
+            "read_modify_write_latency_avg": 0.0,
+            "read_modify_write_latency_p99": 0.0
+        }
+    }
+]

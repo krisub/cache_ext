@@ -1,0 +1,1209 @@
+INFO:bench_lib:Running command: ['sudo', 'sysctl', '-w', 'vm.dirty_background_ratio=1']
+vm.dirty_background_ratio = 1
+INFO:bench_lib:Running command: ['sudo', 'sysctl', '-w', 'vm.dirty_ratio=30']
+vm.dirty_ratio = 30
+INFO:__main__:LevelDB DB directory: /mydata/leveldb
+INFO:__main__:LevelDB temp DB directory: /mydata/leveldb_temp
+INFO:bench_lib:Will benchmark with each of the following amounts of CPU [8]
+INFO:bench_lib:Will write results to results/cgroup_testing.json
+INFO:bench_lib:Progress: 100.0% (1/1)
+INFO:bench_lib:Running benchmark for leveldb_benchmark with config {'name': 'leveldb_benchmark', 'cpus': 8, 'enable_mmap': False, 'runtime_seconds': 240, 'warmup_runtime_seconds': 45, 'benchmark': 'ycsb_a', 'cgroup_size': 10737418240, 'cgroup_name': 'cache_ext_test', 'policy_loader': 'cache_ext_fifo.out', 'iteration': 1}
+INFO:bench_lib:Running command: ['rsync', '-avpl', '--delete', '/mydata/leveldb/', '/mydata/leveldb_temp']
+sending incremental file list
+./
+944312.ldb
+944313.ldb
+944315.ldb
+944316.ldb
+944318.ldb
+944321.ldb
+944322.ldb
+944325.ldb
+944326.ldb
+944329.ldb
+944330.ldb
+944672.ldb
+944675.ldb
+944676.ldb
+944679.ldb
+944680.ldb
+944683.ldb
+944684.ldb
+944686.ldb
+944687.ldb
+944689.ldb
+944692.ldb
+944693.ldb
+944696.ldb
+944697.ldb
+944700.ldb
+944701.ldb
+944703.ldb
+944704.ldb
+944708.ldb
+944711.ldb
+944712.ldb
+944715.ldb
+944717.ldb
+944720.ldb
+944721.ldb
+945037.ldb
+945038.ldb
+945040.ldb
+945041.ldb
+945043.ldb
+945044.ldb
+945046.ldb
+945049.ldb
+945050.ldb
+945052.ldb
+945053.ldb
+945055.ldb
+945056.ldb
+945058.ldb
+945059.ldb
+945061.ldb
+945062.ldb
+945065.ldb
+945066.ldb
+945070.ldb
+945071.ldb
+945073.ldb
+945074.ldb
+945076.ldb
+945079.ldb
+945080.ldb
+945358.ldb
+945359.ldb
+945361.ldb
+945362.ldb
+945364.ldb
+945365.ldb
+945367.ldb
+945370.ldb
+945371.ldb
+945374.ldb
+945375.ldb
+945379.ldb
+945380.ldb
+945382.ldb
+945383.ldb
+945385.ldb
+945386.ldb
+945388.ldb
+945390.ldb
+945391.ldb
+945393.ldb
+945394.ldb
+945396.ldb
+945397.ldb
+945684.ldb
+945685.ldb
+945687.ldb
+945690.ldb
+945693.ldb
+945694.ldb
+945696.ldb
+945699.ldb
+945700.ldb
+945703.ldb
+945704.ldb
+945707.ldb
+945708.ldb
+945713.ldb
+945714.ldb
+945717.ldb
+945719.ldb
+945720.ldb
+945723.ldb
+945724.ldb
+945726.ldb
+945727.ldb
+945729.ldb
+945730.ldb
+946004.ldb
+946006.ldb
+946009.ldb
+946010.ldb
+946013.ldb
+946014.ldb
+946019.ldb
+946020.ldb
+946023.ldb
+946024.ldb
+946026.ldb
+946029.ldb
+946030.ldb
+946033.ldb
+946034.ldb
+946037.ldb
+946038.ldb
+946041.ldb
+946042.ldb
+946044.ldb
+946045.ldb
+946048.ldb
+946049.ldb
+946292.ldb
+946294.ldb
+946295.ldb
+946298.ldb
+946299.ldb
+946302.ldb
+946303.ldb
+946308.ldb
+946309.ldb
+946312.ldb
+946313.ldb
+946316.ldb
+946318.ldb
+946319.ldb
+946322.ldb
+946323.ldb
+946326.ldb
+946327.ldb
+946330.ldb
+946332.ldb
+946333.ldb
+946335.ldb
+946336.ldb
+946338.ldb
+946339.ldb
+946607.ldb
+946610.ldb
+946611.ldb
+946613.ldb
+946614.ldb
+946616.ldb
+946617.ldb
+946619.ldb
+946620.ldb
+946622.ldb
+946623.ldb
+946625.ldb
+946627.ldb
+946628.ldb
+946634.ldb
+946635.ldb
+946638.ldb
+946639.ldb
+946642.ldb
+946643.ldb
+946646.ldb
+946647.ldb
+946650.ldb
+946651.ldb
+946653.ldb
+946858.ldb
+946859.ldb
+946862.ldb
+946863.ldb
+946865.ldb
+946866.ldb
+946868.ldb
+946869.ldb
+946872.ldb
+946875.ldb
+946878.ldb
+946879.ldb
+946881.ldb
+946882.ldb
+946884.ldb
+946886.ldb
+946887.ldb
+946891.ldb
+946892.ldb
+946894.ldb
+946895.ldb
+946897.ldb
+946898.ldb
+946900.ldb
+947107.ldb
+947108.ldb
+947112.ldb
+947113.ldb
+947115.ldb
+947116.ldb
+947118.ldb
+947120.ldb
+947122.ldb
+947123.ldb
+947125.ldb
+947126.ldb
+947128.ldb
+947129.ldb
+947131.ldb
+947132.ldb
+947417.ldb
+947418.ldb
+947419.ldb
+947420.ldb
+947421.ldb
+947422.ldb
+947423.ldb
+947424.ldb
+947425.ldb
+947426.ldb
+947428.ldb
+947429.ldb
+947430.ldb
+947431.ldb
+947432.ldb
+947434.ldb
+947435.ldb
+947437.ldb
+947438.ldb
+947440.ldb
+947443.ldb
+947444.ldb
+947459.ldb
+947460.ldb
+947463.ldb
+947464.ldb
+947467.ldb
+947469.ldb
+947470.ldb
+947473.ldb
+947474.ldb
+947845.ldb
+947846.ldb
+947860.ldb
+947862.ldb
+947863.ldb
+947866.ldb
+947867.ldb
+947870.ldb
+947871.ldb
+947876.ldb
+947877.ldb
+947880.ldb
+947881.ldb
+947883.ldb
+947919.ldb
+947920.ldb
+947923.ldb
+947924.ldb
+947927.ldb
+947928.ldb
+947930.ldb
+947933.ldb
+947934.ldb
+947937.ldb
+947938.ldb
+948440.ldb
+948441.ldb
+948443.ldb
+948446.ldb
+948448.ldb
+948451.ldb
+948452.ldb
+948455.ldb
+948456.ldb
+948458.ldb
+948459.ldb
+948461.ldb
+948464.ldb
+948465.ldb
+948468.ldb
+948469.ldb
+948474.ldb
+948475.ldb
+948499.ldb
+948505.ldb
+948506.ldb
+948508.ldb
+948509.ldb
+949000.ldb
+949003.ldb
+949004.ldb
+949007.ldb
+949008.ldb
+949010.ldb
+949011.ldb
+949013.ldb
+949016.ldb
+949017.ldb
+949020.ldb
+949021.ldb
+949023.ldb
+949024.ldb
+949026.ldb
+949029.ldb
+949030.ldb
+949033.ldb
+949034.ldb
+949040.ldb
+949041.ldb
+949043.ldb
+949044.ldb
+949057.ldb
+949522.ldb
+949523.ldb
+949525.ldb
+949526.ldb
+949529.ldb
+949530.ldb
+949532.ldb
+949535.ldb
+949536.ldb
+949539.ldb
+949540.ldb
+949543.ldb
+949544.ldb
+949549.ldb
+949552.ldb
+949553.ldb
+949566.ldb
+949588.ldb
+949589.ldb
+949591.ldb
+949592.ldb
+949604.ldb
+949605.ldb
+949607.ldb
+950078.ldb
+950079.ldb
+950081.ldb
+950082.ldb
+950094.ldb
+950097.ldb
+950098.ldb
+950101.ldb
+950102.ldb
+950105.ldb
+950106.ldb
+950110.ldb
+950111.ldb
+950113.ldb
+950116.ldb
+950117.ldb
+950120.ldb
+950121.ldb
+950124.ldb
+950125.ldb
+950572.ldb
+950575.ldb
+950576.ldb
+950579.ldb
+950580.ldb
+950582.ldb
+950583.ldb
+950585.ldb
+950588.ldb
+950589.ldb
+950592.ldb
+950594.ldb
+950597.ldb
+950598.ldb
+950603.ldb
+950604.ldb
+950606.ldb
+950607.ldb
+950609.ldb
+950622.ldb
+950623.ldb
+950625.ldb
+950626.ldb
+951095.ldb
+951096.ldb
+951098.ldb
+951100.ldb
+951101.ldb
+951106.ldb
+951107.ldb
+951109.ldb
+951111.ldb
+951117.ldb
+951118.ldb
+951121.ldb
+951122.ldb
+951136.ldb
+951137.ldb
+951139.ldb
+951142.ldb
+951143.ldb
+951146.ldb
+951147.ldb
+951150.ldb
+951151.ldb
+951153.ldb
+951156.ldb
+951157.ldb
+951607.ldb
+951610.ldb
+951611.ldb
+951613.ldb
+951614.ldb
+951616.ldb
+951617.ldb
+951619.ldb
+951621.ldb
+951622.ldb
+951624.ldb
+951625.ldb
+951627.ldb
+951628.ldb
+951630.ldb
+951632.ldb
+951633.ldb
+951635.ldb
+951636.ldb
+951638.ldb
+951643.ldb
+951644.ldb
+952025.ldb
+952026.ldb
+952041.ldb
+952042.ldb
+952045.ldb
+952046.ldb
+952048.ldb
+952049.ldb
+952051.ldb
+952052.ldb
+952054.ldb
+952055.ldb
+952057.ldb
+952063.ldb
+952064.ldb
+952067.ldb
+952068.ldb
+952071.ldb
+952073.ldb
+952074.ldb
+952088.ldb
+952089.ldb
+952091.ldb
+952092.ldb
+952094.ldb
+952095.ldb
+952508.ldb
+952509.ldb
+952511.ldb
+952514.ldb
+952515.ldb
+952517.ldb
+952518.ldb
+952520.ldb
+952521.ldb
+952523.ldb
+952524.ldb
+952528.ldb
+952529.ldb
+952531.ldb
+952532.ldb
+952546.ldb
+952549.ldb
+952550.ldb
+952553.ldb
+952554.ldb
+952556.ldb
+952557.ldb
+952559.ldb
+952560.ldb
+952956.ldb
+952957.ldb
+952959.ldb
+952960.ldb
+952962.ldb
+952963.ldb
+952965.ldb
+952966.ldb
+952968.ldb
+952969.ldb
+952971.ldb
+952974.ldb
+952977.ldb
+952978.ldb
+952981.ldb
+952982.ldb
+952985.ldb
+952986.ldb
+953002.ldb
+953003.ldb
+953005.ldb
+953006.ldb
+953008.ldb
+953009.ldb
+953011.ldb
+953385.ldb
+953386.ldb
+953389.ldb
+953390.ldb
+953406.ldb
+953407.ldb
+953409.ldb
+953410.ldb
+953412.ldb
+953414.ldb
+953417.ldb
+953418.ldb
+953420.ldb
+953421.ldb
+953423.ldb
+953424.ldb
+953426.ldb
+953427.ldb
+953429.ldb
+953430.ldb
+953432.ldb
+953433.ldb
+953435.ldb
+953436.ldb
+953438.ldb
+953439.ldb
+953800.ldb
+953801.ldb
+953803.ldb
+953806.ldb
+953809.ldb
+953810.ldb
+953813.ldb
+953814.ldb
+953817.ldb
+953818.ldb
+953821.ldb
+953822.ldb
+953828.ldb
+953829.ldb
+953832.ldb
+953833.ldb
+953848.ldb
+953849.ldb
+953852.ldb
+953853.ldb
+953855.ldb
+953856.ldb
+953858.ldb
+953860.ldb
+953861.ldb
+954244.ldb
+954245.ldb
+954247.ldb
+954248.ldb
+954254.ldb
+954255.ldb
+954257.ldb
+954272.ldb
+954273.ldb
+954276.ldb
+954277.ldb
+954280.ldb
+954281.ldb
+954284.ldb
+954285.ldb
+954287.ldb
+954288.ldb
+954290.ldb
+954291.ldb
+954293.ldb
+954294.ldb
+954296.ldb
+954297.ldb
+954302.ldb
+954303.ldb
+954306.ldb
+954307.ldb
+954322.ldb
+954323.ldb
+954631.ldb
+954632.ldb
+954635.ldb
+954636.ldb
+954638.ldb
+954639.ldb
+954641.ldb
+954642.ldb
+954644.ldb
+954645.ldb
+954647.ldb
+954650.ldb
+954651.ldb
+954666.ldb
+954667.ldb
+954670.ldb
+954672.ldb
+954673.ldb
+954675.ldb
+954676.ldb
+954678.ldb
+954679.ldb
+955023.ldb
+955024.ldb
+955026.ldb
+955029.ldb
+955030.ldb
+955032.ldb
+955033.ldb
+955035.ldb
+955036.ldb
+955038.ldb
+955039.ldb
+955054.ldb
+955055.ldb
+955057.ldb
+955058.ldb
+955060.ldb
+955061.ldb
+955063.ldb
+955064.ldb
+955066.ldb
+955069.ldb
+955070.ldb
+955073.ldb
+955074.ldb
+955076.ldb
+955077.ldb
+955512.ldb
+955513.ldb
+955515.ldb
+955516.ldb
+955518.ldb
+955519.ldb
+955521.ldb
+955522.ldb
+955524.ldb
+955525.ldb
+955527.ldb
+955529.ldb
+955532.ldb
+955533.ldb
+955536.ldb
+955537.ldb
+955553.ldb
+955554.ldb
+955557.ldb
+955558.ldb
+955561.ldb
+955562.ldb
+955565.ldb
+955566.ldb
+955568.ldb
+955569.ldb
+956001.ldb
+956002.ldb
+956004.ldb
+956005.ldb
+956007.ldb
+956010.ldb
+956012.ldb
+956013.ldb
+956015.ldb
+956016.ldb
+956019.ldb
+956020.ldb
+956023.ldb
+956024.ldb
+956026.ldb
+956027.ldb
+956029.ldb
+956030.ldb
+956032.ldb
+956035.ldb
+956036.ldb
+956050.ldb
+956051.ldb
+956054.ldb
+956055.ldb
+956058.ldb
+956059.ldb
+956516.ldb
+956517.ldb
+956525.ldb
+956526.ldb
+956529.ldb
+956530.ldb
+956532.ldb
+956533.ldb
+956544.ldb
+956545.ldb
+956547.ldb
+956548.ldb
+956550.ldb
+956551.ldb
+956553.ldb
+956556.ldb
+956557.ldb
+956560.ldb
+956561.ldb
+956564.ldb
+956565.ldb
+956568.ldb
+956569.ldb
+957086.ldb
+957087.ldb
+957099.ldb
+957100.ldb
+957102.ldb
+957103.ldb
+957105.ldb
+957108.ldb
+957109.ldb
+957112.ldb
+957113.ldb
+957116.ldb
+957117.ldb
+957120.ldb
+957121.ldb
+957124.ldb
+957125.ldb
+957128.ldb
+957129.ldb
+957132.ldb
+957133.ldb
+957136.ldb
+957137.ldb
+957143.ldb
+957144.ldb
+957595.ldb
+957598.ldb
+957599.ldb
+957602.ldb
+957603.ldb
+957606.ldb
+957607.ldb
+957609.ldb
+957610.ldb
+957612.ldb
+957613.ldb
+957615.ldb
+957616.ldb
+957618.ldb
+957619.ldb
+957621.ldb
+957622.ldb
+957627.ldb
+957628.ldb
+957630.ldb
+957632.ldb
+957633.ldb
+957645.ldb
+957646.ldb
+957648.ldb
+957649.ldb
+958113.ldb
+958114.ldb
+958116.ldb
+958117.ldb
+958119.ldb
+958120.ldb
+958122.ldb
+958125.ldb
+958126.ldb
+958129.ldb
+958130.ldb
+958133.ldb
+958134.ldb
+958137.ldb
+958138.ldb
+958140.ldb
+958141.ldb
+958143.ldb
+958144.ldb
+958147.ldb
+958148.ldb
+958154.ldb
+958155.ldb
+958157.ldb
+958158.ldb
+958589.ldb
+958590.ldb
+958592.ldb
+958595.ldb
+958596.ldb
+958599.ldb
+958600.ldb
+958603.ldb
+958604.ldb
+958607.ldb
+958608.ldb
+958615.ldb
+958616.ldb
+958619.ldb
+958620.ldb
+958623.ldb
+958625.ldb
+958638.ldb
+958639.ldb
+958642.ldb
+958643.ldb
+958646.ldb
+958647.ldb
+958650.ldb
+958651.ldb
+959036.ldb
+959037.ldb
+959039.ldb
+959040.ldb
+959042.ldb
+959043.ldb
+959055.ldb
+959056.ldb
+959058.ldb
+959061.ldb
+959062.ldb
+959065.ldb
+959067.ldb
+959068.ldb
+959070.ldb
+959071.ldb
+959073.ldb
+959074.ldb
+959076.ldb
+959077.ldb
+959079.ldb
+959082.ldb
+959083.ldb
+959086.ldb
+959087.ldb
+959501.ldb
+959502.ldb
+959505.ldb
+959506.ldb
+959509.ldb
+959510.ldb
+959512.ldb
+959513.ldb
+959522.ldb
+CURRENT
+LOG
+MANIFEST-000002
+
+sent 2,197,545,369 bytes  received 16,308 bytes  231,322,281.79 bytes/sec
+total size is 116,077,942,357  speedup is 52.82
+INFO:bench_lib:Running command: ['sudo', 'sync']
+INFO:bench_lib:Running command: ['sudo', 'sh', '-c', 'echo 1 > /proc/sys/vm/drop_caches']
+INFO:bench_lib:Running command: ['sudo', 'swapoff', '-a']
+INFO:bench_lib:Running command: ['sudo', 'sh', '-c', 'echo off > /sys/devices/system/cpu/smt/control']
+INFO:bench_lib:Running command: ['sudo', 'cgdelete', 'memory:cache_ext_test']
+cgdelete: cannot remove group 'cache_ext_test': No such file or directory
+INFO:bench_lib:Running command: ['sudo', 'cgcreate', '-g', 'memory:cache_ext_test']
+INFO:bench_lib:Running command: ['sudo', 'sh', '-c', 'echo 10737418240 > /sys/fs/cgroup/cache_ext_test/memory.max']
+INFO:bench_lib:cache_ext cgroup cache_ext_test created with limit 10.0 GiB
+INFO:bench_lib:Starting policy thread: ['sudo', 'policies/cache_ext_fifo.out', '--watch_dir', '/mydata/leveldb_temp', '--cgroup_path', '/sys/fs/cgroup/cache_ext_test']
+INFO:bench_lib:Running command: ['taskset', '-c', '0-7', 'sudo', 'cgexec', '-g', 'memory:cache_ext_test', 'My-YCSB/build/run_leveldb', '/mydata/cache_ext/My-YCSB/leveldb/config/ycsb_a.yaml']
+LevelDBFactory: data_dir: /mydata/leveldb_temp, print_stats: 1
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 541.96 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 527.96 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 1069.92 ops/sec
+Zipfian (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 873.94 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 851.94 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 1725.87 ops/sec
+Zipfian (Warm-Up) (epoch 3, progress 0.01%): UPDATE throughput 1023.92 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 918.93 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 1942.85 ops/sec
+Zipfian (Warm-Up) (epoch 4, progress 0.01%): UPDATE throughput 1065.92 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1041.92 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2107.84 ops/sec
+Zipfian (Warm-Up) (epoch 5, progress 0.01%): UPDATE throughput 1222.90 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1217.91 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2440.81 ops/sec
+Zipfian (Warm-Up) (epoch 6, progress 0.01%): UPDATE throughput 1247.90 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1361.90 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2609.80 ops/sec
+Zipfian (Warm-Up) (epoch 7, progress 0.02%): UPDATE throughput 1306.90 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1328.90 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2635.80 ops/sec
+Zipfian (Warm-Up) (epoch 8, progress 0.02%): UPDATE throughput 1457.89 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1300.90 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2758.80 ops/sec
+Zipfian (Warm-Up) (epoch 9, progress 0.03%): UPDATE throughput 1343.90 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1405.90 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2749.80 ops/sec
+Zipfian (Warm-Up) (epoch 10, progress 0.03%): UPDATE throughput 1447.89 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1403.89 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2851.78 ops/sec
+Zipfian (Warm-Up) (epoch 11, progress 0.03%): UPDATE throughput 1524.86 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1487.87 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3012.73 ops/sec
+Zipfian (Warm-Up) (epoch 12, progress 0.04%): UPDATE throughput 1554.88 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1558.88 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3113.77 ops/sec
+Zipfian (Warm-Up) (epoch 13, progress 0.04%): UPDATE throughput 1579.88 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1516.89 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3096.77 ops/sec
+Zipfian (Warm-Up) (epoch 14, progress 0.04%): UPDATE throughput 1886.86 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1849.86 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3736.72 ops/sec
+Zipfian (Warm-Up) (epoch 15, progress 0.05%): UPDATE throughput 2211.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2278.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4490.66 ops/sec
+Zipfian (Warm-Up) (epoch 16, progress 0.06%): UPDATE throughput 2742.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2777.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5520.59 ops/sec
+Zipfian (Warm-Up) (epoch 17, progress 0.06%): UPDATE throughput 2416.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2448.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4865.61 ops/sec
+Zipfian (Warm-Up) (epoch 18, progress 0.07%): UPDATE throughput 2534.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2475.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5010.56 ops/sec
+Zipfian (Warm-Up) (epoch 19, progress 0.08%): UPDATE throughput 2178.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2186.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4365.68 ops/sec
+Zipfian (Warm-Up) (epoch 20, progress 0.08%): UPDATE throughput 2117.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2197.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4315.68 ops/sec
+Zipfian (Warm-Up) (epoch 21, progress 0.09%): UPDATE throughput 2965.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3119.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6085.53 ops/sec
+Zipfian (Warm-Up) (epoch 22, progress 0.10%): UPDATE throughput 3832.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3904.70 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7737.40 ops/sec
+Zipfian (Warm-Up) (epoch 23, progress 0.11%): UPDATE throughput 3672.09 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3724.07 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7396.16 ops/sec
+Zipfian (Warm-Up) (epoch 24, progress 0.12%): UPDATE throughput 3947.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3869.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7817.41 ops/sec
+Zipfian (Warm-Up) (epoch 25, progress 0.13%): UPDATE throughput 3441.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3458.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6900.46 ops/sec
+Zipfian (Warm-Up) (epoch 26, progress 0.13%): UPDATE throughput 2735.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2746.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5482.52 ops/sec
+Zipfian (Warm-Up) (epoch 27, progress 0.14%): UPDATE throughput 2456.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2627.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5084.62 ops/sec
+Zipfian (Warm-Up) (epoch 28, progress 0.15%): UPDATE throughput 2632.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2587.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5220.59 ops/sec
+Zipfian (Warm-Up) (epoch 29, progress 0.15%): UPDATE throughput 3017.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2961.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5979.52 ops/sec
+Zipfian (Warm-Up) (epoch 30, progress 0.16%): UPDATE throughput 2648.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2608.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5257.56 ops/sec
+Zipfian (Warm-Up) (epoch 31, progress 0.17%): UPDATE throughput 2705.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2769.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5475.59 ops/sec
+Zipfian (Warm-Up) (epoch 32, progress 0.17%): UPDATE throughput 2732.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2763.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5496.59 ops/sec
+Zipfian (Warm-Up) (epoch 33, progress 0.18%): UPDATE throughput 3005.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2934.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5940.55 ops/sec
+Zipfian (Warm-Up) (epoch 34, progress 0.19%): UPDATE throughput 2963.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2795.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5759.57 ops/sec
+Zipfian (Warm-Up) (epoch 35, progress 0.21%): UPDATE throughput 7501.42 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 7518.42 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 15019.84 ops/sec
+Zipfian (Warm-Up) (epoch 36, progress 0.22%): UPDATE throughput 6312.53 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 6650.51 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 12963.04 ops/sec
+Zipfian (Warm-Up) (epoch 37, progress 0.23%): UPDATE throughput 3031.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3145.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6177.54 ops/sec
+Zipfian (Warm-Up) (epoch 38, progress 0.24%): UPDATE throughput 3057.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3154.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6212.52 ops/sec
+Zipfian (Warm-Up) (epoch 39, progress 0.25%): UPDATE throughput 2824.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2923.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5748.57 ops/sec
+Zipfian (Warm-Up) (epoch 40, progress 0.25%): UPDATE throughput 3220.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3196.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6417.52 ops/sec
+Zipfian (Warm-Up) (epoch 41, progress 0.26%): UPDATE throughput 1794.59 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1943.47 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3738.06 ops/sec
+Zipfian (Warm-Up) (epoch 42, progress 0.26%): UPDATE throughput 939.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1042.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 1982.65 ops/sec
+Zipfian (Warm-Up) (epoch 43, progress 0.26%): UPDATE throughput 1388.89 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1416.89 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2805.78 ops/sec
+Zipfian (Warm-Up) (epoch 44, progress 0.27%): UPDATE throughput 1463.88 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1447.88 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 2911.77 ops/sec
+Zipfian (Warm-Up) (epoch 45, progress 0.27%): UPDATE throughput 1661.88 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1682.88 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3344.75 ops/sec
+time's up!
+Zipfian (Warm-Up): calculating overall performance metrics... (might take a while)
+Zipfian (Warm-Up) overall: UPDATE throughput 2404.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2424.62 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4829.28 ops/sec
+Zipfian (Warm-Up) overall: UPDATE average latency 1656823.14 ns, UPDATE p99 latency 34591557.80 ns, INSERT average latency 0.00 ns, INSERT p99 latency 0.00 ns, READ average latency 1646547.32 ns, READ p99 latency 34077584.83 ns, SCAN average latency 0.00 ns, SCAN p99 latency 0.00 ns, READ_MODIFY_WRITE average latency 0.00 ns, READ_MODIFY_WRITE p99 latency 0.00 ns
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (epoch 1, progress 0.01%): UPDATE throughput 2592.47 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2433.50 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5025.97 ops/sec
+Zipfian (epoch 2, progress 0.01%): UPDATE throughput 3298.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3410.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6709.48 ops/sec
+Zipfian (epoch 3, progress 0.02%): UPDATE throughput 3571.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3420.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6992.48 ops/sec
+Zipfian (epoch 4, progress 0.03%): UPDATE throughput 3416.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3392.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6809.48 ops/sec
+Zipfian (epoch 5, progress 0.04%): UPDATE throughput 3330.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3236.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6567.44 ops/sec
+Zipfian (epoch 6, progress 0.05%): UPDATE throughput 2993.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3021.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6015.55 ops/sec
+Zipfian (epoch 7, progress 0.06%): UPDATE throughput 3171.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3238.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6410.51 ops/sec
+Zipfian (epoch 8, progress 0.06%): UPDATE throughput 2763.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2817.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5581.58 ops/sec
+Zipfian (epoch 9, progress 0.07%): UPDATE throughput 2958.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2910.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5869.54 ops/sec
+Zipfian (epoch 10, progress 0.08%): UPDATE throughput 2728.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2754.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5483.46 ops/sec
+Zipfian (epoch 11, progress 0.08%): UPDATE throughput 2822.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2940.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5763.50 ops/sec
+Zipfian (epoch 12, progress 0.09%): UPDATE throughput 3336.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3428.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6765.49 ops/sec
+Zipfian (epoch 13, progress 0.10%): UPDATE throughput 3923.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4061.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7985.39 ops/sec
+Zipfian (epoch 14, progress 0.12%): UPDATE throughput 5486.58 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 5319.60 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 10806.18 ops/sec
+Zipfian (epoch 15, progress 0.13%): UPDATE throughput 4213.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4249.68 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8463.36 ops/sec
+Zipfian (epoch 16, progress 0.14%): UPDATE throughput 3526.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3685.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7212.44 ops/sec
+Zipfian (epoch 17, progress 0.14%): UPDATE throughput 3147.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3210.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6358.49 ops/sec
+Zipfian (epoch 18, progress 0.15%): UPDATE throughput 3337.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3309.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6647.49 ops/sec
+Zipfian (epoch 19, progress 0.16%): UPDATE throughput 3382.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3348.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6731.47 ops/sec
+Zipfian (epoch 20, progress 0.17%): UPDATE throughput 3274.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3249.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6524.50 ops/sec
+Zipfian (epoch 21, progress 0.18%): UPDATE throughput 3420.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3382.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6803.49 ops/sec
+Zipfian (epoch 22, progress 0.19%): UPDATE throughput 3340.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3266.70 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6607.40 ops/sec
+Zipfian (epoch 23, progress 0.19%): UPDATE throughput 3751.71 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3712.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7464.42 ops/sec
+Zipfian (epoch 24, progress 0.20%): UPDATE throughput 3868.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4061.68 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7930.38 ops/sec
+Zipfian (epoch 25, progress 0.21%): UPDATE throughput 4082.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4225.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8308.36 ops/sec
+Zipfian (epoch 26, progress 0.23%): UPDATE throughput 4190.26 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4223.25 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8413.51 ops/sec
+Zipfian (epoch 27, progress 0.23%): UPDATE throughput 3810.71 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3780.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7591.42 ops/sec
+Zipfian (epoch 28, progress 0.24%): UPDATE throughput 3768.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3993.70 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7762.42 ops/sec
+Zipfian (epoch 29, progress 0.25%): UPDATE throughput 3384.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3476.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6861.48 ops/sec
+Zipfian (epoch 30, progress 0.26%): UPDATE throughput 2131.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2168.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4300.68 ops/sec
+Zipfian (epoch 31, progress 0.26%): UPDATE throughput 2306.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2234.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4541.65 ops/sec
+Zipfian (epoch 32, progress 0.27%): UPDATE throughput 2153.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2158.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4312.68 ops/sec
+Zipfian (epoch 33, progress 0.28%): UPDATE throughput 2184.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2215.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4400.67 ops/sec
+Zipfian (epoch 34, progress 0.28%): UPDATE throughput 2068.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2131.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4200.68 ops/sec
+Zipfian (epoch 35, progress 0.29%): UPDATE throughput 2151.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2113.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4265.67 ops/sec
+Zipfian (epoch 36, progress 0.29%): UPDATE throughput 2348.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2530.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4879.59 ops/sec
+Zipfian (epoch 37, progress 0.30%): UPDATE throughput 2226.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2279.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4506.61 ops/sec
+Zipfian (epoch 38, progress 0.30%): UPDATE throughput 2023.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2103.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4127.68 ops/sec
+Zipfian (epoch 39, progress 0.31%): UPDATE throughput 2236.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2237.82 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4474.65 ops/sec
+Zipfian (epoch 40, progress 0.31%): UPDATE throughput 2167.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2148.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4316.66 ops/sec
+Zipfian (epoch 41, progress 0.32%): UPDATE throughput 2121.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2101.82 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4223.65 ops/sec
+Zipfian (epoch 42, progress 0.32%): UPDATE throughput 2181.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2208.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4390.67 ops/sec
+Zipfian (epoch 43, progress 0.33%): UPDATE throughput 2167.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2296.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4464.66 ops/sec
+Zipfian (epoch 44, progress 0.34%): UPDATE throughput 2508.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2552.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5061.62 ops/sec
+Zipfian (epoch 45, progress 0.34%): UPDATE throughput 2233.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2257.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4491.66 ops/sec
+Zipfian (epoch 46, progress 0.35%): UPDATE throughput 2206.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2177.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4384.67 ops/sec
+Zipfian (epoch 47, progress 0.35%): UPDATE throughput 2240.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2238.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4479.62 ops/sec
+Zipfian (epoch 48, progress 0.36%): UPDATE throughput 2028.85 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2015.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4044.70 ops/sec
+Zipfian (epoch 49, progress 0.36%): UPDATE throughput 2316.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2338.82 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4655.64 ops/sec
+Zipfian (epoch 50, progress 0.37%): UPDATE throughput 2222.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2224.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4447.66 ops/sec
+Zipfian (epoch 51, progress 0.37%): UPDATE throughput 2255.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2236.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4492.65 ops/sec
+Zipfian (epoch 52, progress 0.38%): UPDATE throughput 2105.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2029.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4135.69 ops/sec
+Zipfian (epoch 53, progress 0.39%): UPDATE throughput 2251.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2217.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4469.66 ops/sec
+Zipfian (epoch 54, progress 0.40%): UPDATE throughput 4032.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3907.70 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7940.40 ops/sec
+Zipfian (epoch 55, progress 0.40%): UPDATE throughput 2448.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2405.82 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4854.63 ops/sec
+Zipfian (epoch 56, progress 0.41%): UPDATE throughput 2501.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2479.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4981.62 ops/sec
+Zipfian (epoch 57, progress 0.41%): UPDATE throughput 1968.85 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1956.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3925.71 ops/sec
+Zipfian (epoch 58, progress 0.42%): UPDATE throughput 2023.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1985.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4009.69 ops/sec
+Zipfian (epoch 59, progress 0.42%): UPDATE throughput 1955.85 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2114.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4070.69 ops/sec
+Zipfian (epoch 60, progress 0.43%): UPDATE throughput 1879.86 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1969.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3849.71 ops/sec
+Zipfian (epoch 61, progress 0.43%): UPDATE throughput 2005.85 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1998.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4004.70 ops/sec
+Zipfian (epoch 62, progress 0.44%): UPDATE throughput 1905.86 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2001.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3907.70 ops/sec
+Zipfian (epoch 63, progress 0.44%): UPDATE throughput 2027.85 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2125.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4153.68 ops/sec
+Zipfian (epoch 64, progress 0.45%): UPDATE throughput 2162.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2074.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4237.67 ops/sec
+Zipfian (epoch 65, progress 0.45%): UPDATE throughput 2196.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2196.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4393.61 ops/sec
+Zipfian (epoch 66, progress 0.46%): UPDATE throughput 2090.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2036.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4127.67 ops/sec
+Zipfian (epoch 67, progress 0.46%): UPDATE throughput 2136.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2237.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4374.66 ops/sec
+Zipfian (epoch 68, progress 0.47%): UPDATE throughput 2047.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2048.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4096.69 ops/sec
+Zipfian (epoch 69, progress 0.47%): UPDATE throughput 1854.85 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 1826.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 3681.70 ops/sec
+Zipfian (epoch 70, progress 0.48%): UPDATE throughput 2148.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2232.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4381.63 ops/sec
+Zipfian (epoch 71, progress 0.49%): UPDATE throughput 2259.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2231.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4491.41 ops/sec
+Zipfian (epoch 72, progress 0.49%): UPDATE throughput 2233.60 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2153.61 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4387.21 ops/sec
+Zipfian (epoch 73, progress 0.50%): UPDATE throughput 2153.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2089.84 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4243.67 ops/sec
+Zipfian (epoch 74, progress 0.50%): UPDATE throughput 2134.84 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2058.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4193.69 ops/sec
+Zipfian (epoch 75, progress 0.51%): UPDATE throughput 2360.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2402.82 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4763.64 ops/sec
+Zipfian (epoch 76, progress 0.51%): UPDATE throughput 2384.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2378.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4763.38 ops/sec
+Zipfian (epoch 77, progress 0.52%): UPDATE throughput 2373.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2458.82 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4832.64 ops/sec
+Zipfian (epoch 78, progress 0.53%): UPDATE throughput 2522.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2401.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4924.61 ops/sec
+Zipfian (epoch 79, progress 0.53%): UPDATE throughput 2414.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2452.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4867.62 ops/sec
+Zipfian (epoch 80, progress 0.54%): UPDATE throughput 2456.53 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2520.51 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4977.04 ops/sec
+Zipfian (epoch 81, progress 0.54%): UPDATE throughput 2172.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2082.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4255.66 ops/sec
+Zipfian (epoch 82, progress 0.55%): UPDATE throughput 2545.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2595.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5141.56 ops/sec
+Zipfian (epoch 83, progress 0.55%): UPDATE throughput 2262.83 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2277.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4540.65 ops/sec
+Zipfian (epoch 84, progress 0.56%): UPDATE throughput 2581.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2679.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5261.58 ops/sec
+Zipfian (epoch 85, progress 0.57%): UPDATE throughput 2787.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2849.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5637.53 ops/sec
+Zipfian (epoch 86, progress 0.58%): UPDATE throughput 2639.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2666.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5306.60 ops/sec
+Zipfian (epoch 87, progress 0.58%): UPDATE throughput 2760.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2750.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5511.58 ops/sec
+Zipfian (epoch 88, progress 0.59%): UPDATE throughput 2853.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2879.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5733.57 ops/sec
+Zipfian (epoch 89, progress 0.60%): UPDATE throughput 2578.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2414.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 4993.61 ops/sec
+Zipfian (epoch 90, progress 0.60%): UPDATE throughput 2858.71 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2902.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5761.42 ops/sec
+Zipfian (epoch 91, progress 0.61%): UPDATE throughput 2582.65 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2675.64 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5258.29 ops/sec
+Zipfian (epoch 92, progress 0.62%): UPDATE throughput 2668.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2663.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5332.59 ops/sec
+Zipfian (epoch 93, progress 0.62%): UPDATE throughput 2772.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2762.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5535.55 ops/sec
+Zipfian (epoch 94, progress 0.63%): UPDATE throughput 2694.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2596.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5291.59 ops/sec
+Zipfian (epoch 95, progress 0.64%): UPDATE throughput 2582.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2490.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5073.58 ops/sec
+Zipfian (epoch 96, progress 0.64%): UPDATE throughput 2855.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2814.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5670.55 ops/sec
+Zipfian (epoch 97, progress 0.65%): UPDATE throughput 2662.54 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2548.56 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5211.10 ops/sec
+Zipfian (epoch 98, progress 0.66%): UPDATE throughput 2831.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2772.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5604.57 ops/sec
+Zipfian (epoch 99, progress 0.66%): UPDATE throughput 2701.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2698.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5400.59 ops/sec
+Zipfian (epoch 100, progress 0.67%): UPDATE throughput 2537.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2724.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5262.58 ops/sec
+Zipfian (epoch 101, progress 0.68%): UPDATE throughput 2514.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2724.80 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5239.61 ops/sec
+Zipfian (epoch 102, progress 0.68%): UPDATE throughput 2764.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2799.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5564.57 ops/sec
+Zipfian (epoch 103, progress 0.69%): UPDATE throughput 2903.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2745.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5649.47 ops/sec
+Zipfian (epoch 104, progress 0.70%): UPDATE throughput 2929.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2884.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5814.56 ops/sec
+Zipfian (epoch 105, progress 0.71%): UPDATE throughput 3086.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3119.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6206.52 ops/sec
+Zipfian (epoch 106, progress 0.71%): UPDATE throughput 2999.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3035.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6035.54 ops/sec
+Zipfian (epoch 107, progress 0.72%): UPDATE throughput 2989.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2873.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5863.56 ops/sec
+Zipfian (epoch 108, progress 0.73%): UPDATE throughput 2576.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2490.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5067.60 ops/sec
+Zipfian (epoch 109, progress 0.73%): UPDATE throughput 2494.81 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2589.81 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5084.62 ops/sec
+Zipfian (epoch 110, progress 0.74%): UPDATE throughput 3078.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3071.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6150.52 ops/sec
+Zipfian (epoch 111, progress 0.75%): UPDATE throughput 3083.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3183.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6267.52 ops/sec
+Zipfian (epoch 112, progress 0.76%): UPDATE throughput 2734.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2759.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5494.58 ops/sec
+Zipfian (epoch 113, progress 0.76%): UPDATE throughput 2735.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2665.79 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5401.57 ops/sec
+Zipfian (epoch 114, progress 0.77%): UPDATE throughput 3029.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3012.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6042.50 ops/sec
+Zipfian (epoch 115, progress 0.78%): UPDATE throughput 2713.80 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2867.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5581.58 ops/sec
+Zipfian (epoch 116, progress 0.78%): UPDATE throughput 2821.79 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3059.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5881.55 ops/sec
+Zipfian (epoch 117, progress 0.79%): UPDATE throughput 3034.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3010.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6045.54 ops/sec
+Zipfian (epoch 118, progress 0.80%): UPDATE throughput 3076.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3141.76 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6218.53 ops/sec
+Zipfian (epoch 119, progress 0.81%): UPDATE throughput 3016.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2884.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5901.54 ops/sec
+Zipfian (epoch 120, progress 0.81%): UPDATE throughput 2933.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2958.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5892.55 ops/sec
+Zipfian (epoch 121, progress 0.82%): UPDATE throughput 3201.76 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3281.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6483.51 ops/sec
+Zipfian (epoch 122, progress 0.83%): UPDATE throughput 3175.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3255.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6431.50 ops/sec
+Zipfian (epoch 123, progress 0.84%): UPDATE throughput 3042.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2877.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5920.56 ops/sec
+Zipfian (epoch 124, progress 0.85%): UPDATE throughput 3067.77 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3088.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6156.53 ops/sec
+Zipfian (epoch 125, progress 0.85%): UPDATE throughput 2861.78 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2945.78 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 5807.56 ops/sec
+Zipfian (epoch 126, progress 0.86%): UPDATE throughput 3515.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3575.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7091.45 ops/sec
+Zipfian (epoch 127, progress 0.87%): UPDATE throughput 3524.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3609.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7134.46 ops/sec
+Zipfian (epoch 128, progress 0.88%): UPDATE throughput 4348.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4394.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8743.34 ops/sec
+Zipfian (epoch 129, progress 0.89%): UPDATE throughput 3690.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3828.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7519.43 ops/sec
+Zipfian (epoch 130, progress 0.90%): UPDATE throughput 3390.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3395.68 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6786.37 ops/sec
+Zipfian (epoch 131, progress 0.91%): UPDATE throughput 3594.38 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3502.40 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7096.78 ops/sec
+Zipfian (epoch 132, progress 0.92%): UPDATE throughput 3602.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3542.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7145.46 ops/sec
+Zipfian (epoch 133, progress 0.93%): UPDATE throughput 3510.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3403.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6914.48 ops/sec
+Zipfian (epoch 134, progress 0.93%): UPDATE throughput 3398.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3364.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6763.48 ops/sec
+Zipfian (epoch 135, progress 0.94%): UPDATE throughput 4026.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3775.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7802.40 ops/sec
+Zipfian (epoch 136, progress 0.95%): UPDATE throughput 3342.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3454.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6797.45 ops/sec
+Zipfian (epoch 137, progress 0.96%): UPDATE throughput 3318.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3442.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6761.43 ops/sec
+Zipfian (epoch 138, progress 0.97%): UPDATE throughput 3953.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3936.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7890.38 ops/sec
+Zipfian (epoch 139, progress 0.98%): UPDATE throughput 3646.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3654.70 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7301.41 ops/sec
+Zipfian (epoch 140, progress 0.99%): UPDATE throughput 3757.71 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4088.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7846.40 ops/sec
+Zipfian (epoch 141, progress 1.00%): UPDATE throughput 3456.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3553.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7010.47 ops/sec
+Zipfian (epoch 142, progress 1.01%): UPDATE throughput 3590.82 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3410.83 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7001.65 ops/sec
+Zipfian (epoch 143, progress 1.02%): UPDATE throughput 3874.33 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3911.33 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7785.66 ops/sec
+Zipfian (epoch 144, progress 1.03%): UPDATE throughput 4319.65 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4230.66 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8550.32 ops/sec
+Zipfian (epoch 145, progress 1.04%): UPDATE throughput 4299.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4435.65 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8735.31 ops/sec
+Zipfian (epoch 146, progress 1.05%): UPDATE throughput 3071.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 2928.77 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6000.52 ops/sec
+Zipfian (epoch 147, progress 1.06%): UPDATE throughput 3778.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3729.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7508.33 ops/sec
+Zipfian (epoch 148, progress 1.07%): UPDATE throughput 4065.30 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4129.29 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8194.58 ops/sec
+Zipfian (epoch 149, progress 1.08%): UPDATE throughput 4103.64 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3945.65 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8049.29 ops/sec
+Zipfian (epoch 150, progress 1.09%): UPDATE throughput 4108.27 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4091.27 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8199.54 ops/sec
+Zipfian (epoch 151, progress 1.09%): UPDATE throughput 3529.64 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3554.64 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7084.28 ops/sec
+Zipfian (epoch 152, progress 1.11%): UPDATE throughput 4734.61 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4856.60 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9591.21 ops/sec
+Zipfian (epoch 153, progress 1.12%): UPDATE throughput 3657.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3460.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7118.42 ops/sec
+Zipfian (epoch 154, progress 1.13%): UPDATE throughput 3998.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4083.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8082.38 ops/sec
+Zipfian (epoch 155, progress 1.14%): UPDATE throughput 4944.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4851.64 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9796.27 ops/sec
+Zipfian (epoch 156, progress 1.15%): UPDATE throughput 4216.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4275.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8492.26 ops/sec
+Zipfian (epoch 157, progress 1.16%): UPDATE throughput 3305.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3450.70 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6756.42 ops/sec
+Zipfian (epoch 158, progress 1.17%): UPDATE throughput 3931.71 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4083.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8015.40 ops/sec
+Zipfian (epoch 159, progress 1.18%): UPDATE throughput 3506.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3515.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7022.46 ops/sec
+Zipfian (epoch 160, progress 1.18%): UPDATE throughput 3548.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3516.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7065.38 ops/sec
+Zipfian (epoch 161, progress 1.19%): UPDATE throughput 3718.65 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3688.65 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7407.30 ops/sec
+Zipfian (epoch 162, progress 1.21%): UPDATE throughput 4848.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4735.64 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9584.26 ops/sec
+Zipfian (epoch 163, progress 1.22%): UPDATE throughput 4191.61 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4386.60 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8578.21 ops/sec
+Zipfian (epoch 164, progress 1.23%): UPDATE throughput 3669.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3644.66 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7314.32 ops/sec
+Zipfian (epoch 165, progress 1.24%): UPDATE throughput 4057.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3845.65 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7903.29 ops/sec
+Zipfian (epoch 166, progress 1.24%): UPDATE throughput 3317.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3472.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6790.46 ops/sec
+Zipfian (epoch 167, progress 1.25%): UPDATE throughput 4271.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4394.62 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8666.25 ops/sec
+Zipfian (epoch 168, progress 1.26%): UPDATE throughput 3867.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3974.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7841.97 ops/sec
+Zipfian (epoch 169, progress 1.27%): UPDATE throughput 3620.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3684.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7305.34 ops/sec
+Zipfian (epoch 170, progress 1.28%): UPDATE throughput 3130.51 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3225.50 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6356.01 ops/sec
+Zipfian (epoch 171, progress 1.29%): UPDATE throughput 4079.28 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4165.26 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8244.54 ops/sec
+Zipfian (epoch 172, progress 1.30%): UPDATE throughput 3603.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3671.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7275.43 ops/sec
+Zipfian (epoch 173, progress 1.31%): UPDATE throughput 3722.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3786.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7509.39 ops/sec
+Zipfian (epoch 174, progress 1.32%): UPDATE throughput 3845.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3914.66 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7760.32 ops/sec
+Zipfian (epoch 175, progress 1.33%): UPDATE throughput 3525.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3612.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7138.35 ops/sec
+Zipfian (epoch 176, progress 1.34%): UPDATE throughput 3936.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4017.62 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7954.24 ops/sec
+Zipfian (epoch 177, progress 1.35%): UPDATE throughput 4047.15 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4115.14 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8162.29 ops/sec
+Zipfian (epoch 178, progress 1.36%): UPDATE throughput 3748.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3796.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7545.34 ops/sec
+Zipfian (epoch 179, progress 1.37%): UPDATE throughput 5032.60 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4710.62 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9743.22 ops/sec
+Zipfian (epoch 180, progress 1.38%): UPDATE throughput 4871.62 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4959.61 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9831.23 ops/sec
+Zipfian (epoch 181, progress 1.39%): UPDATE throughput 3823.85 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3943.85 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7767.70 ops/sec
+Zipfian (epoch 182, progress 1.40%): UPDATE throughput 4273.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4049.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8323.36 ops/sec
+Zipfian (epoch 183, progress 1.41%): UPDATE throughput 4192.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4132.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8325.34 ops/sec
+Zipfian (epoch 184, progress 1.42%): UPDATE throughput 4059.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3962.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8022.33 ops/sec
+Zipfian (epoch 185, progress 1.43%): UPDATE throughput 3713.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3815.68 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7529.38 ops/sec
+Zipfian (epoch 186, progress 1.45%): UPDATE throughput 4727.57 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4789.56 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9517.13 ops/sec
+Zipfian (epoch 187, progress 1.46%): UPDATE throughput 4160.64 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4317.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8478.27 ops/sec
+Zipfian (epoch 188, progress 1.46%): UPDATE throughput 3749.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3632.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7382.44 ops/sec
+Zipfian (epoch 189, progress 1.48%): UPDATE throughput 4253.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4357.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8611.35 ops/sec
+Zipfian (epoch 190, progress 1.49%): UPDATE throughput 3778.23 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3935.19 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7713.42 ops/sec
+Zipfian (epoch 191, progress 1.50%): UPDATE throughput 3873.56 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3848.57 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7722.13 ops/sec
+Zipfian (epoch 192, progress 1.50%): UPDATE throughput 3886.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3954.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7841.38 ops/sec
+Zipfian (epoch 193, progress 1.52%): UPDATE throughput 4417.64 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4558.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8976.27 ops/sec
+Zipfian (epoch 194, progress 1.53%): UPDATE throughput 4129.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4269.65 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8399.32 ops/sec
+Zipfian (epoch 195, progress 1.54%): UPDATE throughput 3493.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3586.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7080.48 ops/sec
+Zipfian (epoch 196, progress 1.55%): UPDATE throughput 4041.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4243.66 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8285.35 ops/sec
+Zipfian (epoch 197, progress 1.56%): UPDATE throughput 4064.65 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4211.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8276.28 ops/sec
+Zipfian (epoch 198, progress 1.56%): UPDATE throughput 3489.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3430.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6920.45 ops/sec
+Zipfian (epoch 199, progress 1.58%): UPDATE throughput 4444.24 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4328.26 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8772.51 ops/sec
+Zipfian (epoch 200, progress 1.59%): UPDATE throughput 4511.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4448.64 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8960.27 ops/sec
+Zipfian (epoch 201, progress 1.60%): UPDATE throughput 3773.31 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3593.35 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7366.66 ops/sec
+Zipfian (epoch 202, progress 1.61%): UPDATE throughput 3636.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3560.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7197.45 ops/sec
+Zipfian (epoch 203, progress 1.61%): UPDATE throughput 3590.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3689.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7280.43 ops/sec
+Zipfian (epoch 204, progress 1.63%): UPDATE throughput 5655.57 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 5620.57 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 11276.14 ops/sec
+Zipfian (epoch 205, progress 1.64%): UPDATE throughput 3680.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3536.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7217.44 ops/sec
+Zipfian (epoch 206, progress 1.65%): UPDATE throughput 3667.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3551.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7219.46 ops/sec
+Zipfian (epoch 207, progress 1.65%): UPDATE throughput 3324.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3498.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6823.47 ops/sec
+Zipfian (epoch 208, progress 1.67%): UPDATE throughput 4439.65 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4278.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8718.32 ops/sec
+Zipfian (epoch 209, progress 1.68%): UPDATE throughput 4174.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4174.66 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8349.32 ops/sec
+Zipfian (epoch 210, progress 1.69%): UPDATE throughput 3649.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3557.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7207.37 ops/sec
+Zipfian (epoch 211, progress 1.70%): UPDATE throughput 4100.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4161.65 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8262.31 ops/sec
+Zipfian (epoch 212, progress 1.71%): UPDATE throughput 4258.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4089.68 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8348.34 ops/sec
+Zipfian (epoch 213, progress 1.72%): UPDATE throughput 3872.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3935.66 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7808.32 ops/sec
+INFO:bench_lib:Running command: ['sudo', 'kill', '-2', '7706']
+INFO:bench_lib:Running command: ['sudo', 'rm', '/sys/fs/bpf/cache_ext/scan_pids']
+rm: cannot remove '/sys/fs/bpf/cache_ext/scan_pids': No such file or directory
+INFO:bench_lib:Policy thread stdout: Press any key to exit...
+
+INFO:bench_lib:Policy thread stderr: 
+INFO:bench_lib:Running command: ['sudo', 'sh', '-c', 'echo on > /sys/devices/system/cpu/smt/control']
+INFO:bench_lib:Parsing results...
+INFO:bench_lib:Running command: ['sudo', 'sysctl', '-w', 'vm.dirty_background_ratio=10']
+vm.dirty_background_ratio = 10
+INFO:bench_lib:Running command: ['sudo', 'sysctl', '-w', 'vm.dirty_ratio=20']
+vm.dirty_ratio = 20
+Zipfian (epoch 214, progress 1.73%): UPDATE throughput 4088.64 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4150.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8239.27 ops/sec
+Zipfian (epoch 215, progress 1.74%): UPDATE throughput 4445.62 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4546.61 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8992.24 ops/sec
+Zipfian (epoch 216, progress 1.75%): UPDATE throughput 3570.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3752.68 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7323.38 ops/sec
+Zipfian (epoch 217, progress 1.76%): UPDATE throughput 3517.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3504.73 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7022.45 ops/sec
+Zipfian (epoch 218, progress 1.77%): UPDATE throughput 4512.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4508.66 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9021.31 ops/sec
+Zipfian (epoch 219, progress 1.78%): UPDATE throughput 3761.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3715.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7477.44 ops/sec
+Zipfian (epoch 220, progress 1.79%): UPDATE throughput 3692.69 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3608.70 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7301.39 ops/sec
+Zipfian (epoch 221, progress 1.80%): UPDATE throughput 4575.57 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4498.57 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9074.14 ops/sec
+Zipfian (epoch 222, progress 1.81%): UPDATE throughput 4267.53 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4288.52 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8556.05 ops/sec
+Zipfian (epoch 223, progress 1.82%): UPDATE throughput 3591.57 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3724.56 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7316.13 ops/sec
+Zipfian (epoch 224, progress 1.83%): UPDATE throughput 3879.66 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3831.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7711.33 ops/sec
+Zipfian (epoch 225, progress 1.83%): UPDATE throughput 3480.72 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3536.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7017.44 ops/sec
+Zipfian (epoch 226, progress 1.85%): UPDATE throughput 4394.63 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4391.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8786.26 ops/sec
+Zipfian (epoch 227, progress 1.86%): UPDATE throughput 3949.64 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4078.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8028.28 ops/sec
+Zipfian (epoch 228, progress 1.87%): UPDATE throughput 4507.22 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4454.22 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8961.44 ops/sec
+Zipfian (epoch 229, progress 1.88%): UPDATE throughput 3440.71 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3418.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6859.43 ops/sec
+Zipfian (epoch 230, progress 1.88%): UPDATE throughput 3016.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3198.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6215.49 ops/sec
+Zipfian (epoch 231, progress 1.89%): UPDATE throughput 3490.74 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3466.74 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6957.48 ops/sec
+Zipfian (epoch 232, progress 1.90%): UPDATE throughput 4179.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4201.68 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8381.36 ops/sec
+Zipfian (epoch 233, progress 1.91%): UPDATE throughput 3305.75 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3369.75 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6675.50 ops/sec
+Zipfian (epoch 234, progress 1.92%): UPDATE throughput 3809.70 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3703.71 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7513.41 ops/sec
+Zipfian (epoch 235, progress 1.93%): UPDATE throughput 4361.68 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4231.69 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8593.36 ops/sec
+Zipfian (epoch 236, progress 1.94%): UPDATE throughput 3878.71 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3835.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 7714.43 ops/sec
+Zipfian (epoch 237, progress 1.95%): UPDATE throughput 4173.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4227.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8401.34 ops/sec
+Zipfian (epoch 238, progress 1.96%): UPDATE throughput 4586.62 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 4568.63 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9155.25 ops/sec
+Zipfian (epoch 239, progress 1.97%): UPDATE throughput 3181.73 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3283.72 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6465.46 ops/sec
+Zipfian (epoch 240, progress 1.98%): UPDATE throughput 4028.67 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3996.67 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 8025.34 ops/sec
+time's up!
+Zipfian: calculating overall performance metrics... (might take a while)
+Zipfian overall: UPDATE throughput 3294.11 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 3306.90 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 6601.01 ops/sec
+Zipfian overall: UPDATE average latency 866005.56 ns, UPDATE p99 latency 15267221.03 ns, INSERT average latency 0.00 ns, INSERT p99 latency 0.00 ns, READ average latency 1549314.66 ns, READ p99 latency 34265398.19 ns, SCAN average latency 0.00 ns, SCAN p99 latency 0.00 ns, READ_MODIFY_WRITE average latency 0.00 ns, READ_MODIFY_WRITE p99 latency 0.00 ns
+=== LevelDB Stats Start ===
+
+==== DB ===
+
+                               Compactions
+Level  Files Size(MB) Time(sec) Read(MB) Write(MB)
+--------------------------------------------------
+  0        2        6         1        0       177
+  1        8       12         3      309       208
+  2      105      132         6      508       492
+  3      888     1317        11      970       969
+  4     8990    13174         5      443       443
+  5    48422    95738       167    15819     15813
+
+=== LevelDB Stats End ===

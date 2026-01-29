@@ -9,6 +9,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+typedef unsigned long long u64;
+
 #include "dir_watcher.h"
 #include "cache_ext_fifo.skel.h"
 

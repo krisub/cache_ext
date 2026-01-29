@@ -160,8 +160,8 @@ class LevelDBBenchmark(BenchmarkFramework):
         configs = add_config_option(
             "benchmark", parse_strings_string(self.args.benchmark), configs
         )
-        # configs = add_config_option("cgroup_size", [10 * GiB], configs)
-        configs = add_config_option("cgroup_size", [0.5 * GiB], configs)
+        configs = add_config_option("cgroup_size", [10 * GiB], configs)
+        # configs = add_config_option("cgroup_size", [1 * GiB], configs)
         if self.args.default_only:
             configs = add_config_option(
                 "cgroup_name", [DEFAULT_BASELINE_CGROUP], configs
@@ -169,9 +169,14 @@ class LevelDBBenchmark(BenchmarkFramework):
         else:
             configs = add_config_option(
                 "cgroup_name",
-                [DEFAULT_BASELINE_CGROUP, DEFAULT_CACHE_EXT_CGROUP],
+                [DEFAULT_CACHE_EXT_CGROUP],
                 configs,
             )
+            # configs = add_config_option(
+            #     "cgroup_name",
+            #     [DEFAULT_BASELINE_CGROUP, DEFAULT_CACHE_EXT_CGROUP],
+            #     configs,
+            # )
 
         # For baseline cgroup only, add fadvise options
         fadvise_hints = parse_strings_string(self.args.fadvise_hints)

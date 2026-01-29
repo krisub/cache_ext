@@ -9,6 +9,7 @@
 char _license[] SEC("license") = "GPL";
 
 static u64 main_list;
+u64 eviction_count = 0;
 
 static inline bool is_folio_relevant(struct folio *folio) {
 	if (!folio || !folio->mapping || !folio->mapping->host)
@@ -37,6 +38,7 @@ static int bpf_fifo_evict_cb(int idx, struct cache_ext_list_node *a)
 	if (folio_test_dirty(a->folio) || folio_test_writeback(a->folio))
 		return CACHE_EXT_CONTINUE_ITER;
 
+	__sync_fetch_and_add(&eviction_count, 1);
 	return CACHE_EXT_EVICT_NODE;
 }
 

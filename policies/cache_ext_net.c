@@ -104,7 +104,6 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // 4. Attach Standard Hooks
     if (cache_ext_net_bpf__attach(skel)) {
         perror("Failed to attach tracepoints");
         return 1;

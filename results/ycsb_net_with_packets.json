@@ -1,0 +1,138 @@
+[
+    {
+        "config": {
+            "name": "leveldb_benchmark",
+            "cpus": 8,
+            "enable_mmap": false,
+            "runtime_seconds": 240,
+            "warmup_runtime_seconds": 45,
+            "benchmark": "ycsb_a",
+            "cgroup_size": 1073741824,
+            "cgroup_name": "baseline_test",
+            "fadvise": "",
+            "iteration": 1
+        },
+        "results": {
+            "update_throughput_avg": 2813.98,
+            "insert_throughput_avg": 0.0,
+            "read_throughput_avg": 2825.23,
+            "scan_throughput_avg": 0.0,
+            "read_modify_write_throughput_avg": 0.0,
+            "throughput_avg": 5639.21,
+            "update_latency_avg": 1085674.16,
+            "update_latency_p99": 15674407.61,
+            "insert_latency_avg": 0.0,
+            "insert_latency_p99": 0.0,
+            "read_latency_avg": 1743157.96,
+            "latency_avg": 1743157.96,
+            "read_latency_p99": 34751127.21,
+            "latency_p99": 34751127.21,
+            "scan_latency_avg": 0.0,
+            "scan_latency_p99": 0.0,
+            "read_modify_write_latency_avg": 0.0,
+            "read_modify_write_latency_p99": 0.0
+        }
+    },
+    {
+        "config": {
+            "name": "leveldb_benchmark",
+            "cpus": 8,
+            "enable_mmap": false,
+            "runtime_seconds": 240,
+            "warmup_runtime_seconds": 45,
+            "benchmark": "ycsb_a",
+            "cgroup_size": 1073741824,
+            "cgroup_name": "cache_ext_test",
+            "policy_loader": "cache_ext_net.out",
+            "iteration": 1
+        },
+        "results": {
+            "update_throughput_avg": 2954.01,
+            "insert_throughput_avg": 0.0,
+            "read_throughput_avg": 2966.04,
+            "scan_throughput_avg": 0.0,
+            "read_modify_write_throughput_avg": 0.0,
+            "throughput_avg": 5920.05,
+            "update_latency_avg": 1010374.12,
+            "update_latency_p99": 15701033.42,
+            "insert_latency_avg": 0.0,
+            "insert_latency_p99": 0.0,
+            "read_latency_avg": 1683681.94,
+            "latency_avg": 1683681.94,
+            "read_latency_p99": 34895661.46,
+            "latency_p99": 34895661.46,
+            "scan_latency_avg": 0.0,
+            "scan_latency_p99": 0.0,
+            "read_modify_write_latency_avg": 0.0,
+            "read_modify_write_latency_p99": 0.0
+        }
+    },
+    {
+        "config": {
+            "name": "leveldb_benchmark",
+            "cpus": 8,
+            "enable_mmap": false,
+            "runtime_seconds": 240,
+            "warmup_runtime_seconds": 45,
+            "benchmark": "ycsb_a",
+            "cgroup_size": 536870912.0,
+            "cgroup_name": "baseline_test",
+            "fadvise": "",
+            "iteration": 1
+        },
+        "results": {
+            "update_throughput_avg": 1461.34,
+            "insert_throughput_avg": 0.0,
+            "read_throughput_avg": 1468.86,
+            "scan_throughput_avg": 0.0,
+            "read_modify_write_throughput_avg": 0.0,
+            "throughput_avg": 2930.2,
+            "update_latency_avg": 2392147.97,
+            "update_latency_p99": 39515269.8,
+            "insert_latency_avg": 0.0,
+            "insert_latency_p99": 0.0,
+            "read_latency_avg": 3059250.68,
+            "latency_avg": 3059250.68,
+            "read_latency_p99": 38844380.67,
+            "latency_p99": 38844380.67,
+            "scan_latency_avg": 0.0,
+            "scan_latency_p99": 0.0,
+            "read_modify_write_latency_avg": 0.0,
+            "read_modify_write_latency_p99": 0.0
+        }
+    },
+    {
+        "config": {
+            "name": "leveldb_benchmark",
+            "cpus": 8,
+            "enable_mmap": false,
+            "runtime_seconds": 240,
+            "warmup_runtime_seconds": 45,
+            "benchmark": "ycsb_a",
+            "cgroup_size": 536870912.0,
+            "cgroup_name": "cache_ext_test",
+            "policy_loader": "cache_ext_net.out",
+            "iteration": 1
+        },
+        "results": {
+            "update_throughput_avg": 1565.51,
+            "insert_throughput_avg": 0.0,
+            "read_throughput_avg": 1572.08,
+            "scan_throughput_avg": 0.0,
+            "read_modify_write_throughput_avg": 0.0,
+            "throughput_avg": 3137.59,
+            "update_latency_avg": 2184756.13,
+            "update_latency_p99": 38351581.96,
+            "insert_latency_avg": 0.0,
+            "insert_latency_p99": 0.0,
+            "read_latency_avg": 2905164.15,
+            "latency_avg": 2905164.15,
+            "read_latency_p99": 39173571.21,
+            "latency_p99": 39173571.21,
+            "scan_latency_avg": 0.0,
+            "scan_latency_p99": 0.0,
+            "read_modify_write_latency_avg": 0.0,
+            "read_modify_write_latency_p99": 0.0
+        }
+    }
+]
