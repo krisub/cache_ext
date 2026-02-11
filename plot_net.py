@@ -1,8 +1,18 @@
+import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
-df = pd.read_csv("2_mglru_network_results.csv")
+parser = argparse.ArgumentParser(description="Plot throughput for a given policy")
+parser.add_argument("policy", help="Policy name (cache_ext_net)")
+args = parser.parse_args()
+
+policy = args.policy
+
+df = pd.read_csv(f"data/{policy}.csv")
+
+# comment out for all data
+# df = df[(df["Time_Sec"] >= 0) & (df["Time_Sec"] <= 45)]
 
 plt.figure(figsize=(12, 6))
 
@@ -15,7 +25,7 @@ plt.plot(b_data["Time_Sec"], b_data["Throughput_MBps"], 'o-', label="DB B (Port 
 for x in range(0, int(df["Time_Sec"].max()) + 5, 5):
     plt.axvline(x=x, color='gray', linestyle='--', alpha=0.3)
 
-plt.title("MGLRU Network Throughput (15s Switch)")
+plt.title(f"{policy} Policy Throughput (5s Switch)")
 plt.xlabel("Time (seconds)")
 plt.ylabel("Throughput (MB/s)")
 plt.legend()
@@ -25,4 +35,4 @@ plt.tight_layout()
 max_t = int(df["Time_Sec"].max())
 plt.xticks(np.arange(0, max_t + 1, 15))
 
-plt.savefig("2_mglru_plot_net.png")
+plt.savefig(f"data/{policy}_plot.png")

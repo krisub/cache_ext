@@ -8,11 +8,11 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <limits.h>
-#include "dir_watcher.h" 
 
 typedef unsigned long long u64;
 typedef unsigned int u32;
 
+#include "dir_watcher.h" 
 #include "cache_ext_net.skel.h"
 
 char *USAGE = "Usage: ./cache_ext_net --cgroup_path <path> --watch_dir <dir>\n";

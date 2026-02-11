@@ -99,7 +99,7 @@ inline bool is_folio_relevant(struct folio *folio)
 		return false;
 	}
 	bool res = inode_in_watchlist(folio->mapping->host->i_ino);
-	// if (!res) {
+// if (!res) {
 	// 	bpf_printk("folio not relevant because it's inode is not in watchlist, inode %llu\n",
 	// 		   folio->mapping->host->i_ino);
 

@@ -57,7 +57,7 @@ int BPF_PROG(vfs_open_exit, struct path *path, struct file *file, long ret) {
     if (ret != 0) return 0;
 
     // If file was not created, return
-    if (!(file->f_mode & FMODE_CREATED)) return 0;
+    // if (!(file->f_mode & FMODE_CREATED)) return 0;
 
     // {0} required due to verifier bug in Linux 6.6.8 compared to 6.6.14
     char filepath[BPF_PATH_MAX] = {0};
@@ -68,6 +68,8 @@ int BPF_PROG(vfs_open_exit, struct path *path, struct file *file, long ret) {
     }
 
     u64 inode_no = file->f_inode->i_ino;
+
+    bpf_printk("DEBUG: open: %s (Inode: %llu)\n", filepath, inode_no);
 
     // Check if inode was previously inode_watchlisted - means it was previously
     // deleted
