@@ -7,21 +7,23 @@ import struct
 from collections import Counter
 
 SERVER_IP = "127.0.0.1"
-PORT_A = 9001
-PORT_B = 9002
-DURATION_SECONDS = 180       
-SWITCH_INTERVAL = 5         
-CSV_FILE = "data/net_HALFGB_reaccess.csv"
+PORT_A = 9001 # DB A
+PORT_B = 9002 # DB B
+DURATION_SECONDS = 180 # experiment duration  
+SWITCH_INTERVAL = 5 # switch between DBs every 5 seconds         
+CSV_FILE = "data/mglru_HALFGB_reaccess50.csv"
 NUM_THREADS = 8 
-BYTES_PER_REQ = 1048576 
+BYTES_PER_REQ = 1048576 # 1MB read per request
 
 NUM_KEYS = 500000
 KEYS_PER_SCAN = 256
-REACCESS_PROB = 0.20          # p: fraction of requests that are "reaccess" instead of sequential
-HOT_MU = NUM_KEYS // 2        # center of hot region (key id)
-HOT_SIGMA = int(NUM_KEYS * 0.10)  # spread of hot region
+REACCESS_PROB = 0.50        # p: fraction of requests that are "reaccess" instead of sequential
+                            # 20% of requests are reaccess, sampled from normal distribution
+HOT_MU = NUM_KEYS // 2        # center of hot region (key id) (center of key range)
+HOT_SIGMA = int(NUM_KEYS * 0.10)  # spread of hot region (10% of keys)
 BASE_SEED = 12345            # for reproducibility
 
+# data collection
 global_bytes = 0
 global_reqs = 0
 global_latency_ns_sum = 0
@@ -30,8 +32,8 @@ global_connect_errors = 0
 global_io_errors = 0
 
 
-# track scan start keys
-ENABLE_ACCESS_TRACE = True # true to stop tracking
+# track scan start keys, checking if reaccess is happening
+ENABLE_ACCESS_TRACE = False # true to stop tracking
 ACCESS_TRACE_CSV = "data/access_trace.csv"  # per-request (time-ordered) trace
 ACCESS_COUNTS_CSV = "data/access_start_id_counts.csv"  # aggregated counts at end
 global_start_id_counts = {"A": Counter(), "B": Counter()}
@@ -71,17 +73,22 @@ def worker(target_port, stop_event, thread_idx: int, phase_id: int, start_time_g
 
         while not stop_event.is_set():
             try:
+                # should this request be a reaccess
                 is_reaccess = (rng.random() < REACCESS_PROB)
                 if is_reaccess:
+                    # sample a random key in the hot region
                     start_id = int(rng.normalvariate(HOT_MU, HOT_SIGMA))
                     start_id = _clamp_start_id(start_id)
                 else:
+                    # sequential scan from seq_cursor to seq_cursor + KEYS_PER_SCAN
+                    # from the key we last left off on)
                     start_id = seq_cursor
                     seq_cursor += KEYS_PER_SCAN
                     if seq_cursor > (NUM_KEYS - KEYS_PER_SCAN):
                         seq_cursor = 0
 
-                req = struct.pack("!4sI", b"SCAN", start_id)
+                req = struct.pack("!4sI", b"SCAN", start_id) # send the request to the server with the start_id
+                # metrics
                 t0 = time.perf_counter_ns()
                 s.sendall(req)
                 resp = s.recv(1024)
@@ -98,7 +105,7 @@ def worker(target_port, stop_event, thread_idx: int, phase_id: int, start_time_g
                         (time.time() - start_time_global, start_id, int(is_reaccess))
                     )
 
-        
+                # write metrics
                 if local_reqs >= FLUSH_EVERY_REQS:
                     with lock:
                         global_bytes += local_bytes
@@ -122,7 +129,7 @@ def worker(target_port, stop_event, thread_idx: int, phase_id: int, start_time_g
                     global_io_errors += 1
                 break
 
-        # final flush
+
         if local_reqs or local_bytes or local_latency_ns_sum or local_latency_samples_ns or local_access_events:
             with lock:
                 global_bytes += local_bytes
@@ -243,10 +250,11 @@ with open(CSV_FILE, "w", newline='') as f:
     start_time_global = time.time()
     phase_id = 0
     
+    # run and switch between DBs every SWITCH_INTERVAL seconds
     while (time.time() - start_time_global) < DURATION_SECONDS:
         if (time.time() - start_time_global) < DURATION_SECONDS:
             run_phase(PORT_A, SWITCH_INTERVAL, writer, start_time_global, phase_id)
-            phase_id += 1
+            phase_id += 1 
             
         if (time.time() - start_time_global) < DURATION_SECONDS:
             run_phase(PORT_B, SWITCH_INTERVAL, writer, start_time_global, phase_id)

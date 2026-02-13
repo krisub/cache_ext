@@ -101,7 +101,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(net_init, struct mem_cgroup *memcg)
 //     return CACHE_EXT_EVICT_NODE;
 // }
 
-#define GRACE_PERIOD_NS 100000000ULL // 100ms grace period
+#define PERIOD_NS 100000000ULL // 100ms threshold
 
 static int bpf_net_evict_cb(int idx, struct cache_ext_list_node *a)
 {   
@@ -113,7 +113,7 @@ static int bpf_net_evict_cb(int idx, struct cache_ext_list_node *a)
     
     if (!meta) return CACHE_EXT_EVICT_NODE; 
 
-    if ((now - meta->last_access_ts) < GRACE_PERIOD_NS) {
+    if ((now - meta->last_access_ts) < PERIOD_NS) {
         return CACHE_EXT_CONTINUE_ITER;
     }
 

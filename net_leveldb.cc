@@ -15,21 +15,22 @@
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
 
-const int VALUE_SIZE = 4096;
-const int NUM_KEYS = 500000;
-const int KEYS_PER_SCAN = 256; // 256 * 4KB = 1 MB per Request
+const int VALUE_SIZE = 4096; // 4KB values
+const int NUM_KEYS = 500000; // 500K keys = 2GB of data
+const int KEYS_PER_SCAN = 256; // 256 * 4KB = 1 MB read per request (scan window)
 
 struct __attribute__((packed)) ScanRequest {
     char cmd[4];   
     uint32_t start_id; 
 };
 
+// load dbs with arbitrary data
 void populate_db(leveldb::DB* db) {
     std::cout << "Populating DB with " << NUM_KEYS << " keys..." << std::endl;
     leveldb::WriteOptions write_options;
     write_options.sync = false;
     leveldb::WriteBatch batch;
-    std::string value(VALUE_SIZE, 'x'); 
+    std::string value(VALUE_SIZE, 'x'); // arbitrary data
 
     for (int i = 0; i < NUM_KEYS; ++i) {
         batch.Put("key_" + std::to_string(i), value);
@@ -55,10 +56,11 @@ void handle_client(int socket_fd, leveldb::DB* db) {
             ScanRequest req;
             memcpy(&req, buffer, sizeof(req));
             if (memcmp(req.cmd, "SCAN", 4) == 0) {
-                start_id = (int)ntohl(req.start_id);
+                start_id = (int)ntohl(req.start_id); // request should have start_id
             }
         }
 
+        // if no start_id, generate a random one
         if (start_id < 0) {
             if (bytes_read >= 4 && memcmp(buffer, "SCAN", 4) == 0) {
                 start_id = rand() % (NUM_KEYS - KEYS_PER_SCAN);
@@ -76,11 +78,12 @@ void handle_client(int socket_fd, leveldb::DB* db) {
         int total_bytes = 0;
         
 
-        char junk_sink[VALUE_SIZE]; 
+        char sink[VALUE_SIZE]; // buffer to store the read data
 
+        // scan from start_key to start_key + KEYS_PER_SCAN
         for (it->Seek(start_key); it->Valid() && scanned < KEYS_PER_SCAN; it->Next()) {
             leveldb::Slice v = it->value();
-            memcpy(junk_sink, v.data(), 1); 
+            memcpy(sink, v.data(), 1); 
             total_bytes += v.size();
             scanned++;
         }
