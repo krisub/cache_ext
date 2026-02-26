@@ -1,3 +1,4 @@
+import argparse
 import socket
 import time
 import csv
@@ -11,7 +12,7 @@ PORT_A = 9001 # DB A
 PORT_B = 9002 # DB B
 DURATION_SECONDS = 180 # experiment duration  
 SWITCH_INTERVAL = 5 # switch between DBs every 5 seconds         
-CSV_FILE = "data/mglru_HALFGB_reaccess50.csv"
+DEFAULT_CSV_FILE = "data/net.csv"
 NUM_THREADS = 8 
 BYTES_PER_REQ = 1048576 # 1MB read per request
 
@@ -230,7 +231,19 @@ def run_phase(target_port, duration, writer, start_time_global, phase_id: int):
     for t in threads:
         t.join()
 
-print(f"Starting Scan Benchmark (1MB I/O per Req)...")
+def parse_args():
+    parser = argparse.ArgumentParser(description="Net benchmark client")
+    parser.add_argument(
+        "--output", "-o",
+        default=DEFAULT_CSV_FILE,
+        help=f"Output CSV path (default: {DEFAULT_CSV_FILE})",
+    )
+    return parser.parse_args()
+
+args = parse_args()
+CSV_FILE = args.output
+
+print(f"Starting Scan Benchmark (1MB I/O per Req)... output: {CSV_FILE}")
 with open(CSV_FILE, "w", newline='') as f:
     writer = csv.writer(f)
     writer.writerow(

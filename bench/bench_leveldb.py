@@ -147,6 +147,24 @@ class LevelDBBenchmark(BenchmarkFramework):
             help="Specify the benchmark to run, e.g., 'ycsb_a,ycsb_b,'",
         )
         parser.add_argument(
+            "--runtime-seconds",
+            type=int,
+            default=240,
+            help="Benchmark runtime in seconds per workload",
+        )
+        parser.add_argument(
+            "--warmup-runtime-seconds",
+            type=int,
+            default=45,
+            help="Warmup runtime in seconds per workload",
+        )
+        parser.add_argument(
+            "--cgroup-size-gib",
+            type=str,
+            default="10",
+            help="Comma-separated cgroup size(s) in GiB (e.g., '1,2,4')",
+        )
+        parser.add_argument(
             "--fadvise-hints",
             type=str,
             default="",
@@ -155,13 +173,23 @@ class LevelDBBenchmark(BenchmarkFramework):
 
     def generate_configs(self, configs: List[Dict]) -> List[Dict]:
         configs = add_config_option("enable_mmap", [False], configs)
-        configs = add_config_option("runtime_seconds", [240], configs)
-        configs = add_config_option("warmup_runtime_seconds", [45], configs)
+        if self.args.runtime_seconds <= 0:
+            raise ValueError("--runtime-seconds must be > 0")
+        if self.args.warmup_runtime_seconds < 0:
+            raise ValueError("--warmup-runtime-seconds must be >= 0")
+        cgroup_sizes_gib = parse_numbers_string(self.args.cgroup_size_gib)
+        if not cgroup_sizes_gib:
+            raise ValueError("--cgroup-size-gib must contain at least one value")
+        if any(v <= 0 for v in cgroup_sizes_gib):
+            raise ValueError("--cgroup-size-gib values must be > 0")
+        configs = add_config_option("runtime_seconds", [self.args.runtime_seconds], configs)
+        configs = add_config_option(
+            "warmup_runtime_seconds", [self.args.warmup_runtime_seconds], configs
+        )
         configs = add_config_option(
             "benchmark", parse_strings_string(self.args.benchmark), configs
         )
-        configs = add_config_option("cgroup_size", [10 * GiB], configs)
-        # configs = add_config_option("cgroup_size", [1 * GiB], configs)
+        configs = add_config_option("cgroup_size", [v * GiB for v in cgroup_sizes_gib], configs)
         if self.args.default_only:
             configs = add_config_option(
                 "cgroup_name", [DEFAULT_BASELINE_CGROUP], configs

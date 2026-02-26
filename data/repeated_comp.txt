@@ -1,0 +1,22 @@
+krisub@node0:/mydata/cache_ext$ python3 analyze_repeated.py data/mglru_1.csv data/mglru_2.csv data/mglru_3.csv data/mglru_4.csv data/mglru_5.csv
+  mglru_1.csv: avg throughput 105.6 MB/s
+  mglru_2.csv: avg throughput 115.6 MB/s
+  mglru_3.csv: avg throughput 113.6 MB/s
+  mglru_4.csv: avg throughput 106.5 MB/s
+  mglru_5.csv: avg throughput 108.0 MB/s
+  Mean across runs: 109.9 MB/s
+  Std dev:          4.5 MB/s
+  CoV:              4.1%
+
+krisub@node0:/mydata/cache_ext$ python3 analyze_repeated.py data/net_1.csv data/net_2.csv data/net_3.csv data/net_4.csv data/net_5.csv
+  net_1.csv: avg throughput 116.6 MB/s
+  net_2.csv: avg throughput 121.0 MB/s
+  net_3.csv: avg throughput 122.8 MB/s
+  net_4.csv: avg throughput 119.7 MB/s
+  net_5.csv: avg throughput 119.3 MB/s
+  Mean across runs: 119.9 MB/s
+  Std dev:          2.3 MB/s
+  CoV:              1.9%
+krisub@node0:/mydata/cache_ext$ 
+
+coefficient of variation- stddev/mean * 100 -> vary x% relative to average
