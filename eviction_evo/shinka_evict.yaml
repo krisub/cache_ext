@@ -1,0 +1,176 @@
+# ── ShinkaEvolve config for cache_ext eviction policy evolution ──────
+# Evolves a BPF page-cache eviction policy to beat MGLRU baseline.
+#
+# Prerequisites:
+#   1. Set AWS credentials in /mydata/ShinkaEvolve/.env:
+#        AWS_ACCESS_KEY_ID=<your key>
+#        AWS_SECRET_ACCESS_KEY=<your secret>
+#        AWS_REGION_NAME=us-east-1
+#   2. net_leveldb_server and My-YCSB binaries must be compiled.
+#   3. LevelDB database at /mydata/leveldb must exist.
+#
+# Run: python run_evo.py --config_path shinka_evict.yaml
+
+max_evaluation_jobs: 1       # BPF loading is system-global → serialize
+max_proposal_jobs: 2         # LLM proposals can run in parallel
+max_db_workers: 2
+
+db_config:
+  num_islands: 1
+  archive_size: 30
+  elite_selection_ratio: 0.3
+  num_archive_inspirations: 3
+  num_top_k_inspirations: 2
+  migration_interval: 10
+  migration_rate: 0.1
+  island_elitism: true
+  enforce_island_separation: true
+  parent_selection_strategy: weighted
+  parent_selection_lambda: 10
+  archive_selection_strategy: crowding
+  island_selection_strategy: equal
+  archive_criteria:
+    combined_score: 1.0
+    loc: -0.1               # Mild preference for shorter code
+
+  enable_dynamic_islands: false
+  stagnation_threshold: 15
+  island_spawn_strategy: best
+  island_spawn_subtree_size: 2
+
+evo_config:
+  # ── Patch settings ────────────────────────────────────────────────
+  patch_types:
+    - diff
+    - full
+  patch_type_probs:
+    - 0.7
+    - 0.3
+
+  # ── Evolution loop ────────────────────────────────────────────────
+  num_generations: 50
+  max_api_costs: 10.0        # USD budget
+  max_patch_resamples: 3
+  max_patch_attempts: 3
+  max_novelty_attempts: 2
+  job_type: local
+
+  # ── Language ──────────────────────────────────────────────────────
+  language: c
+  init_program_path: initial.c
+
+  # ── LLM models (AWS Bedrock) ──────────────────────────────────────
+  # These require AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_REGION_NAME
+  # in /mydata/ShinkaEvolve/.env (or exported in the environment).
+  llm_models:
+    - "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  llm_kwargs:
+    temperatures:
+      - 0
+      - 0.5
+      - 1.0
+    reasoning_efforts:
+      - low
+      - medium
+      - high
+    max_tokens: 32768
+
+  # ── Meta-recommendation ───────────────────────────────────────────
+  meta_rec_interval: 5
+  meta_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  meta_llm_kwargs:
+    temperatures:
+      - 0
+    max_tokens: 16384
+
+  # ── Embeddings (disabled — no OpenAI key needed) ──────────────────
+  embedding_model: null
+  code_embed_sim_threshold: 1.0
+
+  # ── Novelty checking ──────────────────────────────────────────────
+  novelty_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  novelty_llm_kwargs:
+    temperatures:
+      - 0
+
+  # ── Dynamic model selection ───────────────────────────────────────
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+    cost_aware_coef: 0.7
+
+  # ── Output ────────────────────────────────────────────────────────
+  results_dir: results/eviction_evo
+
+  # ── Prompt evolution ──────────────────────────────────────────────
+  evolve_prompts: true
+  prompt_evolution_interval: 5
+  prompt_patch_types: ["diff", "full"]
+  prompt_patch_type_probs: [0.5, 0.5]
+  prompt_archive_size: 8
+  prompt_percentile_recompute_interval: 1
+  prompt_ucb_exploration_constant: 2.0
+  prompt_epsilon: 0.25
+
+  # ── Task system message ───────────────────────────────────────────
+  # This tells the LLM what it's optimizing and what tools it has.
+  task_sys_msg: |
+    You are an expert systems programmer optimizing a Linux eBPF page-cache
+    eviction policy. Your goal is to MAXIMIZE throughput (ops/sec) of a
+    networked LevelDB database that relies entirely on the OS page cache.
+
+    ## Architecture
+    - A LevelDB TCP server (net_leveldb_server) runs inside a memory-limited
+      cgroup. With block_cache=NULL, every read goes through the OS page cache.
+    - A YCSB client sends GET/PUT/SCAN/RMW requests over TCP from outside the
+      cgroup.
+    - Your eviction policy (eBPF struct_ops for cache_ext) controls which
+      pages stay in the constrained page cache and which get evicted.
+    - The metric to maximize is total throughput in ops/sec.
+
+    ## Available BPF APIs
+    - bpf_cache_ext_list_add(list, folio)        — add folio to head
+    - bpf_cache_ext_list_add_tail(list, folio)    — add folio to tail
+    - bpf_cache_ext_list_del(list, folio)         — remove folio from list
+    - bpf_cache_ext_list_move(list, folio, head)  — move folio (head=true→front)
+    - bpf_cache_ext_list_iterate(memcg, list, cb, ctx) — eviction scan
+    - bpf_cache_ext_list_iterate_extended(memcg, list, cb, opts, ctx) — with promotion list
+    - bpf_cache_ext_list_sample(memcg, list, cb, ratio, ctx) — random sample
+    - bpf_cache_ext_ds_registry_new_list(memcg) — allocate a new list
+    - folio_nr_pages(folio), folio_index(folio)
+    - folio_test_dirty/writeback/unevictable/uptodate/lru(folio)
+    - bpf_ktime_get_ns(), bpf_get_current_pid_tgid()
+
+    ## Network metrics
+    - `active_db_pid`: PID of the process currently handling a TCP request (0 if idle)
+    - `last_packet_ts`: nanosecond timestamp of the last TCP packet on the server port
+    - Per-folio: `owner_pid` (which process cached the folio), `last_access_ts` (ns),
+      `access_count`, `access_tier`
+
+    ## Callback return values
+    - CACHE_EXT_EVICT_NODE  — evict this folio
+    - CACHE_EXT_CONTINUE_ITER — keep this folio
+
+    ## Multi-list strategies
+    You can allocate multiple lists (up to ~8) with bpf_cache_ext_ds_registry_new_list()
+    and use bpf_cache_ext_list_iterate_extended() with opts.continue_list to promote
+    folios between lists (e.g., hot/cold segregation, generation-based aging).
+
+    ## Constraints
+    - No floating point in BPF. Use integer arithmetic only.
+    - No sleeping in non-sleepable functions (only init is sleepable).
+    - BPF maps have fixed sizes declared at compile time.
+    - BPF verifier limits loop iterations and stack size.
+    - Keep the code compiling with clang for BPF target.
+
+    ## Strategies to explore
+    - LRU / CLOCK / FIFO hybrids
+    - Frequency-based (LFU, ARC-like)
+    - Multi-generation aging (like MGLRU but tuned for network workloads)
+    - Hot/cold segregation using multiple lists
+    - Network-aware: protect working set of the actively-serving DB
+    - Adaptive: adjust thresholds based on workload phase
+    - Access pattern: distinguish sequential scans from random reads

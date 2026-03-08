@@ -1,0 +1,110 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Network-Aware BPF Page Cache Eviction Policy**
+
+- **Implementation**: Implements a kernel-level page cache eviction strategy using BPF that tracks per-folio metadata (owner PID, access count, timestamps) and makes eviction decisions based on network activity state, process identity, and access recency. The policy protects hot folios (≥3 accesses) accessed within 100ms, preserves active database working sets during network sessions, and uses MRU list ordering with metadata-driven tiering (cold/warm/hot classification).
+
+- **Performance**: Achieves 180.06 ops/sec throughput with average read latency of 44.4ms and p99 latency of 279.6ms, demonstrating moderate performance on the combined optimization metric (180.12).
+
+- **Feedback**: The network-aware heuristics successfully integrate TCP monitoring to protect database working sets during active sessions, but the relatively high p99 latency (6.3x average) suggests the policy may be overly conservative in protecting folios, potentially causing memory pressure. The implementation correctly handles folio lifecycle management (add/access/evict) with proper list operations and metadata cleanup to prevent kernel memory corruption.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Network-Aware BPF Page Cache Eviction Policy**
+
+- **Implementation**: Implements a tiered eviction strategy for Linux page cache using eBPF that tracks per-folio metadata (owner PID, access count, timestamps) and makes eviction decisions based on access frequency, recency, and network session activity. Uses three conceptual tiers (hot/warm/cold) and protects recently-accessed folios and active database working sets during network sessions.
+
+- **Performance**: Score 0.00 — program fails to compile due to critical implementation error.
+
+- **Feedback**: The program declares three list handles (`hot_list`, `warm_list`, `cold_list`) but never initializes them and instead references an undeclared `main_list` variable throughout all callback functions. This fundamental mismatch between declared and used variables causes 7 compilation errors. The eviction logic itself is sound (network awareness, access-count tiering, dirty-folio protection), but the implementation is incomplete—the evolved code needs to either initialize and use the three declared lists or declare and initialize a single `main_list` variable consistently across all functions.
+**Program Identifier:** Generation 1 - Patch Name multi_tier_mglru_network_aware - Correct Program: False
+
+**Program Name: Network-Aware BPF Page Cache Eviction with Frequency Decay**
+
+- **Implementation**: Uses a single MRU list with per-folio metadata tracking owner PID, access timestamps, and access counts. Implements tiered protection (hot/warm/cold) based on access frequency with decay, combined with network session awareness via TCP monitoring to preferentially retain working sets of active database processes. Eviction callback applies multi-layered heuristics: protecting hot folios with recent access, warm folios within working set windows, and cold folios during active network sessions with grace periods.
+
+- **Performance**: Achieves 191.02 ops/sec throughput with average read latency of 41.85ms and p99 latency of 271.01ms.
+
+- **Feedback**: The program correctly balances recency and frequency signals through tiered access counts and decay mechanisms, enabling network-aware retention of database working sets. However, the relatively high p99 latency (271ms) suggests that cold folio eviction during active sessions may still cause occasional cache misses; the 200ms grace period for cold folios may be insufficient for bursty workloads, and the 500ms recent-access window combined with 5s working-set window creates overlapping protection zones that could reduce eviction effectiveness under memory pressure.
+**Program Identifier:** Generation 2 - Patch Name network_aware_lfu_working_set - Correct Program: True
+
+**Program Name: Network-Aware BPF Page Cache Eviction Policy**
+
+- **Implementation**: Implements a tiered eviction strategy for Linux page cache using eBPF that tracks per-folio metadata (owner PID, access count, timestamps) and makes eviction decisions based on access frequency, recency, and network session activity. Uses three list handles (hot/warm/cold) declared but references an undeclared `main_list` variable throughout the eviction callbacks, causing 7 compilation errors.
+
+- **Performance**: Score 0.00 — program fails to compile due to critical variable declaration mismatch.
+
+- **Feedback**: The core logic is sound (network-aware heuristics, tiered access classification, working-set protection) but the implementation has a fundamental structural error: `main_list` is used in all major functions but never declared, while `hot_list`, `warm_list`, and `cold_list` are declared but unused. The evolved code must either declare `main_list` or refactor to use the three tier-specific lists. Additionally, `bpf_cache_ext_list_del(folio)` in `folio_evicted` is called without the list parameter, which appears to be an API mismatch.
+**Program Identifier:** Generation 3 - Patch Name multi_generation_aging_with_scan_detection - Correct Program: False
+
+**Program Name: Multi-Tier Network-Aware Page Cache Eviction Policy**
+
+- **Implementation**: Implements a three-tier (hot/warm/cold) segregated LRU eviction strategy for BPF page cache management with network awareness. Folios are classified by access frequency (access_count threshold-based) and promoted/demoted between tiers; eviction prioritizes cold list first, then warm, while protecting hot folios and recently-accessed entries during active network sessions. Uses per-folio metadata tracking (owner_pid, last_access_ts, access_count, access_tier) and periodic demotion callbacks to decay stale entries.
+
+- **Performance**: Combined score 0.00 — program fails to load with BPF verification error.
+
+- **Feedback**: The program has a critical BPF verifier failure: function arguments passed to `bpf_cache_ext_list_sample()` do not match expected types (specifically, the ratio parameter `10` is passed as a scalar but the verifier expects a frame pointer). This indicates a mismatch between the evolved code's API usage and the actual BPF helper signatures defined in `cache_ext_lib.bpf.h`. The architectural design (multi-tier classification, network-aware protection windows, frequency-based promotion) is sound, but the implementation cannot execute due to type/signature incompatibility in the helper function calls.
+**Program Identifier:** Generation 4 - Patch Name multi_tier_segregated_lists - Correct Program: False
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+# Program Evaluation Analysis
+
+## Successful Algorithmic Patterns
+
+- **Single unified list with tiered metadata classification outperforms multi-list architectures**: The current best program (Generation 2: network_aware_lfu_working_set, score 191.02 ops/sec) uses a single `main_list` with per-folio metadata tracking access counts and timestamps, achieving superior performance compared to attempted multi-tier segregated list designs (Generation 4 failed to load with BPF verifier errors). The unified approach eliminates list management complexity while maintaining tier classification through metadata fields (`access_tier`, `access_count`), reducing verification overhead and enabling more efficient iteration.
+
+- **Frequency decay mechanism with overlapping protection windows enables balanced recency-frequency tradeoffs**: The best program implements decay-based access count management (decrementing `access_count` after 2 seconds of inactivity) combined with three overlapping protection windows (500ms recent-access, 5s working-set, 200ms cold-session grace period). This multi-layered approach achieved 191.02 ops/sec compared to the initial program's 180.06 ops/sec (+6.1% improvement), demonstrating that frequency signals combined with time-windowed recency provide better cache retention decisions than simple recency-only policies.
+
+- **Network-aware working set protection with tier-aware conditional logic prevents overly conservative eviction**: The best program protects active database working sets through conditional logic that checks both network session state (`session_active && is_active_db`) and access tier (`is_warm && in_working_set`), while still allowing cold folios a grace period (200ms) rather than blanket protection. This balanced approach achieved 191.02 ops/sec with p99 latency of 271ms, compared to the initial program's 279.6ms p99 latency (-3.1% improvement), indicating that tier-aware conditional protection reduces unnecessary cache retention without sacrificing working set preservation.
+
+- **Proper folio lifecycle management with explicit list deletion prevents kernel memory corruption**: The best program correctly implements `folio_evicted` callback with explicit `bpf_cache_ext_list_del(folio)` before metadata cleanup, preventing dangling pointers in the list structure. This implementation detail, documented in the code comment about "GPF in userspace," ensures stable execution and correct program validation, contrasting with Generation 1 and Generation 3 which had variable declaration mismatches that prevented compilation entirely.
+
+## Ineffective Approaches
+
+- **Multi-tier segregated list architectures introduce verification complexity without performance gains**: Generation 4 (multi_tier_segregated_lists) attempted to implement three separate lists (`hot_list`, `warm_list`, `cold_list`) with tier-based promotion/demotion callbacks but failed to load with BPF verifier errors regarding function argument type mismatches in `bpf_cache_ext_list_sample()`. The architectural design was sound, but the implementation complexity of managing three separate lists and their promotion logic exceeded the verifier's ability to validate the code, resulting in a score of 0.00 compared to the best program's 191.02.
+
+- **Variable declaration mismatches between declared and used list handles cause compilation failures**: Generations 1 and 3 both declared three list handles (`hot_list`, `warm_list`, `cold_list`) but referenced an undeclared `main_list` variable throughout all callback functions, resulting in 7 compilation errors each and scores of 0.00. This pattern demonstrates that inconsistent variable naming between declaration and usage, even with sound eviction logic, completely prevents program execution and eliminates any performance benefit from the underlying algorithm.
+
+- **Overly conservative folio protection policies increase p99 latency without throughput gains**: The initial program (Generation 0, score 180.06 ops/sec) achieved only 180.06 ops/sec with p99 latency of 279.6ms (6.3x average latency), suggesting that its protection heuristics were retaining too many folios in cache, causing memory pressure and occasional cache misses. The best program's 191.02 ops/sec with 271ms p99 latency (+6.1% throughput, -3.1% p99 latency) indicates that the frequency decay mechanism and more selective tier-aware protection windows reduce unnecessary retention while maintaining working set preservation.
+
+- **API signature mismatches between evolved code and BPF helper functions prevent program loading**: Generation 4 failed with a BPF verifier error indicating that the ratio parameter `10` passed to `bpf_cache_ext_list_sample()` was a scalar but the verifier expected a frame pointer, revealing a mismatch between the evolved code's API usage and the actual helper signatures in `cache_ext_lib.bpf.h`. This demonstrates that even architecturally sound designs fail if the implementation doesn't match the actual BPF helper function signatures.
+
+## Implementation Insights
+
+- **Single unified list with metadata-driven tiering eliminates list management overhead while preserving tier semantics**: The best program declares a single `static u64 main_list` and uses per-folio metadata fields (`access_tier`, `access_count`) to classify folios into cold/warm/hot tiers, rather than maintaining three separate lists. This approach reduces the number of list operations (add/delete/move) required during eviction iteration, as all folios are scanned from a single list with tier decisions made in the callback based on metadata, rather than requiring cross-list promotions or demotions. The callback function `bpf_evict_cb` evaluates tier membership dynamically (`is_hot = meta->access_count >= HOT_ACCESS_THRESHOLD`) rather than relying on list membership, enabling more flexible tier transitions without list reorganization.
+
+- **Frequency decay with time-windowed access count management provides adaptive recency-frequency balance**: The best program implements decay logic in `folio_accessed` that decrements `access_count` if the folio hasn't been touched for `FREQ_DECAY_NS` (2 seconds), then increments it on each access. This creates a self-adjusting frequency signal where frequently-accessed folios maintain high counts while stale folios gradually decay, enabling the eviction callback to distinguish between genuinely hot folios and those that were once hot but are now cold. The tier classification (`access_tier = 2` for `access_count >= 3`, tier 1 for `>= 2`) then uses this decayed frequency signal to make eviction decisions, combining recency (500ms window) with frequency (decay-adjusted access count) in a unified framework.
+
+- **Overlapping time windows with conditional tier-aware logic enable nuanced protection without blanket retention**: The best program uses four distinct time windows (500ms recent-access, 5s working-set, 200ms cold-session grace, 2s decay) combined with conditional logic that checks multiple factors: `if (is_hot && recently_used) return CONTINUE_ITER` protects hot folios only if recently accessed, while `if (session_active && is_active_db && time_since_access < COLD_SESSION_GRACE_NS) return CONTINUE_ITER` gives cold folios a grace period only during active sessions. This multi-layered approach prevents the overly conservative protection seen in Generation 0 (which achieved only 180.06 ops/sec) by ensuring that protection is conditional on multiple factors rather than applying blanket retention rules.
+
+- **Explicit folio lifecycle management with list deletion before metadata cleanup prevents kernel corruption**: The best program's `folio_evicted` callback explicitly calls `bpf_cache_ext_list_del(folio)` before deleting metadata, with a code comment explaining that this prevents "dangling folio pointer in main_list, causing kernel memory corruption (GPF in userspace)." This implementation detail ensures that the list structure remains consistent even after the folio is evicted, preventing the kernel from attempting to access freed memory through stale list pointers. The callback structure (`del → metadata_delete → bump_counter`) establishes a clear ordering that prevents race conditions between the eviction iterator and the metadata cleanup.
+
+## Performance Analysis
+
+- **Best program achieves 191.02 ops/sec throughput with 271ms p99 latency, representing +6.1% throughput improvement over initial program**: The current best program (Generation 2: network_aware_lfu_working_set) scores 191.02 ops/sec compared to the initial program's 180.06 ops/sec, a +6.1% improvement. The p99 latency improved from 279.6ms to 271ms (-3.1%), indicating that the frequency decay mechanism and tier-aware conditional protection reduce both average throughput and tail latency by avoiding excessive cache retention. The combined optimization metric of 191.09 reflects this balanced improvement across both throughput and latency dimensions.
+
+- **Compilation and verification failures result in 0.00 scores, eliminating 50% of evaluated programs**: Generations 1, 3, and 4 all failed to execute (scores of 0.00), with Generation 1 and 3 failing at compilation due to variable declaration mismatches, and Generation 4 failing at BPF verification due to API signature mismatches. This pattern demonstrates that implementation correctness is a hard constraint—even architecturally sound designs (multi-tier segregated lists, frequency decay with scan detection) cannot contribute to performance if they don't compile or verify. The best program's success depends critically on correct variable declarations (`main_list` properly initialized in `evolved_init`) and correct API usage (all `bpf_cache_ext_*` calls match expected signatures).
+
+- **Average read latency of 41.85ms in best program indicates efficient cache hit rates despite p99 tail latency of 271ms**: The best program's average read latency of 41.85ms (compared to initial program's 44.4ms, a -5.7% improvement) suggests that the frequency decay and tier-aware protection mechanisms improve cache hit rates for typical workloads. The p99 latency of 271ms (6.5x average) indicates occasional cache misses during bursty workloads, but the evaluation feedback notes that the 200ms grace period for cold folios "may be insufficient for bursty workloads," suggesting that the tail latency is driven by workload characteristics rather than algorithmic inefficiency. The +6.1% throughput improvement with -5.7% average latency improvement indicates that the best program achieves better overall cache efficiency.
+
+- **Single-list architecture with metadata-driven tiering outperforms multi-list designs in both correctness and performance**: The best program's single-list approach achieved 191.02 ops/sec and passed all validation tests, while the multi-tier segregated list design (Generation 4) failed verification entirely (0.00 score). This suggests that the complexity of managing multiple lists and tier transitions introduces verification overhead that outweighs any potential algorithmic benefits. The best program's approach of using a single list with metadata-driven tier classification achieves the performance benefits of tiered eviction (protecting hot folios, prioritizing cold folio eviction) without the implementation complexity that causes verification failures.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+# Actionable Recommendations for Future Program Mutations
+
+1. **Implement adaptive frequency decay with session-aware decay rates**: The current best program uses a fixed 2-second decay window, but network sessions have variable activity patterns. Introduce session-aware decay that slows decay (e.g., 5s window) when `session_active && is_active_db` is true, and accelerates decay (e.g., 1s window) during idle periods. This builds on the successful frequency decay mechanism while making it responsive to network state, potentially improving p99 latency by reducing unnecessary evictions during bursty workloads that the evaluation feedback identified as problematic.
+
+2. **Extend the working-set protection window dynamically based on access frequency**: The current 5-second working-set window is static, but high-frequency folios (access_count >= 5) may benefit from extended protection. Introduce a tiered working-set window where `is_hot` folios get a 7-second window, `is_warm` folios get 5 seconds, and `is_cold` folios get 3 seconds, all while maintaining the existing tier-aware conditional logic. This leverages the successful metadata-driven tiering approach to provide more nuanced protection without adding list management complexity.
+
+3. **Add a "scan detection" heuristic to prevent sequential scan pollution**: Implement a helper function that detects when a folio's `folio_index` is sequential to the previously accessed folio (within the same inode), and if so, cap its `access_count` at 1 regardless of actual access frequency. This prevents sequential scans (common in database full-table scans) from polluting the cache by artificially inflating access counts, while preserving the frequency decay mechanism for genuinely reused folios. This addresses a common cache eviction challenge without requiring multi-list architecture.
+
+4. **Refine the cold-session grace period with access-count-aware thresholds**: The current 200ms grace period applies uniformly to all cold folios during active sessions, but the evaluation noted this "may be insufficient for bursty workloads." Replace the fixed grace period with a conditional: `if (time_since_access < COLD_SESSION_GRACE_NS && meta->access_count >= 1)` to give grace only to cold folios that have been accessed at least once, while immediately evicting never-accessed folios. This maintains the successful multi-layered protection approach while reducing unnecessary retention of truly cold data.
+
+5. **Introduce a "recency boost" mechanism that temporarily elevates access_count on recent accesses**: When a folio is accessed, add a temporary boost: `meta->access_count += 2` instead of `+= 1` if `time_since_access < RECENT_ACCESS_NS`, then decay this boost faster (e.g., decay by 2 instead of 1 after FREQ_DECAY_NS). This creates a "spike" in the frequency signal for recently-touched folios, improving their protection during the critical 500ms window while still allowing them to decay naturally. This extends the successful frequency decay mechanism with a recency-aware amplification that could improve both throughput and p99 latency by better protecting working-set folios during bursty access patterns.

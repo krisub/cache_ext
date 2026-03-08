@@ -1,0 +1,14 @@
+{
+  "generation": 7,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "recency_boost_mechanism",
+  "patch_description": "Implement a recency boost mechanism that temporarily amplifies access_count for recently-accessed folios. When a folio is accessed within a tight recency window (50ms), boost its access_count by 2 instead of 1. This creates a \"spike\" in the frequency signal that better protects working-set folios during bursty network access patterns. The boost decays faster (by 2 per decay cycle instead of 1) to avoid long-term memory waste. This synergizes with the existing frequency decay mechanism to improve cache hit rates during active sessions while maintaining natural decay during idle periods.",
+  "error_msg": null,
+  "timestamp": "2026-03-04T15:27:56.425773",
+  "llm_cost": 0.033143,
+  "llm_model": null
+}

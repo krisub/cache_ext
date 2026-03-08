@@ -1,0 +1,41 @@
+<NAME>
+access_count_aware_cold_grace_period
+</NAME>
+
+<DESCRIPTION>
+The current implementation applies a uniform 200ms cold-session grace period to all cold folios during active network sessions. However, the evaluation shows this may be insufficient for bursty workloads while potentially retaining truly cold data that has never been accessed.
+
+The key insight is that a folio that has been accessed at least once (access_count >= 1) is more likely to be part of the working set than a folio that has never been accessed. By conditioning the grace period on `meta->access_count >= 1`, we:
+
+1. **Protect accessed cold folios**: Folios that have been touched at least once get the full 200ms grace period, allowing bursty access patterns to keep their working set intact.
+2. **Immediately evict never-accessed folios**: Folios with access_count == 0 (which should not normally exist given our initialization, but could occur after decay) are evicted immediately, freeing memory for the active working set.
+3. **Maintain multi-layered protection**: The change preserves the successful hot/warm/recently-used protection layers while making the cold-session grace period more selective.
+
+This refinement reduces unnecessary retention of truly cold data while maintaining protection for the actual working set, which should improve cache efficiency and throughput during bursty network workloads.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    // During an active network session, protect the active DB's working set with tier awareness
+    if (session_active && is_active_db) {
+        // Hot/warm folios in working set are protected
+        if (is_warm && in_working_set)
+            return CACHE_EXT_CONTINUE_ITER;
+        // Even cold folios get a grace period during active sessions
+        if (time_since_access < COLD_SESSION_GRACE_NS)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+=======
+    // During an active network session, protect the active DB's working set with tier awareness
+    if (session_active && is_active_db) {
+        // Hot/warm folios in working set are protected
+        if (is_warm && in_working_set)
+            return CACHE_EXT_CONTINUE_ITER;
+        // Cold folios get a grace period only if they have been accessed at least once
+        // This protects working-set folios while immediately evicting never-accessed data
+        if (time_since_access < COLD_SESSION_GRACE_NS && meta->access_count >= 1)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+>>>>>>> REPLACE
+
+</DIFF>

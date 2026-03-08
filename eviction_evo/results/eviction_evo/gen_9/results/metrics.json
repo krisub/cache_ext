@@ -1,0 +1,21 @@
+{
+  "combined_score": 177.67263260682697,
+  "public": {
+    "total_throughput_ops_sec": 177.61,
+    "read_throughput_ops_sec": 177.61,
+    "read_latency_avg_ns": 45024501.17,
+    "read_latency_p99_ns": 283574337.71
+  },
+  "private": {
+    "update_throughput": 0.0,
+    "insert_throughput": 0.0,
+    "read_throughput": 177.61,
+    "scan_throughput": 0.0,
+    "rmw_throughput": 0.0,
+    "total_throughput": 177.61,
+    "read_latency_avg_ns": 45024501.17,
+    "read_latency_p99_ns": 283574337.71,
+    "scan_latency_avg_ns": 0.0,
+    "scan_latency_p99_ns": 0.0
+  }
+}

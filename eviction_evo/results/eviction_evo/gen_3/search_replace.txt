@@ -1,0 +1,466 @@
+Looking at the current program, I can see it uses a single LRU-like list with network-aware protection. The main bottleneck is that it treats all folios uniformly once they pass the protection thresholds. Let me propose a multi-generation aging strategy inspired by MGLRU (Multi-Generational LRU) that segregates folios by their recency and access patterns, which should significantly improve throughput by making better eviction decisions.
+
+The key insight is that database workloads have distinct access patterns:
+1. Hot data (frequently accessed) - should stay cached
+2. Warm data (recently accessed once) - may be re-accessed soon
+3. Cold data (scan victims) - sequential scans that won't be re-accessed
+
+I'll implement a 3-list system (hot/warm/cold) with automatic promotion/demotion based on access patterns and network activity.
+
+<NAME>
+multi_generation_aging_with_scan_detection
+</NAME>
+
+<DESCRIPTION>
+This edit transforms the single-list LRU into a multi-generation system with three lists (hot, warm, cold):
+
+1. **Hot list**: Folios with multiple accesses or belonging to active DB working set
+2. **Warm list**: Recently accessed folios (potential hot candidates)
+3. **Cold list**: Single-access folios and scan victims
+
+Key improvements:
+- **Scan detection**: Folios accessed by sequential scans are demoted to cold list immediately
+- **Promotion on re-access**: Warm→Hot promotion when access_count increases
+- **Active session protection**: During network activity, active DB folios stay in hot list
+- **Aging**: Use bpf_cache_ext_list_iterate_extended to age folios through lists
+- **Eviction order**: Evict from cold list first, then warm, finally hot
+
+This should improve throughput by:
+- Keeping truly hot data (multi-access) in cache longer
+- Quickly evicting scan victims that won't be re-accessed
+- Protecting working set during active sessions
+- Reducing cache churn from sequential operations
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// ── List handles + eviction policy constants (evolved) ────────────────
+static u64 main_list;
+=======
+// ── List handles + eviction policy constants (evolved) ────────────────
+static u64 hot_list;   // Frequently accessed, high-priority folios
+static u64 warm_list;  // Recently accessed once, mid-priority
+static u64 cold_list;  // Single access or scan victims, low-priority
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// ── Tunable constants ───────────────────────────────────────────────
+// Time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS    100000000ULL   // 100 ms
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Working set window: protect active-DB folios accessed within this window
+#define WORKING_SET_NS      1000000000ULL  // 1 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+=======
+// ── Tunable constants ───────────────────────────────────────────────
+// Time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS    200000000ULL   // 200 ms (increased for better hot detection)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Working set window: protect active-DB folios accessed within this window
+#define WORKING_SET_NS      1000000000ULL  // 1 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 2             // Lowered to 2 for faster hot promotion
+// Scan detection: if folio age is very short, likely a scan victim
+#define SCAN_VICTIM_NS      10000000ULL    // 10 ms - very quick single access = scan
+// Aging: move folios between lists if not accessed for this long
+#define AGING_THRESHOLD_NS  500000000ULL   // 500 ms
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// ── Eviction iteration callback ─────────────────────────────────────
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // ── Network-aware heuristics ────────────────────────────────────
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool is_active_db   = (meta->owner_pid == active_db_pid) && (active_db_pid != 0);
+    bool recently_used  = (now - meta->last_access_ts) < RECENT_ACCESS_NS;
+    bool in_working_set = (now - meta->last_access_ts) < WORKING_SET_NS;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the active DB's working set
+    if (session_active && is_active_db && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+=======
+// ── Eviction iteration callback for cold list ───────────────────────
+// Aggressively evict from cold list (scan victims and aged-out folios)
+static int bpf_evict_cold_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Cold list: evict anything not recently accessed
+    bool recently_used = (now - meta->last_access_ts) < RECENT_ACCESS_NS;
+    if (!recently_used)
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+
+// ── Eviction iteration callback for warm list ───────────────────────
+// Moderate eviction from warm list
+static int bpf_evict_warm_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool is_active_db   = (meta->owner_pid == active_db_pid) && (active_db_pid != 0);
+    bool in_working_set = (now - meta->last_access_ts) < WORKING_SET_NS;
+
+    // Protect active DB working set
+    if (session_active && is_active_db && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Evict if not accessed recently
+    bool recently_used = (now - meta->last_access_ts) < RECENT_ACCESS_NS;
+    if (!recently_used)
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+
+// ── Eviction iteration callback for hot list ────────────────────────
+// Conservative eviction from hot list (last resort)
+static int bpf_evict_hot_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool is_active_db   = (meta->owner_pid == active_db_pid) && (active_db_pid != 0);
+
+    // Strong protection for active DB during session
+    if (session_active && is_active_db)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Only evict very old hot folios
+    u64 age = now - meta->last_access_ts;
+    if (age > WORKING_SET_NS * 2)  // 2x working set window
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// ── struct_ops: init ────────────────────────────────────────────────
+s32 BPF_STRUCT_OPS_SLEEPABLE(evolved_init, struct mem_cgroup *memcg)
+{
+    main_list = bpf_cache_ext_ds_registry_new_list(memcg);
+    if (!main_list)
+        return -1;
+    return 0;
+}
+=======
+// ── struct_ops: init ────────────────────────────────────────────────
+s32 BPF_STRUCT_OPS_SLEEPABLE(evolved_init, struct mem_cgroup *memcg)
+{
+    hot_list = bpf_cache_ext_ds_registry_new_list(memcg);
+    if (!hot_list)
+        return -1;
+
+    warm_list = bpf_cache_ext_ds_registry_new_list(memcg);
+    if (!warm_list)
+        return -1;
+
+    cold_list = bpf_cache_ext_ds_registry_new_list(memcg);
+    if (!cold_list)
+        return -1;
+
+    return 0;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// ── struct_ops: evict_folios ────────────────────────────────────────
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+=======
+// ── struct_ops: evict_folios ────────────────────────────────────────
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Evict in priority order: cold → warm → hot
+    // This ensures we evict scan victims and aged-out folios first
+    bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+    bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+    bpf_cache_ext_list_iterate(memcg, hot_list, bpf_evict_hot_cb, eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// ── struct_ops: folio_added ─────────────────────────────────────────
+void BPF_STRUCT_OPS(evolved_folio_added, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // Add to tail of main list (FIFO-like insertion)
+    int ret = bpf_cache_ext_list_add_tail(main_list, folio);
+    if (ret != 0) {
+        bump_counter(1);
+        return;
+    }
+
+    // Initialize metadata
+    u64 key = (u64)folio;
+    struct net_folio_metadata new_meta = {
+        .owner_pid     = bpf_get_current_pid_tgid() >> 32,
+        .last_access_ts = bpf_ktime_get_ns(),
+        .access_count  = 1,
+        .access_tier   = 0,  // cold
+    };
+    bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+    bump_counter(2);
+}
+=======
+// ── struct_ops: folio_added ─────────────────────────────────────────
+void BPF_STRUCT_OPS(evolved_folio_added, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 now = bpf_ktime_get_ns();
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    // Determine initial placement based on context
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool is_active_db = (pid == active_db_pid) && (active_db_pid != 0);
+
+    // Default: add to warm list (assume it might be re-accessed)
+    u64 target_list = warm_list;
+    u32 tier = 1;  // warm
+
+    // If added during active session by active DB, start in hot list
+    if (session_active && is_active_db) {
+        target_list = hot_list;
+        tier = 2;  // hot
+    }
+
+    int ret = bpf_cache_ext_list_add_tail(target_list, folio);
+    if (ret != 0) {
+        bump_counter(1);
+        return;
+    }
+
+    // Initialize metadata
+    u64 key = (u64)folio;
+    struct net_folio_metadata new_meta = {
+        .owner_pid     = pid,
+        .last_access_ts = now,
+        .access_count  = 1,
+        .access_tier   = tier,
+    };
+    bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+    bump_counter(2);
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// ── struct_ops: folio_accessed ──────────────────────────────────────
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 key = (u64)folio;
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // Folio not tracked yet — add it
+        int ret = bpf_cache_ext_list_add(main_list, folio);
+        if (ret != 0) {
+            // Already in a list — just move to head (MRU); third arg is 'tail', so false = head
+            bpf_cache_ext_list_move(main_list, folio, false);
+        }
+        struct net_folio_metadata new_meta = {
+            .owner_pid     = bpf_get_current_pid_tgid() >> 32,
+            .last_access_ts = bpf_ktime_get_ns(),
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Update existing metadata
+    meta->last_access_ts = bpf_ktime_get_ns();
+    meta->access_count += 1;
+
+    // Update tier based on access count
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Move to head of list (MRU position); third arg is 'tail', so false = head
+    bpf_cache_ext_list_move(main_list, folio, false);
+    bump_counter(4);
+}
+=======
+// ── struct_ops: folio_accessed ──────────────────────────────────────
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)folio;
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // Folio not tracked yet — add to warm list
+        int ret = bpf_cache_ext_list_add(warm_list, folio);
+        if (ret != 0) {
+            // Already in a list — try to move to head of warm list
+            bpf_cache_ext_list_move(warm_list, folio, false);
+        }
+        struct net_folio_metadata new_meta = {
+            .owner_pid     = bpf_get_current_pid_tgid() >> 32,
+            .last_access_ts = now,
+            .access_count  = 1,
+            .access_tier   = 1,  // warm
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    u64 time_since_last = now - meta->last_access_ts;
+    u32 old_tier = meta->access_tier;
+
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count += 1;
+
+    // Determine new tier
+    u32 new_tier = old_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        new_tier = 2;  // hot
+    } else if (meta->access_count >= 2) {
+        new_tier = 1;  // warm
+    } else {
+        // Single access - check if it's a scan victim
+        if (time_since_last < SCAN_VICTIM_NS) {
+            new_tier = 0;  // cold (likely scan)
+        } else {
+            new_tier = 1;  // warm (normal re-access)
+        }
+    }
+
+    meta->access_tier = new_tier;
+
+    // Promote/demote between lists if tier changed
+    if (new_tier != old_tier) {
+        // Remove from old list
+        bpf_cache_ext_list_del(folio);
+
+        // Add to new list at head (MRU position)
+        u64 target_list = cold_list;
+        if (new_tier == 2)
+            target_list = hot_list;
+        else if (new_tier == 1)
+            target_list = warm_list;
+
+        bpf_cache_ext_list_add(target_list, folio);
+    } else {
+        // Same tier - just move to head (MRU)
+        u64 current_list = cold_list;
+        if (new_tier == 2)
+            current_list = hot_list;
+        else if (new_tier == 1)
+            current_list = warm_list;
+
+        bpf_cache_ext_list_move(current_list, folio, false);
+    }
+
+    bump_counter(4);
+}
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,14 @@
+{
+  "generation": 4,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "multi_tier_segregated_lists",
+  "patch_description": "This redesign fundamentally changes the program structure from a single-list LRU approach to a multi-tier segregated list architecture. Instead of maintaining one list with metadata-based tier tracking, we now use separate physical lists for hot, warm, and cold folios. This structural change provides several benefits:\n\n1. **Spatial locality**: Eviction scans only the cold list first, reducing iteration overhead\n2. **Explicit tier management**: Folios physically move between lists based on access patterns\n3. **Adaptive promotion/demotion**: Uses bpf_cache_ext_list_iterate_extended with continue_list for efficient tier transitions\n4. **Reduced metadata lookups**: Tier information is implicit in list membership\n5. **Better cache utilization**: Hot data stays physically separated from cold data during eviction\n\nThe data flow is completely restructured:\n- New folios enter the cold list\n- Accesses promote folios: cold\u2192warm\u2192hot\n- Eviction scans cold list first, then warm if needed\n- Periodic demotion moves stale hot/warm folios back down\n\nThis architectural change should improve throughput by reducing eviction overhead and better protecting the working set through physical segregation rather than metadata-based filtering.",
+  "error_msg": null,
+  "timestamp": "2026-03-04T15:25:58.541833",
+  "llm_cost": 0.115512,
+  "llm_model": null
+}

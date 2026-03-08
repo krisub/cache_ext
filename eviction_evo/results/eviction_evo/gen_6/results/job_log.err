@@ -1,0 +1,38 @@
+2026-03-04 15:27:26,605 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-04 15:27:26,605 INFO Acquired evaluation lock.
+2026-03-04 15:27:26,605 INFO === Step 0: Drop page cache ===
+2026-03-04 15:27:26,618 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-04 15:27:26,618 INFO CMD: sudo sync
+2026-03-04 15:27:26,703 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-04 15:27:26,797 INFO Page cache dropped.
+2026-03-04 15:27:26,798 INFO === Step 1: Compile evolved policy ===
+2026-03-04 15:27:26,809 INFO CMD: sudo chown -R krisub: /mydata/cache_ext/eviction_evo/build
+2026-03-04 15:27:27,162 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-04 15:27:29,861 ERROR Evaluation failed: RuntimeError: BPF compilation failed:
+STDOUT: 
+STDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:148:47: error: use of undeclared identifier 'FREQ_DECAY_NS'
+    bool should_decay   = time_since_access > FREQ_DECAY_NS;
+                                              ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:250:29: error: use of undeclared identifier 'FREQ_DECAY_NS'
+    if (time_since_access > FREQ_DECAY_NS && meta->access_count > 0) {
+                            ^
+2 errors generated.
+
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 459, in evaluate
+    loader_path = compile_bpf_policy(program_path, BUILD_DIR)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 153, in compile_bpf_policy
+    raise RuntimeError(f"BPF compilation failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+RuntimeError: BPF compilation failed:
+STDOUT: 
+STDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:148:47: error: use of undeclared identifier 'FREQ_DECAY_NS'
+    bool should_decay   = time_since_access > FREQ_DECAY_NS;
+                                              ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:250:29: error: use of undeclared identifier 'FREQ_DECAY_NS'
+    if (time_since_access > FREQ_DECAY_NS && meta->access_count > 0) {
+                            ^
+2 errors generated.
+
+
+2026-03-04 15:27:29,863 INFO CMD: sudo cgdelete memory:cache_ext_test

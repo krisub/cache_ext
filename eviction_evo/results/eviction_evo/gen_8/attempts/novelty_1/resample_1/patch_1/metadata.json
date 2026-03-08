@@ -1,0 +1,14 @@
+{
+  "generation": 8,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_tier_window_eviction",
+  "patch_description": "This novel approach draws inspiration from the tier-aware conditional logic in the current program but implements a fundamentally different eviction strategy: **Adaptive Tier-Based Window Scaling with Frequency-Driven Recency Prioritization**.\n\nKey insights from prior programs:\n1. The current program uses static time windows (500ms RECENT, 5s WORKING_SET) that don't adapt to workload phase\n2. Frequency decay is applied uniformly to all folios, but high-frequency folios benefit more from extended protection\n3. Network-aware heuristics protect active-DB folios, but protection windows don't scale with access patterns\n\nNovel approach:\n- **Dynamic window scaling**: Each tier gets a scaled time window based on the folio's access frequency relative to the tier threshold. A folio with access_count=5 (vs threshold=3 for hot) gets a 1.67x multiplier on its protection window.\n- **Recency-frequency product scoring**: Instead of binary conditions, compute a score = access_count * (1 + time_decay_factor). Folios with both high frequency AND recent access get strong protection; old frequent folios decay naturally.\n- **Inverted sampling strategy**: Use `bpf_cache_ext_list_sample()` to randomly sample 30% of candidates for quick rejection (cold, old folios evict faster), then iterate the remaining 70% with strict scoring. This reduces average iteration depth during high eviction pressure.\n- **Session-phase detection**: Track whether last_packet_ts is within 1s (active phase) or 1-5s (idle phase). During idle phases, aggressively decay access_count by 2 instead of 1.\n- **Owner-based grouping**: Hot folios from the active_db_pid get an extra 500ms of protection. Warm folios from other PIDs decay 1.5x faster during session idle.\n\nThis combines tier-awareness with a scoring model that is more nuanced than binary conditions, leverages efficient sampling for fast eviction, and adapts protection windows to workload dynamics.",
+  "error_msg": null,
+  "timestamp": "2026-03-04T15:28:39.573004",
+  "llm_cost": 0.039565,
+  "llm_model": null
+}

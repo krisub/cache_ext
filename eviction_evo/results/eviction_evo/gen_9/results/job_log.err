@@ -1,0 +1,52 @@
+2026-03-04 15:31:19,537 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-04 15:31:26,239 INFO Acquired evaluation lock.
+2026-03-04 15:31:26,239 INFO === Step 0: Drop page cache ===
+2026-03-04 15:31:26,252 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-04 15:31:26,252 INFO CMD: sudo sync
+2026-03-04 15:31:26,413 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-04 15:31:26,523 INFO Page cache dropped.
+2026-03-04 15:31:26,523 INFO === Step 1: Compile evolved policy ===
+2026-03-04 15:31:26,534 INFO CMD: sudo chown -R krisub: /mydata/cache_ext/eviction_evo/build
+2026-03-04 15:31:26,870 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-04 15:31:29,876 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-04 15:31:30,056 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-04 15:31:30,932 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-04 15:31:30,932 INFO === Step 2: Disable MGLRU ===
+2026-03-04 15:31:30,932 INFO MGLRU current state: 0x0000 — disabling
+2026-03-04 15:31:30,932 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-04 15:31:30,951 INFO MGLRU disabled.
+2026-03-04 15:31:30,951 INFO === Step 3: Create cgroup ===
+2026-03-04 15:31:30,951 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-04 15:31:30,989 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-04 15:31:31,103 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-04 15:31:31,118 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-04 15:31:31,119 INFO === Step 4: Load BPF policy ===
+2026-03-04 15:31:31,119 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-04 15:31:41,120 INFO Policy loaded (PID 102781)
+2026-03-04 15:31:41,120 INFO === Step 5: Start server ===
+2026-03-04 15:31:41,120 INFO Starting server: sudo cgexec -g memory:cache_ext_test /mydata/cache_ext/net_leveldb_server 9100 /mydata/leveldb_temp
+2026-03-04 15:31:41,122 INFO Waiting for server on port 9100 ...
+2026-03-04 15:31:42,191 INFO Server ready (PID 102784) on port 9100
+2026-03-04 15:31:42,191 INFO === Step 6: Run benchmark ===
+2026-03-04 15:31:42,434 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/build/bench_config.yaml
+2026-03-04 15:31:42,434 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/build/bench_config.yaml
+2026-03-04 15:34:40,356 INFO Benchmark stdout:
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 80.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 80.99 ops/sec
+Zipfian (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 80.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 80.99 ops/sec
+Zipfian (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 24.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 24.00 ops/sec
+Zipfian (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 25.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 25.00 ops/sec
+Zipfian (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 11.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 11.00 ops/sec
+Zipfian (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 9.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 9.00 ops/sec
+Zipfian (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 45.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total thr
+2026-03-04 15:34:40,358 INFO === Evaluation complete ===
+2026-03-04 15:34:40,358 INFO Combined score: 177.67  (throughput: 178 ops/sec, p99: 283574338 ns)
+2026-03-04 15:34:40,358 INFO Stopping net_leveldb_server (PID 102784)
+2026-03-04 15:34:40,358 INFO CMD: sudo kill 102784
+2026-03-04 15:34:40,414 INFO Unloading BPF policy (PID 102781)
+2026-03-04 15:34:40,414 INFO CMD: sudo kill -2 102781
+2026-03-04 15:34:40,645 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
+2026-03-04 15:34:40,661 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-04 15:34:40,676 INFO CMD: sudo sh -c echo 0x0000 > /sys/kernel/mm/lru_gen/enabled
+2026-03-04 15:34:40,691 INFO MGLRU re-enabled (restored to 0x0000).

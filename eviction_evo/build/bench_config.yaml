@@ -1,0 +1,26 @@
+database:
+  key_size: 16
+  nr_entry: 536870912
+  value_size: 200
+measurement:
+  latency_file: ''
+net_leveldb:
+  addr: 127.0.0.1
+  port: 9100
+workload:
+  next_op_interval_ns: 0
+  nr_init_thread: 1
+  nr_op: 10000000
+  nr_thread: 8
+  nr_warmup_op: 10000000
+  operation_proportion:
+    insert: 0
+    read: 1
+    read_modify_write: 0
+    scan: 0
+    update: 0
+  request_distribution: zipfian
+  runtime_seconds: 120
+  scan_length: 100
+  warmup_runtime_seconds: 30
+  zipfian_constant: 0.99
