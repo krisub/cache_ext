@@ -1,0 +1,13 @@
+workload:
+  nr_warmup_op: 1000000000
+  nr_op: 1000000000
+  warmup_runtime_seconds: 60
+  runtime_seconds: 180
+  nr_thread: 10
+  next_op_interval_ns: 0
+  trace_file: "/mydata/linux/linux/testing/page_cache_ext/google_traces/trace_cluster1_16TB_20240115_app_spanner.txt"
+  request_distribution: "trace"
+
+io_trace:
+  data_dir: "google_traces/data_cluster1_16TB_20240115_app_spanner_temp"
+  print_stats: true

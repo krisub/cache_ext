@@ -1,0 +1,36 @@
+# Database Parameters
+database:
+  key_size: 160
+  value_size: 20000
+  nr_entry: 5368709
+  # nr_entry: 1000
+
+# Workload Parameters
+workload:
+  nr_warmup_op: 0
+  warmup_runtime_seconds: 60
+  runtime_seconds: 120
+  nr_op: 10000000
+  nr_thread: 16
+  next_op_interval_ns: 0  # use 50000 on mars
+  operation_proportion:
+    read: 0.5
+    update: 0.5
+    insert: 0
+    scan: 0
+    read_modify_write: 0
+  request_distribution: "zipfian"
+  # for zipfian distribution
+  zipfian_constant: 0.99
+  # for trace workload
+  trace_file_list:
+    - "./cur_trace"
+  # for scan operation
+  scan_length: 100
+
+# LevelDB Parameters
+leveldb:
+  data_dir: "/mydata/leveldb_db_big"
+  options_file: "/mydata/My-YCSB/rocksdb/config/rocksdb_rubble_16gb_config.ini"
+  cache_size: 100000000
+  print_stats: true
