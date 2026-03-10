@@ -1,0 +1,14 @@
+{
+  "generation": 10,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "access_count_decay_adaptive_tiering",
+  "patch_description": "The recommendation to implement frequency-decay scoring is key to improving performance on multi-workload traces. The current program's access_count increases monotonically and never decays, causing folios that were frequently accessed in the past but are now cold to remain protected indefinitely. This is particularly problematic during workload phase transitions (e.g., from dual_small_vs_large to dual_congested), where the working set changes but old high-access-count folios continue to receive protection.\n\nThe improved program implements:\n\n1. **Access Count Decay**: When a folio hasn't been accessed for longer than a decay window (500ms), its access_count is decremented by 1 (minimum 1). This allows stale high-frequency folios to gradually lose their protection and become evictable.\n\n2. **Adaptive Decay Window**: The decay window scales with network congestion\u2014during high congestion, decay is slower (folios retain protection longer), and during low congestion, decay is faster (more aggressive eviction of stale pages).\n\n3. **Decay on Eviction Check**: Decay is applied during the eviction callbacks when we check each folio's age, ensuring that folios are re-evaluated based on their current access pattern rather than historical frequency.\n\n4. **Tier-Specific Decay Thresholds**: Different tiers have different decay sensitivity:\n   - Cold tier: decays faster (more aggressive)\n   - Warm tier: moderate decay\n   - Hot tier: decays slower (more protective)\n\nThis approach complements the existing burst detection and congestion-adaptive logic by enabling responsive adaptation to sustained workload changes. The harmonic mean of throughput across both traces should improve because:\n- During dual_small_vs_large (asymmetric load), stale pages from the large-value writer don't block eviction of hot small-value reader pages\n- During dual_congested (network-limited), the adaptive decay prevents cache pollution from old accesses while maintaining protection for actively-used pages\n- The decay mechanism naturally transitions the cache between workload phases without requiring explicit workload detection\n\nThe implementation maintains all existing APIs and structure while adding decay logic to folio_accessed and the eviction callbacks.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:24:09.943368",
+  "llm_cost": 0.088871,
+  "llm_model": null
+}

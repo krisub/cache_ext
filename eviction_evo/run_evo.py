@@ -10,6 +10,7 @@ Usage:
 import argparse
 import sys
 import os
+import subprocess
 
 # Ensure ShinkaEvolve source is on the path (editable install workaround)
 SHINKA_DIR = os.environ.get("SHINKA_DIR", "/mydata/ShinkaEvolve")
@@ -37,6 +38,11 @@ def main(config_path: str):
         verbose=True,
     )
     evo_runner.run()
+    
+    subprocess.run(
+        ["sudo", "chown", "-R", "krisub", "/mydata/cache_ext"],
+        check=True
+    )
 
 
 if __name__ == "__main__":

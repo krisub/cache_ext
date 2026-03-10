@@ -1,0 +1,14 @@
+{
+  "generation": 7,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "multi_tier_adaptive_eviction",
+  "patch_description": "This algorithm takes a fundamentally different approach by implementing a **multi-tier segregated list strategy** combined with **predictive network-aware admission control**. Instead of a single monolithic list with complex per-folio decay calculations, we:\n\n1. **Segregate folios into 3 independent lists** (hot, warm, cold) based on access patterns and network state, enabling targeted eviction strategies per tier.\n\n2. **Use a scoring function** that combines recency, frequency, and network metrics into a single comparable score, avoiding complex conditional logic in the eviction callback.\n\n3. **Implement predictive burst detection** by tracking request rate trends (not just inter-arrival), allowing us to proactively expand the working set before bursts arrive.\n\n4. **Adaptive tier promotion/demotion** that moves folios between lists based on network conditions, ensuring hot pages stay protected during congestion while cold pages are aggressively evicted during scans.\n\n5. **Simplified decay model** using a linear age-based penalty instead of exponential half-life, reducing CPU overhead in the eviction path.\n\n6. **Network-aware list iteration strategy**: sample cold list more aggressively during congestion, iterate hot list only when necessary.\n\nThis approach should perform better because:\n- **Reduced eviction callback complexity** \u2192 faster per-folio decisions\n- **Better scan workload handling** \u2192 cold list can be evicted in bulk\n- **Predictive burst protection** \u2192 expands working set before demand spikes\n- **Cleaner separation of concerns** \u2192 each tier has clear eviction criteria\n- **Lower metadata overhead** \u2192 fewer map lookups per access",
+  "error_msg": null,
+  "timestamp": "2026-03-09T16:12:37.180657",
+  "llm_cost": 0.055395,
+  "llm_model": null
+}

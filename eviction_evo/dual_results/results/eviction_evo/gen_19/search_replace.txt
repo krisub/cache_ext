@@ -1,0 +1,207 @@
+Looking at the performance progression, I notice that the best program (score 324.29) achieved this through:
+1. Tier-specific base time windows (not uniform scaling)
+2. Aggressive cold list eviction with fixed 500ms threshold
+3. Strong tier-specific congestion scaling factors
+
+However, the current program (score 311.40) has regressed because:
+1. It uses uniform `BASE_RECENT_ACCESS_NS` (50ms) for all tiers
+2. It applies access count decay to ALL folios, which may be too aggressive and prevents warm/hot folios from being properly promoted during high congestion when cache misses are expensive
+3. It lacks the targeted threshold adjustments that helped the best program succeed
+
+The recommendation to implement **congestion-aware tier promotion thresholds** directly addresses this issue. During high congestion (score > 700), we should identify the working set earlier by lowering promotion thresholds when cache misses are most costly. During low congestion, we raise thresholds to maintain aggressive eviction.
+
+Let me implement this targeted fix:
+
+<NAME>
+congestion_adaptive_tier_promotion
+</NAME>
+
+<DESCRIPTION>
+Currently, tier promotion uses fixed thresholds (access_count >= 2 for warm, >= 4 for hot) regardless of network conditions. This is suboptimal because:
+
+1. During high congestion (RTT > 50ms, retransmissions, or lost packets), each cache miss is expensive due to long round trips and network degradation. The current approach waits for access_count >= 4 before promoting to hot, which may delay protection of the working set.
+
+2. During low congestion (direct connection, low RTT), we can be more aggressive by requiring higher access counts before promotion, allowing natural eviction of less-frequently-used pages.
+
+The fix implements dynamic promotion thresholds:
+- High congestion (score > 700): lower thresholds to access_count >= 1 for warm and >= 2 for hot, identifying working sets earlier
+- Medium congestion (300-700): moderate thresholds (>= 2 for warm, >= 3 for hot)
+- Low congestion (< 300): higher thresholds (>= 3 for warm, >= 5+ for hot)
+
+This directly extends the access count decay logic by making promotion itself adaptive to network conditions, ensuring better cache utilization during congestion while remaining aggressive during uncongested periods.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: folio_accessed -----------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 key = (u64)folio;
+    u64 now = bpf_ktime_get_ns();
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // First access: add to cold list
+        bpf_cache_ext_list_add_tail(cold_list, folio);
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = now,
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Apply decay to access_count based on current congestion and age
+    u32 congestion = compute_congestion_score();
+    u32 decayed_count = apply_access_count_decay(meta, now, congestion);
+
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count = decayed_count + 1;  // increment after decay
+
+    // Determine new tier based on access count (after decay + increment)
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Promote folio if tier changed
+    if (meta->access_tier > old_tier) {
+        // Remove from current list
+        bpf_cache_ext_list_del(folio);
+
+        // Add to appropriate new list
+        if (meta->access_tier == 2) {
+            bpf_cache_ext_list_add(hot_list, folio);  // hot at head
+        } else if (meta->access_tier == 1) {
+            bpf_cache_ext_list_add(warm_list, folio);  // warm at head
+        }
+    } else {
+        // Same tier: move to head (MRU position)
+        if (meta->access_tier == 2)
+            bpf_cache_ext_list_move(hot_list, folio, false);
+        else if (meta->access_tier == 1)
+            bpf_cache_ext_list_move(warm_list, folio, false);
+        else
+            bpf_cache_ext_list_move(cold_list, folio, false);
+    }
+
+    bump_counter(4);
+}
+=======
+// -- Helper: Compute adaptive tier promotion thresholds based on congestion --
+static __always_inline void get_adaptive_promotion_thresholds(u32 congestion,
+                                                               u32 *warm_threshold,
+                                                               u32 *hot_threshold) {
+    // During high congestion (score > 700): identify working set early
+    // During medium congestion (300-700): moderate thresholds
+    // During low congestion (< 300): strict thresholds for aggressive eviction
+
+    if (congestion > 700) {
+        // High congestion: protect working set early
+        *warm_threshold = 1;  // promote at first re-access
+        *hot_threshold = 2;   // promote to hot at second re-access
+    } else if (congestion > 300) {
+        // Medium congestion: moderate approach
+        *warm_threshold = 2;
+        *hot_threshold = 3;
+    } else {
+        // Low congestion: aggressive, require more accesses before promotion
+        *warm_threshold = 3;
+        *hot_threshold = 5;
+    }
+}
+
+// -- struct_ops: folio_accessed -----------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 key = (u64)folio;
+    u64 now = bpf_ktime_get_ns();
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // First access: add to cold list
+        bpf_cache_ext_list_add_tail(cold_list, folio);
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = now,
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Update metadata first
+    meta->last_access_ts = now;
+    meta->access_count += 1;
+
+    // Get adaptive thresholds based on current network conditions
+    u32 congestion = compute_congestion_score();
+    u32 warm_threshold, hot_threshold;
+    get_adaptive_promotion_thresholds(congestion, &warm_threshold, &hot_threshold);
+
+    // Determine new tier based on adaptive thresholds
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= hot_threshold)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= warm_threshold)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Promote folio if tier changed
+    if (meta->access_tier > old_tier) {
+        // Remove from current list
+        bpf_cache_ext_list_del(folio);
+
+        // Add to appropriate new list
+        if (meta->access_tier == 2) {
+            bpf_cache_ext_list_add(hot_list, folio);  // hot at head
+        } else if (meta->access_tier == 1) {
+            bpf_cache_ext_list_add(warm_list, folio);  // warm at head
+        }
+    } else {
+        // Same tier: move to head (MRU position)
+        if (meta->access_tier == 2)
+            bpf_cache_ext_list_move(hot_list, folio, false);
+        else if (meta->access_tier == 1)
+            bpf_cache_ext_list_move(warm_list, folio, false);
+        else
+            bpf_cache_ext_list_move(cold_list, folio, false);
+    }
+
+    bump_counter(4);
+}
+>>>>>>> REPLACE
+</DIFF>
+
+**Rationale:**
+
+This change removes the aggressive access count decay logic that was applied uniformly to all folios and replaces it with **congestion-aware tier promotion thresholds**:
+
+1. **High congestion (> 700)**: Thresholds drop to warm=1, hot=2. A folio promoted to cold is immediately re-promoted to warm on next access, and warm folios reach hot tier at 2 accesses. This ensures the working set is protected early when each cache miss is expensive.
+
+2. **Medium congestion (300-700)**: Moderate thresholds (warm=2, hot=3) balance protection with eviction.
+
+3. **Low congestion (< 300)**: Stricter thresholds (warm=3, hot=5) allow more aggressive eviction since cache misses are cheaper on fast connections.
+
+The removal of uniform decay and replacement with adaptive thresholds should:
+- Improve `dual_small_vs_large_throughput` by better protecting the hot reader's working set during congestion
+- Maintain or improve `dual_congested_throughput` by identifying hot pages earlier when latencies are high
+- Push the harmonic mean score back toward the best observed result (324.29) by dynamically tuning to network conditions

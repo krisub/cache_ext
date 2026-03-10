@@ -1,0 +1,14 @@
+{
+  "generation": 1,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_network_tiered_lru",
+  "patch_description": "This novel approach combines insights from the current LRU-based policy with a more sophisticated network-aware tiering strategy. The key innovation is **burst-detection with multi-tier working-set protection** and **congestion-adaptive eviction thresholds**.\n\nKey differences from the baseline:\n1. **Burst Detection**: Uses inter-packet arrival time to detect request bursts (short gaps indicate high activity). During bursts, we protect a wider working set aggressively.\n2. **Network Congestion Scoring**: Instead of binary session-active checks, we compute a continuous \"congestion score\" based on RTT, jitter, retransmissions, and loss. Higher congestion \u2192 more aggressive working-set protection.\n3. **Three-Tier List Structure**: Maintains separate hot, warm, and cold lists. Folios are promoted/demoted based on access patterns and network conditions rather than just moved within a single LRU.\n4. **Adaptive Time Windows**: WORKING_SET_NS and RECENT_ACCESS_NS scale with network RTT (longer RTT = wider protection window, since each miss is costlier).\n5. **Recency vs Frequency Balance**: Score combines both last_access_ts and access_count with network-aware weighting. During high congestion, frequency matters more; during normal conditions, recency dominates.\n\nThis design recognizes that the two dual-client traces have very different network characteristics (direct vs proxied connections, variable delay/bandwidth), so a static eviction policy underperforms. By adapting thresholds and list transitions based on live TCP metrics, we can handle both workloads better.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T21:48:44.833547",
+  "llm_cost": 0.039087000000000004,
+  "llm_model": null
+}

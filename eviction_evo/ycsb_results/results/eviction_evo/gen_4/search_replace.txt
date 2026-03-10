@@ -1,0 +1,329 @@
+# Analysis
+
+Looking at the current performance metrics, the program is scoring well overall (268.76 harmonic mean), but there are clear disparities:
+
+1. **Strong traces**: ycsb_a (622.53), ycsb_d (149031.81), ycsb_f (507.91) - these are doing well
+2. **Weak traces**: ycsb_e (118.08), uniform (131.02), uniform_rw (261.77) - these drag down the harmonic mean
+
+The harmonic mean is extremely sensitive to low performers. **ycsb_e (scan-heavy)** and **uniform (no hot set)** are the bottlenecks.
+
+## Key Insights
+
+1. **ycsb_e (95% scan + 5% insert)**: Scans access many sequential pages once or twice. Current policy doesn't distinguish between access patterns (frequency vs. recency). Sequential scans should be evicted more aggressively because they're one-time accesses.
+
+2. **uniform (100% read, uniform distribution)**: No temporal locality. Every page is accessed roughly equally. Current "hot" classification (access_count >= 3) won't form a meaningful working set. We're protecting pages based on stale access patterns.
+
+3. **Broad working-set protection**: During active sessions, we protect all folios accessed within `working_set_ns`. But for scan workloads, this bloats the cache with one-time accesses.
+
+## Proposed Strategy
+
+**Distinguish sequential/scan access patterns from random hot-set access patterns:**
+
+1. **Add decay to access_count**: Pages accessed long ago shouldn't stay "hot" forever. Implement time-weighted recency so old accesses contribute less to the count.
+
+2. **Tighter cold-folio eviction**: New folios (access_count = 1) should be evicted more aggressively unless they're very recent. This targets scan workloads where each page is touched once and never again.
+
+3. **Reduce working-set window for non-burst scenarios**: Current `WORKING_SET_NS_BASE` (1s) is too broad for uniform workloads. Tighten it unless we detect a clear burst pattern.
+
+4. **Session-aware recency thresholds**: Make recent_access_ns even tighter under non-burst conditions to focus on the truly hot working set.
+
+<NAME>
+decay_access_count_and_tighter_eviction
+</NAME>
+
+<DESCRIPTION>
+Implement time-weighted decay for access counts and apply tighter eviction heuristics for young, low-frequency pages. This targets scan-heavy and uniform workloads that currently underperform.
+
+Key changes:
+1. Add age-based decay to access_count so that old accesses don't keep pages classified as "warm" or "hot" indefinitely.
+2. More aggressively evict cold (access_count=1) pages, especially if not accessed very recently.
+3. Reduce base working-set window to 500ms (from 1s) to avoid bloating cache with infrequent accesses.
+4. Introduce burst-detection check: only expand working set if we're in an actual burst (small inter-arrival).
+5. Apply stricter recent_access_ns (50ms base instead of 100ms) to focus on true hot set.
+
+This maintains high performance on hot-set workloads (ycsb_a, ycsb_d, ycsb_f) while improving scan and uniform workloads.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Base time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS_BASE    100000000ULL   // 100 ms
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Working set window: protect folios accessed within this window during active session
+#define WORKING_SET_NS_BASE      1000000000ULL  // 1 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD     3
+// Burst detection: inter-arrival time threshold (us) - below this is a burst
+#define BURST_THRESHOLD_US       10000ULL       // 10 ms
+// RTT threshold for high-latency networks (us)
+#define HIGH_RTT_THRESHOLD_US    50000ULL       // 50 ms
+// Congestion threshold: if retrans_out > 0 or lost > 0, network is congested
+#define CONGESTION_THRESHOLD     1
+=======
+// -- Tunable constants --------------------------------------------------------
+// Base time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS_BASE    50000000ULL    // 50 ms (tightened from 100 ms)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Working set window: protect folios accessed within this window during active session
+#define WORKING_SET_NS_BASE      500000000ULL   // 500 ms (tightened from 1 s)
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD     3
+// Burst detection: inter-arrival time threshold (us) - below this is a burst
+#define BURST_THRESHOLD_US       5000ULL        // 5 ms (tightened from 10 ms)
+// RTT threshold for high-latency networks (us)
+#define HIGH_RTT_THRESHOLD_US    50000ULL       // 50 ms
+// Congestion threshold: if retrans_out > 0 or lost > 0, network is congested
+#define CONGESTION_THRESHOLD     1
+// Decay window: decay access count for folios older than this
+#define ACCESS_DECAY_WINDOW_NS   2000000000ULL  // 2 s
+// Decay factor: divide access_count by this when page is old
+#define ACCESS_DECAY_DIVISOR     2
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Helper: compute adaptive thresholds based on network state ---------------
+static __always_inline u64 get_adaptive_recent_access_ns(void)
+{
+    // Base threshold
+    u64 threshold = RECENT_ACCESS_NS_BASE;
+
+    // Detect network congestion
+    bool has_loss = (net_lost > 0);
+    bool has_retrans = (net_retrans_out > 0);
+    bool is_congested = has_loss || has_retrans;
+
+    // High RTT means cache misses are expensive - protect more pages
+    bool high_rtt = (net_srtt_us > HIGH_RTT_THRESHOLD_US);
+
+    // If congested or high RTT, shrink the window to focus on hottest pages
+    if (is_congested || high_rtt) {
+        threshold = threshold / 2;  // 50 ms
+    }
+
+    return threshold;
+}
+
+static __always_inline u64 get_adaptive_working_set_ns(void)
+{
+    u64 threshold = WORKING_SET_NS_BASE;
+
+    // Detect burst: if inter-arrival time is small, we're in a burst
+    u64 inter_arrival = (last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : 0;
+
+    // Convert to microseconds for comparison (avoid overflow)
+    u64 inter_arrival_us = inter_arrival / 1000;
+
+    // During burst (small inter-arrival), expand working set protection
+    if (inter_arrival_us > 0 && inter_arrival_us < BURST_THRESHOLD_US) {
+        threshold = threshold * 2;  // 2 s during bursts
+    }
+
+    return threshold;
+}
+=======
+// -- Helper: compute time-decayed access count --------------------------------
+static __always_inline u32 get_decayed_access_count(struct net_folio_metadata *meta, u64 now)
+{
+    u64 age = now - meta->last_access_ts;
+
+    // If folio is older than decay window, reduce its access count
+    // This prevents old accesses from keeping pages classified as "hot"
+    if (age > ACCESS_DECAY_WINDOW_NS) {
+        // Decay: divide by divisor, but keep at least 1
+        u32 decayed = (meta->access_count / ACCESS_DECAY_DIVISOR);
+        if (decayed < 1) decayed = 1;
+        return decayed;
+    }
+
+    return meta->access_count;
+}
+
+// -- Helper: compute adaptive thresholds based on network state ---------------
+static __always_inline u64 get_adaptive_recent_access_ns(void)
+{
+    // Base threshold (tightened)
+    u64 threshold = RECENT_ACCESS_NS_BASE;
+
+    // Detect network congestion
+    bool has_loss = (net_lost > 0);
+    bool has_retrans = (net_retrans_out > 0);
+    bool is_congested = has_loss || has_retrans;
+
+    // High RTT means cache misses are expensive - protect more pages
+    bool high_rtt = (net_srtt_us > HIGH_RTT_THRESHOLD_US);
+
+    // If congested or high RTT, shrink the window to focus on hottest pages
+    if (is_congested || high_rtt) {
+        threshold = threshold / 2;  // 25 ms
+    }
+
+    return threshold;
+}
+
+static __always_inline u64 get_adaptive_working_set_ns(void)
+{
+    u64 threshold = WORKING_SET_NS_BASE;
+
+    // Detect burst: if inter-arrival time is small, we're in a burst
+    u64 inter_arrival = (last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : 0;
+
+    // Convert to microseconds for comparison (avoid overflow)
+    u64 inter_arrival_us = inter_arrival / 1000;
+
+    // During burst (small inter-arrival), expand working set protection
+    if (inter_arrival_us > 0 && inter_arrival_us < BURST_THRESHOLD_US) {
+        threshold = threshold * 2;  // 1 s during bursts
+    }
+
+    return threshold;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network-aware adaptive heuristics ------------------------------------
+
+    u64 recent_access_ns = get_adaptive_recent_access_ns();
+    u64 working_set_ns = get_adaptive_working_set_ns();
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < recent_access_ns;
+    bool in_working_set = (now - meta->last_access_ts) < working_set_ns;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+    bool very_hot       = (meta->access_count >= HOT_ACCESS_THRESHOLD + 2);
+
+    // Detect network congestion
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Protect very hot folios aggressively during active session
+    if (very_hot && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During network congestion, be more aggressive about protecting hot pages
+    if (is_congested && is_hot && (now - meta->last_access_ts) < working_set_ns)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+=======
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network-aware adaptive heuristics ------------------------------------
+
+    u64 recent_access_ns = get_adaptive_recent_access_ns();
+    u64 working_set_ns = get_adaptive_working_set_ns();
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < recent_access_ns;
+    bool in_working_set = (now - meta->last_access_ts) < working_set_ns;
+
+    // Apply time-weighted decay to access count
+    u32 effective_access_count = get_decayed_access_count(meta, now);
+    bool is_hot         = (effective_access_count >= HOT_ACCESS_THRESHOLD);
+    bool very_hot       = (effective_access_count >= HOT_ACCESS_THRESHOLD + 2);
+
+    // Detect network congestion
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Protect very hot folios aggressively during active session
+    if (very_hot && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During network congestion, be more aggressive about protecting hot pages
+    if (is_congested && is_hot && (now - meta->last_access_ts) < working_set_ns)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Aggressively evict cold (low-frequency) folios not accessed recently
+    // This targets scan workloads where pages are accessed once and never again
+    if (effective_access_count == 1 && (now - meta->last_access_ts) > (RECENT_ACCESS_NS_BASE * 3))
+        return CACHE_EXT_EVICT_NODE;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+These changes work together to:
+
+1. **Tighten base thresholds** (50ms recent access, 500ms working set, 5ms burst): Focus on true hot-set pages, reduce bloat from one-time accesses.
+
+2. **Add decay to access_count**: Pages accessed 2+ seconds ago have their frequency count reduced, preventing stale "hot" classifications from lingering. Critical for uniform workloads where old accesses shouldn't keep pages protected.
+
+3. **Aggressive cold-folio eviction**: Pages accessed only once and not touched recently (3x the recent window) are evicted immediately. This targets scan workloads while preserving the working set.
+
+4. **Burst-aware working set expansion**: Only expand the protection window during actual bursts (tight inter-arrival), not unnecessarily.
+
+The strategy maintains high performance on update-heavy (ycsb_a, ycsb_f) and temporal-locality workloads (ycsb_d) while improving scan-heavy (ycsb_e) and uniform workloads.

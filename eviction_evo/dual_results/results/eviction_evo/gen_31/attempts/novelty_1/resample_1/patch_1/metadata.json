@@ -1,0 +1,14 @@
+{
+  "generation": 31,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "congestion_adaptive_tier_promotion_thresholds",
+  "patch_description": "Analysis of the performance metrics shows that the current program (314.67) is underperforming compared to the best prior program (324.29). The key difference is that the best program uses **dynamic tier promotion thresholds that adapt to congestion levels**, while the current program has this logic but it may not be tuned optimally.\n\nThe recommendation is to implement **more aggressive congestion-aware tier promotion thresholds** that dynamically lower access_count requirements during extreme congestion (when cache misses are most costly) and raise them during idle periods (when eviction is less critical).\n\nThe insight is:\n- During **extreme congestion (>700)**: Lower thresholds to access_count >= 1 for warm and >= 2 for hot to identify working sets earlier, since each cache miss is very expensive\n- During **high congestion (500-700)**: Use moderate thresholds (access_count >= 1 for warm, >= 3 for hot)\n- During **normal congestion (300-500)**: Use standard thresholds (access_count >= 2 for warm, >= 4 for hot)\n- During **low congestion (<300)**: Raise thresholds to access_count >= 3 for warm and >= 5 for hot to maintain aggressive eviction\n\nThis creates a unified congestion-aware tier management system that extends the existing tier-specific adaptive windowing pattern to the promotion logic itself, which was the approach in the best prior program (Generation 7, score 324.29).\n\nAdditionally, the frequency score in `compute_folio_score` should be adjusted to better reflect the improved tier promotion dynamics.",
+  "error_msg": null,
+  "timestamp": "2026-03-10T00:10:52.102318",
+  "llm_cost": 0.060588,
+  "llm_model": null
+}

@@ -1,0 +1,14 @@
+{
+  "generation": 30,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_frequency_decay_tiering",
+  "patch_description": "## Key Parameter Analysis of Current Program\n\nThe current best program (score 324.29) uses:\n- Fixed decay windows (500ms base, scaling to 1.5s) that decay access_count by 1 per window\n- Linear frequency scoring (1\u219250, 2\u2192100, 3\u2192150, 4+\u2192300)\n- Burst intensity tracking with consecutive packet counting (0-20 packets)\n- Tier-specific recency windows with burst-based tightening (30-200ms cold, 80-400ms warm, 100-500ms hot)\n\nThe current submitted program (score 311.99) regressed because:\n1. It applies decay inside `compute_folio_score()` repeatedly during eviction, creating inconsistent scoring\n2. Decay happens on every eviction callback invocation, causing stale folios to artificially hold higher scores\n3. Burst tracking state (`consecutive_burst_packets`) updates during cold_list eviction only, missing updates in warm/hot callbacks\n4. The frequency bonus uses decayed counts inconsistently (decaying happens in scoring, not in metadata)\n\n## Proposed Improvements\n\n**Refined Frequency Decay Strategy:**\n- Apply exponential decay only on folio access (in `folio_accessed`), not during eviction scoring\n- Use steeper frequency curve: 1\u219235, 2\u219285, 3\u2192160, 4\u2192240, 5+\u2192300\n  - This discriminates better between access_count values\n  - Reduces artificial protection of aged high-frequency folios\n  - More aggressive decay of stale folios that were frequently accessed in the past\n\n**Improved Burst State Management:**\n- Update burst tracking in `evict_folios()` (once per eviction cycle) instead of per-callback\n- This avoids state thrashing and provides consistent burst intensity across all three list callbacks\n\n**Tier-Specific Frequency Thresholds:**\n- Implement different frequency score thresholds per tier\n- Hot tier holds higher protection threshold (requires higher frequency bonus to survive)\n- Cold tier more aggressive eviction despite frequency\n\n**Dynamic Congestion-Aware Decay:**\n- Scale decay window more aggressively (base 400ms\u21922s instead of 500ms\u21921.5s)\n- Higher congestion \u2192 longer protection (wider decay window)\n- Exponential decay (divide by 2) instead of linear (subtract 1) for older folios\n\n**Parameter Adjustments:**\n- BASE_DECAY_WINDOW_NS: 400ms (more aggressive initial decay)\n- Decay sensitivity multipliers: COLD=900, WARM=1300, HOT=1800 (slightly reduced from 1000/1500/2000)\n- Frequency curve: steeper, with better discrimination at access_count \u2265 3\n- Eviction thresholds per tier: cold=180, warm=220, hot=110 (tier-specific instead of unified scoring)",
+  "error_msg": null,
+  "timestamp": "2026-03-10T00:03:33.296781",
+  "llm_cost": 0.099983,
+  "llm_model": null
+}

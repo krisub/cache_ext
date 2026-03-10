@@ -1,0 +1,85 @@
+2026-03-09 15:00:08,485 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-09 15:22:28,820 INFO Acquired evaluation lock.
+2026-03-09 15:22:28,820 INFO === Step 0: Drop page cache ===
+2026-03-09 15:22:28,820 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-09 15:22:28,820 INFO CMD: sudo sync
+2026-03-09 15:22:29,061 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 15:22:29,764 INFO Page cache dropped.
+2026-03-09 15:22:29,764 INFO === Step 1: Compile evolved policy ===
+2026-03-09 15:22:29,764 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-09 15:22:30,096 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-09 15:22:32,539 ERROR Evaluation failed: RuntimeError: BPF compilation failed:
+STDOUT: 
+STDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:245:18: error: no member named 'sequential_count' in 'struct net_folio_metadata'
+    return meta->sequential_count >= SEQUENTIAL_THRESHOLD;
+           ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:396:10: error: field designator 'prev_index' does not refer to any field in type 'struct net_folio_metadata'
+        .prev_index    = folio_index(folio),
+         ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:397:10: error: field designator 'sequential_count' does not refer to any field in type 'struct net_folio_metadata'
+        .sequential_count = 0,
+         ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:423:14: error: field designator 'prev_index' does not refer to any field in type 'struct net_folio_metadata'
+            .prev_index    = folio_index(folio),
+             ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:424:14: error: field designator 'sequential_count' does not refer to any field in type 'struct net_folio_metadata'
+            .sequential_count = 0,
+             ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:439:29: error: no member named 'prev_index' in 'struct net_folio_metadata'
+    if (curr_index == meta->prev_index + 1 || 
+                      ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:440:29: error: no member named 'prev_index' in 'struct net_folio_metadata'
+        curr_index == meta->prev_index - 1) {
+                      ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:441:15: error: no member named 'sequential_count' in 'struct net_folio_metadata'
+        meta->sequential_count += 1;
+        ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:443:15: error: no member named 'sequential_count' in 'struct net_folio_metadata'
+        meta->sequential_count = 0;
+        ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:445:11: error: no member named 'prev_index' in 'struct net_folio_metadata'
+    meta->prev_index = curr_index;
+    ~~~~  ^
+10 errors generated.
+
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 462, in evaluate
+    loader_path = compile_bpf_policy(program_path, BUILD_DIR)
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 163, in compile_bpf_policy
+    raise RuntimeError(f"BPF compilation failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+RuntimeError: BPF compilation failed:
+STDOUT: 
+STDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:245:18: error: no member named 'sequential_count' in 'struct net_folio_metadata'
+    return meta->sequential_count >= SEQUENTIAL_THRESHOLD;
+           ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:396:10: error: field designator 'prev_index' does not refer to any field in type 'struct net_folio_metadata'
+        .prev_index    = folio_index(folio),
+         ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:397:10: error: field designator 'sequential_count' does not refer to any field in type 'struct net_folio_metadata'
+        .sequential_count = 0,
+         ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:423:14: error: field designator 'prev_index' does not refer to any field in type 'struct net_folio_metadata'
+            .prev_index    = folio_index(folio),
+             ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:424:14: error: field designator 'sequential_count' does not refer to any field in type 'struct net_folio_metadata'
+            .sequential_count = 0,
+             ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:439:29: error: no member named 'prev_index' in 'struct net_folio_metadata'
+    if (curr_index == meta->prev_index + 1 || 
+                      ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:440:29: error: no member named 'prev_index' in 'struct net_folio_metadata'
+        curr_index == meta->prev_index - 1) {
+                      ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:441:15: error: no member named 'sequential_count' in 'struct net_folio_metadata'
+        meta->sequential_count += 1;
+        ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:443:15: error: no member named 'sequential_count' in 'struct net_folio_metadata'
+        meta->sequential_count = 0;
+        ~~~~  ^
+/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:445:11: error: no member named 'prev_index' in 'struct net_folio_metadata'
+    meta->prev_index = curr_index;
+    ~~~~  ^
+10 errors generated.
+
+
+2026-03-09 15:22:32,544 INFO CMD: sudo cgdelete memory:cache_ext_test

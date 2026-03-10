@@ -1,0 +1,14 @@
+{
+  "generation": 8,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "tier_specific_recency_windows",
+  "patch_description": "The current program uses a single adaptive recency window (`get_adaptive_recent_window`) that scales uniformly across all tiers. However, the recommendation highlights that we should use **tier-specific recency window scaling with different congestion multipliers**.\n\nThe key insight is:\n- **Cold folios** should have a shorter, more aggressive recency window that scales faster with congestion, allowing aggressive eviction of cold pages while still protecting them during congestion.\n- **Warm folios** should have a moderate recency window that balances protection with eviction.\n- **Hot folios** should have a longer, more conservative recency window that scales slower with congestion, ensuring the working set is heavily protected even at low congestion.\n\nCurrently, the cold_list callback uses a fixed 500ms threshold regardless of congestion state. By making this tier-aware and congestion-adaptive, we can:\n1. Evict cold pages more aggressively in low-congestion periods (free up memory faster)\n2. Still protect cold pages during high congestion (avoid I/O thrashing)\n3. Protect warm and hot pages more aggressively, which are more likely to be accessed again\n\nThis should improve throughput by reducing memory waste on cold folios while protecting the working set better under various network conditions.\n\n**Changes:**\n1. Add three separate helper functions for tier-specific recency windows\n2. Modify `bpf_evict_cold_cb` to use aggressive cold-specific window that scales faster\n3. Update the warm and hot callbacks to use tier-specific windows",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:10:58.604215",
+  "llm_cost": 0.046006000000000005,
+  "llm_model": null
+}

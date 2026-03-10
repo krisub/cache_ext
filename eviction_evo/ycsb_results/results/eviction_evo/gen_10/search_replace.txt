@@ -1,0 +1,150 @@
+Looking at the performance progression across the generations, I can see a clear pattern:
+
+1. **Gen 0 (267.06)**: Basic network-aware LRU with fixed thresholds
+2. **Gen 1 (268.76)**: Added adaptive thresholds based on RTT and congestion
+3. **Gen 2 (270.50)**: Tightened time windows and added time-decay for access counts
+4. **Gen 3 (272.04)**: Added promoted tier and extended protection windows
+5. **Gen 4 (275.99)**: Introduced smoothed burst detection with adaptive decay windows
+6. **Current (270.98)**: Reverted to simpler decay model, lost 5 points
+
+The current program regressed from Gen 4 (275.99) because it switched from **adaptive decay windows** (which varied based on network congestion and burst state) back to a fixed `ACCESS_DECAY_HALF_LIFE_NS`. This is a step backward.
+
+The recommendation in the prompt suggests implementing **adaptive access count decay rates based on network state**. Looking at Gen 4, this was already partially implemented but the current version lost it.
+
+The key insight is:
+- **During congestion** (net_lost > 0 or net_retrans_out > 0): Accelerate decay (250ms) to free cache for current working set
+- **During bursts** (small inter-arrival): Extend decay (750ms) to retain hot pages longer
+- **Normal conditions**: Use baseline (500ms)
+
+Let me restore and refine this approach:
+
+<NAME>
+adaptive_decay_windows_network_state
+</NAME>
+
+<DESCRIPTION>
+The current program uses a fixed ACCESS_DECAY_HALF_LIFE_NS of 500ms, which caused regression from Gen 4's score of 275.99 to 270.98. Gen 4 achieved better performance by adapting the decay window based on real-time network conditions.
+
+The key improvement is to make access count decay adaptive:
+1. **Congestion state** (net_lost > 0 or net_retrans_out > 0): Accelerate decay to 250ms to aggressively free cache for current working set, since cache misses are expensive during congestion
+2. **Burst state** (smoothed inter-arrival < 10ms): Extend decay to 750ms to retain hot pages longer, since rapid re-accesses are expected
+3. **Normal state**: Use baseline 500ms
+
+This couples decay directly to network state, making the eviction policy more responsive to actual network conditions. The improvement aligns with the recommendation and restores the Gen 4 strategy that achieved 275.99.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// Access decay half-life: accesses older than this decay to half value
+#define ACCESS_DECAY_HALF_LIFE_NS 500000000ULL  // 500 ms
+// Smoothing factor for burst detection (3 = 1/8 = 0.125 alpha)
+#define BURST_SMOOTH_SHIFT       3
+
+// -- Helper: update smoothed burst rate ----------------------------------------
+static __always_inline void update_smoothed_burst_rate(void)
+{
+    u64 inter_arrival = (last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : 0;
+
+    if (inter_arrival > 0) {
+        // Exponential smoothing: smooth_new = (7/8)*smooth_old + (1/8)*measurement
+        smoothed_inter_arrival_ns = (smoothed_inter_arrival_ns * 7) / 8 +
+                                     (inter_arrival * 1) / 8;
+    }
+}
+
+// -- Helper: compute effective access count with time decay -------------------
+static __always_inline u32 get_effective_access_count(struct net_folio_metadata *meta, u64 now)
+{
+    if (!meta || meta->access_count == 0)
+        return 0;
+
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+
+    // Decay: each half-life period, count is divided by 2
+    u32 decayed = meta->access_count;
+    u64 remaining_age = age;
+    while (remaining_age > ACCESS_DECAY_HALF_LIFE_NS && decayed > 1) {
+        decayed = decayed / 2;
+        remaining_age -= ACCESS_DECAY_HALF_LIFE_NS;
+    }
+
+    return decayed;
+}
+=======
+// Adaptive decay windows (in nanoseconds)
+#define ACCESS_DECAY_WINDOW_NORMAL_NS    500000000ULL   // 500 ms (baseline)
+#define ACCESS_DECAY_WINDOW_CONGESTION_NS 250000000ULL  // 250 ms (accelerated during congestion)
+#define ACCESS_DECAY_WINDOW_BURST_NS     750000000ULL   // 750 ms (extended during bursts)
+// Smoothing factor for burst detection (3 = 1/8 = 0.125 alpha)
+#define BURST_SMOOTH_SHIFT       3
+
+// -- Helper: update smoothed burst rate ----------------------------------------
+static __always_inline void update_smoothed_burst_rate(void)
+{
+    u64 inter_arrival = (last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : 0;
+
+    if (inter_arrival > 0) {
+        // Exponential smoothing: smooth_new = (7/8)*smooth_old + (1/8)*measurement
+        smoothed_inter_arrival_ns = (smoothed_inter_arrival_ns * 7) / 8 +
+                                     (inter_arrival * 1) / 8;
+    }
+}
+
+// -- Helper: get adaptive decay window based on network state -----------------
+static __always_inline u64 get_adaptive_decay_window_ns(void)
+{
+    // Detect network congestion
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+
+    // If congested, use accelerated decay (250ms) to free cache for current working set
+    if (is_congested) {
+        return ACCESS_DECAY_WINDOW_CONGESTION_NS;
+    }
+
+    // Detect burst: if smoothed inter-arrival is small, we're in a burst
+    u64 burst_threshold_ns = BURST_THRESHOLD_US * 1000;
+    if (smoothed_inter_arrival_ns > 0 && smoothed_inter_arrival_ns < burst_threshold_ns) {
+        // During burst, extend decay (750ms) to retain hot pages longer
+        return ACCESS_DECAY_WINDOW_BURST_NS;
+    }
+
+    // Normal conditions: use baseline decay
+    return ACCESS_DECAY_WINDOW_NORMAL_NS;
+}
+
+// -- Helper: compute effective access count with adaptive time decay -----------
+static __always_inline u32 get_effective_access_count(struct net_folio_metadata *meta, u64 now)
+{
+    if (!meta || meta->access_count == 0)
+        return 0;
+
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 decay_window = get_adaptive_decay_window_ns();
+
+    // Decay: each decay window period, count is divided by 2
+    u32 decayed = meta->access_count;
+    u64 remaining_age = age;
+    while (remaining_age > decay_window && decayed > 1) {
+        decayed = decayed / 2;
+        remaining_age -= decay_window;
+    }
+
+    return decayed;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // During network congestion, protect hot pages but only if recently accessed
+    if (is_congested && is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+=======
+    // During network congestion, protect hot pages using adaptive decay window
+    u64 decay_window = get_adaptive_decay_window_ns();
+    if (is_congested && is_hot && (now - meta->last_access_ts) < decay_window)
+        return CACHE_EXT_CONTINUE_ITER;
+>>>>>>> REPLACE
+</DIFF>

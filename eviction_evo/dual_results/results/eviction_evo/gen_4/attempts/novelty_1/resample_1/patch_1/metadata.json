@@ -1,0 +1,14 @@
+{
+  "generation": 4,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_lru_with_request_phase_detection",
+  "patch_description": "This novel approach combines insights from the prior programs but implements a fundamentally different strategy:\n\n**Key innovations:**\n\n1. **Request Phase Detection**: Instead of just measuring inter-arrival time, we track the *rate of change* in packet arrival patterns to detect phase transitions (e.g., from slow writes to fast reads). This allows us to anticipate workload shifts and pre-emptively adjust protection levels.\n\n2. **Dual-Window Recency with Phase Awareness**: Rather than a single adaptive window, we maintain two overlapping recency windows\u2014a \"fast phase\" window (for burst reads) and a \"slow phase\" window (for writes). The policy dynamically weights between them based on detected phase.\n\n3. **Congestion-Aware Frequency Decay**: Unlike prior approaches that treat access count as a fixed score, we decay the frequency contribution during high congestion. High-frequency pages become less valuable when the network is bottlenecked (since they likely represent sequential scans that don't benefit from caching during congestion).\n\n4. **Predictive Eviction Scoring**: We compute a \"future value\" score that estimates whether a folio will be re-accessed in the next network round-trip time (RTT). Pages with high predicted future value are protected even if currently cold.\n\n5. **Simplified Multi-Tier with Phase-Driven Promotion**: Instead of promoting on every access, we only promote when the access pattern matches the current phase. This reduces list churn and keeps hot pages more stable.\n\n6. **Network Metric Fusion**: We fuse multiple network signals (RTT, jitter, loss, cwnd pressure, inter-arrival variance) into a single \"network health score\" that drives all eviction decisions, ensuring consistent behavior across metrics.\n\n**How it differs from prior work:**\n- Prior programs used static or linearly-scaled thresholds; this uses phase-detection to anticipate workload changes.\n- Prior programs treated frequency as always protective; this recognizes that during congestion, sequential scans (high frequency, low reuse distance) should be evicted preferentially.\n- Prior programs adapted windows independently; this fuses metrics into a holistic health score.\n- This approach uses predictive scoring (will this page be needed soon?) rather than reactive scoring (was this page used recently?).",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:02:08.889863",
+  "llm_cost": 0.053570000000000007,
+  "llm_model": null
+}

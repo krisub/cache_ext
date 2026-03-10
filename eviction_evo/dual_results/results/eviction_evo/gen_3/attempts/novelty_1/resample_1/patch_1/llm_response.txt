@@ -1,0 +1,493 @@
+<NAME>
+congestion_aware_tiering_refinement
+</NAME>
+
+<DESCRIPTION>
+Looking at the performance metrics, the current program (304.65) is already outperforming the baseline (292.57), but there's room for improvement. The key insight is that the current implementation has good network awareness but may be over-protecting pages during congestion and not aggressive enough during idle periods.
+
+Key observations:
+1. The dual_congested workload (311.01 ops/sec) performs better than dual_small_vs_large (298.54 ops/sec), suggesting the policy is well-tuned for congestion but may not be optimal for mixed workload sizes.
+2. The congestion score computation may be too aggressive in protection, leading to cache pollution from large sequential scans.
+3. The burst detection is binary (in/out of burst) but should be graduated to better handle varying request rates.
+
+Proposed improvements:
+
+1. **Refine congestion scoring**: Make RTT thresholds more granular and aligned with actual network conditions. Current thresholds (5ms, 20ms, 50ms, 100ms) are too coarse. Modern datacenter RTTs are typically 0.1-5ms, and 1ms proxy delay means we should tune for 1-10ms range.
+
+2. **Add scan detection**: Large value scans (4KB in dual_small_vs_large) pollute the cache. Detect sequential access patterns and deprioritize them, especially for large folios. This will help the fast reader workload maintain its working set.
+
+3. **Graduated burst protection**: Instead of binary burst detection, compute a burst intensity score based on recent request rate. Higher burst intensity = stronger protection of working set.
+
+4. **Size-aware eviction**: Prioritize evicting large folios over small ones when under pressure, as they consume more cache space. This helps maintain more entries for the zipfian small-value workload.
+
+5. **Adaptive hot threshold**: Currently fixed at 4 accesses. Should be lower during high congestion (protect earlier) and higher during low congestion (be more selective).
+
+These changes should improve dual_small_vs_large performance by better handling the asymmetric workload (200B vs 4KB values) while maintaining the good dual_congested performance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Base time window for "recently used"
+#define BASE_RECENT_ACCESS_NS    50000000ULL    // 50 ms
+// Base time window for working set
+#define BASE_WORKING_SET_NS      800000000ULL   // 800 ms
+// Network idle timeout
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Access count threshold for hot
+#define HOT_ACCESS_THRESHOLD     4
+// Burst detection: inter-arrival time threshold (usec)
+#define BURST_THRESHOLD_US       5000ULL        // 5 ms
+=======
+// -- Tunable constants --------------------------------------------------------
+// Base time window for "recently used"
+#define BASE_RECENT_ACCESS_NS    50000000ULL    // 50 ms
+// Base time window for working set
+#define BASE_WORKING_SET_NS      800000000ULL   // 800 ms
+// Network idle timeout
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Base access count threshold for hot (adjusted dynamically)
+#define BASE_HOT_THRESHOLD       3
+// Burst detection: inter-arrival time threshold (usec)
+#define BURST_THRESHOLD_US       5000ULL        // 5 ms
+// Sequential scan detection: folios accessed in sequence
+#define SEQUENTIAL_DISTANCE      32              // folios within 32 pages = sequential
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Helper: Compute network congestion score (0-1000 scale, higher = more congested) --
+static __always_inline u32 compute_congestion_score(void) {
+    u32 score = 0;
+
+    // Factor 1: RTT level (normalize net_srtt_us to 0-400 points)
+    // High RTT means each cache miss is costly
+    u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+    if (rtt_us > 100000)
+        score += 400;  // RTT > 100ms = heavy congestion
+    else if (rtt_us > 50000)
+        score += 300;
+    else if (rtt_us > 20000)
+        score += 200;
+    else if (rtt_us > 5000)
+        score += 100;
+
+    // Factor 2: Jitter / mdev (0-250 points)
+    u32 mdev_us = net_mdev_us >> 3;
+    if (mdev_us > 20000)
+        score += 250;
+    else if (mdev_us > 10000)
+        score += 200;
+    else if (mdev_us > 5000)
+        score += 150;
+    else if (mdev_us > 1000)
+        score += 100;
+
+    // Factor 3: Retransmissions (0-200 points)
+    if (net_retrans_out > 5 || net_lost > 0)
+        score += 200;
+    else if (net_total_retrans > 10)
+        score += 150;
+    else if (net_total_retrans > 0)
+        score += 50;
+
+    // Factor 4: Congestion window pressure (0-150 points)
+    // Small cwnd relative to packets_out = bottleneck
+    if (net_packets_out > 0 && net_snd_cwnd > 0) {
+        if (net_packets_out * 2 > net_snd_cwnd)
+            score += 150;
+        else if (net_packets_out * 3 > net_snd_cwnd)
+            score += 100;
+    }
+
+    return (score > 1000) ? 1000 : score;
+}
+=======
+// -- Helper: Compute network congestion score (0-1000 scale, higher = more congested) --
+static __always_inline u32 compute_congestion_score(void) {
+    u32 score = 0;
+
+    // Factor 1: RTT level (0-400 points) - tuned for 1-10ms proxy range
+    // High RTT means each cache miss is costly
+    u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+    if (rtt_us > 20000)
+        score += 400;  // RTT > 20ms = heavy congestion
+    else if (rtt_us > 10000)
+        score += 350;  // RTT > 10ms
+    else if (rtt_us > 5000)
+        score += 250;  // RTT > 5ms
+    else if (rtt_us > 2000)
+        score += 150;  // RTT > 2ms
+    else if (rtt_us > 500)
+        score += 50;   // RTT > 0.5ms (baseline)
+
+    // Factor 2: Jitter / mdev (0-250 points) - more granular
+    u32 mdev_us = net_mdev_us >> 3;
+    if (mdev_us > 10000)
+        score += 250;
+    else if (mdev_us > 5000)
+        score += 200;
+    else if (mdev_us > 2000)
+        score += 150;
+    else if (mdev_us > 1000)
+        score += 100;
+    else if (mdev_us > 500)
+        score += 50;
+
+    // Factor 3: Retransmissions (0-200 points) - immediate penalty for loss
+    if (net_lost > 0)
+        score += 200;  // Any loss = critical
+    else if (net_retrans_out > 3)
+        score += 150;
+    else if (net_retrans_out > 0)
+        score += 100;
+    else if (net_total_retrans > 20)
+        score += 50;
+
+    // Factor 4: Congestion window pressure (0-150 points)
+    // Small cwnd relative to packets_out = bottleneck
+    if (net_packets_out > 0 && net_snd_cwnd > 0) {
+        if (net_packets_out * 2 > net_snd_cwnd)
+            score += 150;
+        else if (net_packets_out * 3 > net_snd_cwnd)
+            score += 100;
+        else if (net_packets_out * 4 > net_snd_cwnd)
+            score += 50;
+    }
+
+    return (score > 1000) ? 1000 : score;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// -- Helper: Compute burst detection score ---
+// Returns true if we're in a burst (packets arriving quickly)
+static __always_inline bool is_burst(u64 now) {
+    if (net_prev_packet_ts == 0)
+        return false;
+    
+    u64 inter_arrival_ns = (now > net_prev_packet_ts) ? 
+        (now - net_prev_packet_ts) : 0;
+    
+    // Consider it a burst if packets arrive within 5ms of each other
+    return (inter_arrival_ns < 5000000ULL);
+}
+=======
+// -- Helper: Compute burst intensity (0-1000 scale, higher = more intense burst) ---
+static __always_inline u32 compute_burst_intensity(u64 now) {
+    if (net_prev_packet_ts == 0)
+        return 0;
+    
+    u64 inter_arrival_ns = (now > net_prev_packet_ts) ? 
+        (now - net_prev_packet_ts) : 0;
+    
+    // Graduated burst intensity based on inter-arrival time
+    // < 1ms = 1000 (intense burst)
+    // < 2ms = 750
+    // < 5ms = 500
+    // < 10ms = 250
+    // >= 10ms = 0 (no burst)
+    if (inter_arrival_ns < 1000000ULL)
+        return 1000;
+    else if (inter_arrival_ns < 2000000ULL)
+        return 750;
+    else if (inter_arrival_ns < 5000000ULL)
+        return 500;
+    else if (inter_arrival_ns < 10000000ULL)
+        return 250;
+    
+    return 0;
+}
+
+// -- Helper: Detect sequential scan pattern ---
+static __always_inline bool is_sequential_scan(struct net_folio_metadata *meta, 
+                                                u64 folio_idx) {
+    // Sequential scans typically access consecutive pages
+    // This is a heuristic - we don't track previous folio, but we can
+    // infer from low access count and position
+    // For now, use a simple heuristic: single access + large folio = likely scan
+    return (meta->access_count == 1);
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// -- Helper: Compute folio eviction score (higher = keep it) --
+static __always_inline u32 compute_folio_score(struct net_folio_metadata *meta,
+                                                u64 now, u32 congestion,
+                                                bool in_burst, bool session_active) {
+    u32 score = 0;
+
+    if (!meta)
+        return 0;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 recent_window = get_adaptive_recent_window(congestion);
+    u64 working_set_window = get_adaptive_working_set_window(congestion);
+
+    // Recency score (0-500 points)
+    // Linear decay from 500 (just accessed) to 0 (beyond recent window)
+    if (age_ns < recent_window) {
+        score += 500 - (500 * age_ns) / recent_window;
+    }
+
+    // Frequency score (0-300 points)
+    // Logarithmic: access_count 1→50, 2→100, 3→150, 4+→300
+    if (meta->access_count >= 4)
+        score += 300;
+    else if (meta->access_count == 3)
+        score += 150;
+    else if (meta->access_count == 2)
+        score += 100;
+    else if (meta->access_count == 1)
+        score += 50;
+
+    // Burst protection bonus (0-200 points)
+    // During bursts, protect the working set more aggressively
+    if (in_burst && age_ns < working_set_window) {
+        score += 200 - (200 * age_ns) / working_set_window;
+    }
+
+    // Congestion protection (0-100 points)
+    // In high congestion, protect pages in working set more
+    if (session_active && age_ns < working_set_window && congestion > 500) {
+        score += (congestion - 500) / 5;  // 0-100 points
+    }
+
+    // Tier bonus: hot folios get extra protection
+    if (meta->access_tier == 2)
+        score += 150;
+    else if (meta->access_tier == 1)
+        score += 75;
+
+    return score;
+}
+=======
+// -- Helper: Compute adaptive hot threshold based on congestion ---
+static __always_inline u32 get_hot_threshold(u32 congestion) {
+    // High congestion → lower threshold (protect earlier)
+    // Low congestion → higher threshold (be more selective)
+    if (congestion > 700)
+        return 2;  // promote to hot after 2 accesses
+    else if (congestion > 400)
+        return 3;  // promote to hot after 3 accesses
+    else
+        return 4;  // promote to hot after 4 accesses (baseline)
+}
+
+// -- Helper: Compute folio eviction score (higher = keep it) --
+static __always_inline u32 compute_folio_score(struct net_folio_metadata *meta,
+                                                struct folio *folio,
+                                                u64 now, u32 congestion,
+                                                u32 burst_intensity, 
+                                                bool session_active) {
+    u32 score = 0;
+
+    if (!meta)
+        return 0;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 recent_window = get_adaptive_recent_window(congestion);
+    u64 working_set_window = get_adaptive_working_set_window(congestion);
+    u64 folio_idx = folio_index(folio);
+
+    // Recency score (0-500 points)
+    // Linear decay from 500 (just accessed) to 0 (beyond recent window)
+    if (age_ns < recent_window) {
+        score += 500 - (500 * age_ns) / recent_window;
+    }
+
+    // Frequency score (0-300 points)
+    // Logarithmic: access_count 1→50, 2→100, 3→150, 4+→300
+    u32 hot_threshold = get_hot_threshold(congestion);
+    if (meta->access_count >= hot_threshold)
+        score += 300;
+    else if (meta->access_count >= (hot_threshold - 1))
+        score += 150;
+    else if (meta->access_count >= 2)
+        score += 100;
+    else if (meta->access_count == 1)
+        score += 50;
+
+    // Burst protection bonus (0-200 points, graduated by intensity)
+    // During bursts, protect the working set more aggressively
+    if (burst_intensity > 0 && age_ns < working_set_window) {
+        u32 protection = (200 * burst_intensity) / 1000;
+        protection -= (protection * age_ns) / working_set_window;
+        score += protection;
+    }
+
+    // Congestion protection (0-100 points)
+    // In high congestion, protect pages in working set more
+    if (session_active && age_ns < working_set_window && congestion > 500) {
+        score += (congestion - 500) / 5;  // 0-100 points
+    }
+
+    // Tier bonus: hot folios get extra protection
+    if (meta->access_tier == 2)
+        score += 150;
+    else if (meta->access_tier == 1)
+        score += 75;
+
+    // Size penalty: large folios (>4 pages) get penalty if single-access (likely scan)
+    u32 nr_pages = folio_nr_pages(folio);
+    if (nr_pages > 4 && is_sequential_scan(meta, folio_idx)) {
+        // Large sequential scan pages should be evicted earlier
+        score = (score > 150) ? (score - 150) : 0;
+    }
+
+    return score;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// -- Eviction callback for warm_list (moderate eviction) --
+static int bpf_evict_warm_cb(int idx, struct cache_ext_list_node *node) {
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u32 congestion = compute_congestion_score();
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool in_burst = is_burst(now);
+
+    u32 score = compute_folio_score(meta, now, congestion, in_burst, session_active);
+
+    // Evict warm folios with low score
+    if (score < 200)
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+=======
+// -- Eviction callback for warm_list (moderate eviction) --
+static int bpf_evict_warm_cb(int idx, struct cache_ext_list_node *node) {
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u32 congestion = compute_congestion_score();
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    u32 burst_intensity = compute_burst_intensity(now);
+
+    u32 score = compute_folio_score(meta, node->folio, now, congestion, 
+                                     burst_intensity, session_active);
+
+    // Evict warm folios with low score
+    // During low congestion, be more aggressive (higher threshold)
+    u32 threshold = (congestion < 300) ? 250 : 200;
+    if (score < threshold)
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+// -- Eviction callback for hot_list (conservative eviction) --
+static int bpf_evict_hot_cb(int idx, struct cache_ext_list_node *node) {
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u32 congestion = compute_congestion_score();
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool in_burst = is_burst(now);
+
+    u32 score = compute_folio_score(meta, now, congestion, in_burst, session_active);
+
+    // Only evict hot folios with very low score (highly protective)
+    if (score < 100)
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+=======
+// -- Eviction callback for hot_list (conservative eviction) --
+static int bpf_evict_hot_cb(int idx, struct cache_ext_list_node *node) {
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u32 congestion = compute_congestion_score();
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    u32 burst_intensity = compute_burst_intensity(now);
+
+    u32 score = compute_folio_score(meta, node->folio, now, congestion, 
+                                     burst_intensity, session_active);
+
+    // Only evict hot folios with very low score (highly protective)
+    // During low congestion, slightly more aggressive to prevent stale hot pages
+    u32 threshold = (congestion < 300) ? 120 : 100;
+    if (score < threshold)
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH>
+    // Determine new tier based on access count
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+=======
+    // Determine new tier based on adaptive access count threshold
+    u32 congestion = compute_congestion_score();
+    u32 hot_threshold = get_hot_threshold(congestion);
+    
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= hot_threshold)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,128 @@
+Looking at the performance metrics across the prior programs, I can see a clear pattern:
+
+1. **Programs with steeper frequency curves** (the third program with "effective_access_count" and decay) achieved **317.38**, close to the best
+2. **The most recent best program (324.29)** simplified the approach back to basic frequency bonuses
+3. **The current program (310.60)** has regressed, particularly on `dual_small_vs_large` (303.20 vs prior 314.32)
+
+The key insight from the recommendation is that **the frequency bonus curve is too generous for high-access-count folios**. The current code gives 300 points for `access_count >= 4`, which means very old but frequently-accessed folios are protected too aggressively, preventing their eviction during workload transitions.
+
+The best prior program (324.29) kept the tier-specific recency windows but had simpler, more discriminating frequency bonuses. The current program has regressed by keeping access_count decay disabled during active sessions, which over-protects stale high-frequency pages.
+
+**My recommendation**: Implement a **steeper, capped logarithmic frequency bonus** that discriminates better between access counts, especially at high counts. This will:
+- Allow faster eviction of aged, frequently-accessed folios
+- Improve cache efficiency during workload transitions (fixing the small_vs_large regression)
+- Better leverage the tier-specific time windows that work well
+
+<NAME>
+steeper_frequency_bonus_with_cap
+</NAME>
+
+<DESCRIPTION>
+The current frequency bonus curve (1→50, 2→100, 3→150, 4+→300) over-protects folios with access_count >= 4, especially when they've aged beyond the recent window. This causes poor eviction decisions during workload transitions and when the working set changes.
+
+The recommendation to implement a steeper logarithmic curve with diminishing returns above access_count=3 directly addresses this. By capping the bonus at 280 points instead of 300, and adding finer discrimination at access_count=5+, we enable faster eviction of genuinely stale high-frequency folios while still protecting recently-accessed ones.
+
+This change specifically targets the dual_small_vs_large trace regression (from 314.32→303.20), where the writer (4KB values, uniform access) dominates after the reader phase, and stale reader pages with high access_count should be evicted faster.
+
+The modification keeps the multi-factor scoring architecture intact (recency, frequency, burst protection, congestion) while refining the frequency component's sensitivity curve.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Helper: Compute folio eviction score (higher = keep it) --
+static __always_inline u32 compute_folio_score(struct net_folio_metadata *meta,
+                                                u64 now, u32 congestion,
+                                                bool in_burst, bool session_active) {
+    u32 score = 0;
+
+    if (!meta)
+        return 0;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 recent_window = get_adaptive_recent_window(congestion);
+    u64 working_set_window = get_adaptive_working_set_window(congestion);
+
+    // Recency score (0-500 points)
+    // Piecewise-linear decay with steeper initial slope:
+    // - First 40% of window: 350 points (steep decay)
+    // - Remaining 60%: 150 points (gentler decay)
+    if (age_ns < recent_window) {
+        u64 knee_point = (recent_window * 40) / 100;  // 40% of window
+        if (age_ns < knee_point) {
+            // Steep initial decay: 500 → 150 over first 40% of window
+            score += 500 - (350 * age_ns) / knee_point;
+        } else {
+            // Gentler tail decay: 150 → 0 over remaining 60% of window
+            u64 age_past_knee = age_ns - knee_point;
+            u64 remaining_window = recent_window - knee_point;
+            score += 150 - (150 * age_past_knee) / remaining_window;
+        }
+    }
+
+    // Frequency score (0-300 points)
+    // Logarithmic: access_count 1→50, 2→100, 3→150, 4+→300
+    if (meta->access_count >= 4)
+        score += 300;
+    else if (meta->access_count == 3)
+        score += 150;
+    else if (meta->access_count == 2)
+        score += 100;
+    else if (meta->access_count == 1)
+        score += 50;
+=======
+// -- Helper: Compute folio eviction score (higher = keep it) --
+static __always_inline u32 compute_folio_score(struct net_folio_metadata *meta,
+                                                u64 now, u32 congestion,
+                                                bool in_burst, bool session_active) {
+    u32 score = 0;
+
+    if (!meta)
+        return 0;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 recent_window = get_adaptive_recent_window(congestion);
+    u64 working_set_window = get_adaptive_working_set_window(congestion);
+
+    // Recency score (0-500 points)
+    // Piecewise-linear decay with steeper initial slope:
+    // - First 40% of window: 350 points (steep decay)
+    // - Remaining 60%: 150 points (gentler decay)
+    if (age_ns < recent_window) {
+        u64 knee_point = (recent_window * 40) / 100;  // 40% of window
+        if (age_ns < knee_point) {
+            // Steep initial decay: 500 → 150 over first 40% of window
+            score += 500 - (350 * age_ns) / knee_point;
+        } else {
+            // Gentler tail decay: 150 → 0 over remaining 60% of window
+            u64 age_past_knee = age_ns - knee_point;
+            u64 remaining_window = recent_window - knee_point;
+            score += 150 - (150 * age_past_knee) / remaining_window;
+        }
+    }
+
+    // Frequency score (0-280 points)
+    // Steeper logarithmic with diminishing returns above access_count=3:
+    // access_count 1→40, 2→90, 3→160, 4→220, 5+→280 (capped)
+    // This enables faster eviction of stale high-frequency folios
+    if (meta->access_count >= 5)
+        score += 280;
+    else if (meta->access_count == 4)
+        score += 220;
+    else if (meta->access_count == 3)
+        score += 160;
+    else if (meta->access_count == 2)
+        score += 90;
+    else if (meta->access_count == 1)
+        score += 40;
+>>>>>>> REPLACE
+
+</DIFF>
+
+This single targeted change:
+
+1. **Reduces the max bonus from 300→280**, making it harder for aged folios to survive eviction
+2. **Steepens the curve for lower counts** (1→40, 2→90 instead of 1→50, 2→100) so very recent single-accesses are less protected
+3. **Adds discrimination at high counts** (4→220 vs 5+→280) so access_count=4 folios older than the recent window are more likely to be evicted
+4. **Preserves the architectural benefits** of the multi-factor scoring (burst protection, tier bonuses, congestion awareness still apply)
+
+The effect on the failing trace: During the `dual_small_vs_large` workload transition from reader (high-frequency small objects) to writer (uniform large objects), folios with access_count=4 from the reader phase will now score ≤220+75 (tier bonus)=295 when aged, making them evictable if they fall outside the recent window—enabling faster cache reclamation for the new write workload.

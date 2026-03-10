@@ -1,0 +1,72 @@
+<NAME>
+reverse_iteration_extreme_congestion
+</NAME>
+
+<DESCRIPTION>
+The current program always iterates cold→warm→hot in fixed order during eviction, which may be suboptimal during extreme network congestion. When congestion score exceeds 750 (indicating severe network degradation with high RTT, jitter, and packet loss), each cache miss becomes extremely expensive. In this regime, we should prioritize protecting the hot working set by quickly identifying and preserving critical hot folios before spending time scanning cold/warm lists.
+
+The recommendation suggests reversing iteration order to hot→warm→cold during extreme congestion and using `bpf_cache_ext_list_sample()` with a low sampling ratio (15-20%) on the hot list. This approach:
+
+1. **Reduces eviction latency during congestion**: By sampling the hot list first with ~15-20% ratio, we quickly identify and protect truly critical hot folios without full iteration overhead
+2. **Prioritizes working set protection**: Hot folios are checked first when protection is most critical (extreme congestion = expensive misses)
+3. **Maintains efficiency**: Sampling avoids the overhead of full hot list iteration while still protecting the most important pages
+4. **Adapts to network conditions**: Only activates during extreme congestion (score > 750), maintaining normal cold→warm→hot order otherwise
+
+This should improve p99 latencies in the dual_congested scenario (currently 167ms) by reducing the time spent in eviction during congestion spikes and better protecting the working set when network conditions make cache misses most expensive.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Evict from cold list first (most aggressive)
+    bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+
+    // Then warm list
+    bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+
+    // Finally hot list (most conservative)
+    bpf_cache_ext_list_iterate(memcg, hot_list, bpf_evict_hot_cb, eviction_ctx);
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Compute congestion to decide iteration strategy
+    u32 congestion = compute_congestion_score();
+
+    // Extreme congestion (>750): reverse order with hot list sampling
+    // to quickly protect critical working set before scanning cold/warm
+    if (congestion > 750) {
+        // Sample hot list first (15% ratio) to quickly identify and protect
+        // truly critical hot folios without full iteration overhead
+        bpf_cache_ext_list_sample(memcg, hot_list, bpf_evict_hot_cb, 15, eviction_ctx);
+
+        // Then warm list (moderate protection)
+        bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+
+        // Finally cold list (most aggressive eviction)
+        bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+    } else {
+        // Normal congestion: standard cold→warm→hot order
+        // Evict from cold list first (most aggressive)
+        bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+
+        // Then warm list
+        bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+
+        // Finally hot list (most conservative)
+        bpf_cache_ext_list_iterate(memcg, hot_list, bpf_evict_hot_cb, eviction_ctx);
+    }
+}
+>>>>>>> REPLACE
+</DIFF>

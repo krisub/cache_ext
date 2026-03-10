@@ -1,0 +1,4 @@
+{
+  "correct": false,
+  "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:286:28: error: no member named 'phase_tag' in 'struct net_folio_metadata'\n    if (phase > 0 && meta->phase_tag == phase) {\n                     ~~~~  ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:444:10: error: field designator 'phase_tag' does not refer to any field in type 'struct net_folio_metadata'\n        .phase_tag     = current_phase,\n         ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:469:14: error: field designator 'phase_tag' does not refer to any field in type 'struct net_folio_metadata'\n            .phase_tag     = current_phase,\n             ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:482:15: error: no member named 'phase_tag' in 'struct net_folio_metadata'\n        meta->phase_tag = current_phase;\n        ~~~~  ^\n4 errors generated.\n"
+}

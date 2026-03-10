@@ -39,7 +39,7 @@ db_config:
   island_spawn_subtree_size: 2
 
 evo_config:
-  # ── Patch settings ────────────────────────────────────────────────
+  # -- Patch settings ----------------------------------------------------------
   patch_types:
     - diff
     - full
@@ -47,19 +47,19 @@ evo_config:
     - 0.7
     - 0.3
 
-  # ── Evolution loop ────────────────────────────────────────────────
+  # -- Evolution loop ----------------------------------------------------------
   num_generations: 50
-  max_api_costs: 10.0        # USD budget
+  max_api_costs: 5.0        # USD budget
   max_patch_resamples: 3
   max_patch_attempts: 3
   max_novelty_attempts: 2
   job_type: local
 
-  # ── Language ──────────────────────────────────────────────────────
+  # -- Language ----------------------------------------------------------------
   language: c
   init_program_path: initial.c
 
-  # ── LLM models (AWS Bedrock) ──────────────────────────────────────
+  # -- LLM models (AWS Bedrock) ------------------------------------------------
   # These require AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_REGION_NAME
   # in /mydata/ShinkaEvolve/.env (or exported in the environment).
   llm_models:
@@ -76,7 +76,7 @@ evo_config:
       - high
     max_tokens: 32768
 
-  # ── Meta-recommendation ───────────────────────────────────────────
+  # -- Meta-recommendation -----------------------------------------------------
   meta_rec_interval: 5
   meta_llm_models:
     - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -85,27 +85,27 @@ evo_config:
       - 0
     max_tokens: 16384
 
-  # ── Embeddings (disabled — no OpenAI key needed) ──────────────────
+  # -- Embeddings (disabled — no OpenAI key needed) ----------------------------
   embedding_model: null
   code_embed_sim_threshold: 1.0
 
-  # ── Novelty checking ──────────────────────────────────────────────
+  # -- Novelty checking --------------------------------------------------------
   novelty_llm_models:
     - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
   novelty_llm_kwargs:
     temperatures:
       - 0
 
-  # ── Dynamic model selection ───────────────────────────────────────
+  # -- Dynamic model selection -------------------------------------------------
   llm_dynamic_selection: ucb1
   llm_dynamic_selection_kwargs:
     exploration_coef: 1.0
     cost_aware_coef: 0.7
 
-  # ── Output ────────────────────────────────────────────────────────
+  # -- Output ------------------------------------------------------------------
   results_dir: results/eviction_evo
 
-  # ── Prompt evolution ──────────────────────────────────────────────
+  # -- Prompt evolution --------------------------------------------------------
   evolve_prompts: true
   prompt_evolution_interval: 5
   prompt_patch_types: ["diff", "full"]
@@ -115,21 +115,44 @@ evo_config:
   prompt_ucb_exploration_constant: 2.0
   prompt_epsilon: 0.25
 
-  # ── Task system message ───────────────────────────────────────────
+  # -- Task system message -----------------------------------------------------
   # This tells the LLM what it's optimizing and what tools it has.
   task_sys_msg: |
     You are an expert systems programmer optimizing a Linux eBPF page-cache
-    eviction policy. Your goal is to MAXIMIZE throughput (ops/sec) of a
-    networked LevelDB database that relies entirely on the OS page cache.
+    eviction policy. Your goal is to MAXIMIZE throughput (ops/sec) across
+    MULTIPLE workloads on a networked LevelDB database that relies entirely
+    on the OS page cache.
 
     ## Architecture
     - A LevelDB TCP server (net_leveldb_server) runs inside a memory-limited
-      cgroup. With block_cache=NULL, every read goes through the OS page cache.
+      cgroup (512 MiB). With block_cache=NULL, every read goes through the OS page cache.
     - A YCSB client sends GET/PUT/SCAN/RMW requests over TCP from outside the
       cgroup.
     - Your eviction policy (eBPF struct_ops for cache_ext) controls which
       pages stay in the constrained page cache and which get evicted.
-    - The metric to maximize is total throughput in ops/sec.
+
+    ## Multi-Workload Evaluation
+    Your policy is tested against 2 dual-client workload traces in sequence.
+    The combined score is the HARMONIC MEAN of throughputs across all traces.
+    This means scoring 0 on ANY trace severely penalizes your total score.
+    You MUST produce a general-purpose policy that works well across both.
+
+    Each trace runs TWO My-YCSB clients simultaneously against the SAME
+    LevelDB server in the SAME cgroup. Some clients connect through a
+    userspace TCP delay proxy that adds latency and bandwidth limits,
+    which directly affects the TCP metrics your BPF program sees.
+
+    The 2 traces are:
+    1. **dual_small_vs_large**: TWO simultaneous clients — fast reader (200B values,
+       zipfian, direct connection) + slow writer (4KB values, uniform, 1ms network
+       delay, 500Mbps bandwidth limit). Tests cache competition under asymmetric load.
+    2. **dual_congested**: TWO simultaneous clients both behind delay proxies
+        (2ms/5ms delay, 100/50 Mbps). Tests eviction under network conditions where
+        TCP metrics (RTT, jitter, cwnd) shift measurably vs direct connections.
+
+    Your public metrics will show per-trace throughput so you can see exactly
+    which traces you're doing well or poorly on.
+    - The metric to maximize is the harmonic mean of total throughput across all traces.
 
     ## Available BPF APIs
     - bpf_cache_ext_list_add(list, folio)        — add folio to head
@@ -144,11 +167,55 @@ evo_config:
     - folio_test_dirty/writeback/unevictable/uptodate/lru(folio)
     - bpf_ktime_get_ns(), bpf_get_current_pid_tgid()
 
-    ## Network metrics
-    - `active_db_pid`: PID of the process currently handling a TCP request (0 if idle)
-    - `last_packet_ts`: nanosecond timestamp of the last TCP packet on the server port
-    - Per-folio: `owner_pid` (which process cached the folio), `last_access_ts` (ns),
-      `access_count`, `access_tier`
+    ## Network metrics (global variables, updated on every tcp_recvmsg)
+    All of these are available as global variables in the EVOLVE-BLOCK. They are
+    snapshotted from the TCP socket (struct tcp_sock) each time the server
+    receives data on port 9100. USE THESE to make network-aware eviction decisions.
+
+    ### Request timing / counting
+    - `last_packet_ts`: nanosecond timestamp of the most recent TCP recv
+    - `net_prev_packet_ts`: timestamp of the recv before that (compute inter-arrival: `last_packet_ts - net_prev_packet_ts`)
+    - `net_recv_count`: total number of tcp_recvmsg calls (monotonically increasing)
+
+    ### TCP connection quality (latency / jitter)
+    - `net_srtt_us`: smoothed RTT in microseconds (kernel stores srtt<<3; divide by 8 for true RTT)
+    - `net_mdev_us`: RTT mean deviation in microseconds (jitter indicator — high = unstable)
+
+    ### TCP throughput counters (cumulative)
+    - `net_bytes_received`: total bytes received on the connection
+    - `net_bytes_acked`: total bytes acknowledged by remote (proxy for bytes sent)
+    - `net_segs_in`: total TCP segments received
+    - `net_segs_out`: total TCP segments sent
+    - `net_delivered`: total packets successfully delivered to the application
+
+    ### TCP congestion / flow-control state (instantaneous)
+    - `net_snd_cwnd`: congestion window in segments (larger = network can handle more)
+    - `net_snd_ssthresh`: slow-start threshold in segments
+    - `net_rcv_wnd`: advertised receive window in bytes (how much remote can accept)
+    - `net_packets_out`: packets currently in flight (unacknowledged)
+
+    ### TCP error / loss indicators
+    - `net_total_retrans`: lifetime retransmissions on the connection
+    - `net_retrans_out`: retransmitted segments currently in flight
+    - `net_lost`: segments considered lost by the TCP stack
+
+    ### Per-folio metadata (in folio_metadata_map)
+    - `last_access_ts` (u64): nanosecond timestamp of last access
+    - `access_count` (u32): number of times this folio was accessed
+    - `access_tier` (u32): tier classification (0=cold, 1=warm, 2=hot)
+
+    ## How to use network metrics for eviction
+    These metrics give you real-time visibility into the network session. Ideas:
+    - **Session activity**: `(bpf_ktime_get_ns() - last_packet_ts) < threshold` tells you if the session is active.
+    - **Request rate**: `net_recv_count` increasing means requests are flowing; you can snapshot it and compare across eviction calls.
+    - **Inter-arrival time**: `last_packet_ts - net_prev_packet_ts` measures time between the last two requests — short = burst, long = idle.
+    - **Congestion detection**: if `net_retrans_out > 0` or `net_lost > 0`, the network is degraded → be more aggressive about keeping hot pages.
+    - **RTT-aware protection**: high `net_srtt_us` or `net_mdev_us` means each page miss is more costly → protect the working set more aggressively.
+    - **Throughput phase**: compare `net_bytes_received` across eviction calls to estimate throughput trend.
+    - **Cwnd pressure**: small `net_snd_cwnd` relative to `net_packets_out` means the network is bottlenecked → eviction should favor pages that reduce I/O.
+    You are STRONGLY encouraged to incorporate multiple network metrics into your
+    eviction heuristics. The best policies will adapt their behavior based on
+    network conditions, not just access recency/frequency.
 
     ## Callback return values
     - CACHE_EXT_EVICT_NODE  — evict this folio
@@ -171,6 +238,12 @@ evo_config:
     - Frequency-based (LFU, ARC-like)
     - Multi-generation aging (like MGLRU but tuned for network workloads)
     - Hot/cold segregation using multiple lists
-    - Network-aware: protect working set of the actively-serving DB
+    - **Network-aware eviction**: use RTT, jitter, loss, cwnd, and request rate
+      to adapt eviction aggressiveness. E.g., protect more pages when the network
+      is congested (high RTT / retransmissions) since each cache miss is costlier.
+    - **Burst detection**: use inter-arrival time (last_packet_ts - net_prev_packet_ts)
+      to detect request bursts and protect the working set during bursts.
+    - **Congestion-adaptive**: when net_lost > 0 or net_snd_cwnd is small, tighten
+      eviction thresholds to avoid I/O during network congestion.
     - Adaptive: adjust thresholds based on workload phase
     - Access pattern: distinguish sequential scans from random reads

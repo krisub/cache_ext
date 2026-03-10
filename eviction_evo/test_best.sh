@@ -1,7 +1,17 @@
 #!/bin/bash
 set -e
 
-echo "=== Testing best Policy ==="
+echo "=== Testing best Policy (${#TRACE_NAMES[@]} traces, harmonic mean) ==="
+
+TRACES_DIR=/mydata/cache_ext/eviction_evo/traces
+BENCH=/mydata/cache_ext/My-YCSB/build/run_net_leveldb
+DUAL_RUNNER="python3 /mydata/cache_ext/eviction_evo/run_dual_trace.py"
+# Single-client traces (commented out — dual-client only mode)
+#TRACE_NAMES=(ycsb_a ycsb_b ycsb_c ycsb_d ycsb_e ycsb_f uniform uniform_rw dual_small_vs_large dual_congested)
+#TRACE_FILES=(ycsb_a.yaml ycsb_b.yaml ycsb_c.yaml ycsb_d.yaml ycsb_e.yaml ycsb_f.yaml uniform.yaml uniform_read_write.yaml dual_small_vs_large.yaml dual_congested.yaml)
+# Dual-client traces only
+TRACE_NAMES=(dual_small_vs_large dual_congested)
+TRACE_FILES=(dual_small_vs_large.yaml dual_congested.yaml)
 
 # Step 0: Drop page cache FIRST (before compilation)
 echo "Dropping caches..."
@@ -133,67 +143,65 @@ while ! nc -z localhost 9100 2>/dev/null; do
 done
 echo "Server ready after ${elapsed}s"
 
-# Run benchmark
-echo "Running benchmark (30s warmup + 120s measurement)..."
-/mydata/cache_ext/My-YCSB/build/run_net_leveldb \
-    /mydata/cache_ext/eviction_evo/build/bench_config.yaml 2>&1 | tee /mydata/cache_ext/eviction_evo/best_benchmark.log
+# Run all trace benchmarks
+echo "Running ${#TRACE_NAMES[@]} trace benchmarks (30s warmup + 120s measurement each)..."
+declare -a THROUGHPUTS
 
-# Parse results
+for idx in "${!TRACE_NAMES[@]}"; do
+    trace_name="${TRACE_NAMES[$idx]}"
+    trace_file="${TRACE_FILES[$idx]}"
+    trace_config="$TRACES_DIR/$trace_file"
+    trace_log="/mydata/cache_ext/eviction_evo/best_${trace_name}.log"
+
+    echo ""
+    echo "--- Trace $((idx+1))/${#TRACE_NAMES[@]}: $trace_name ---"
+
+    # Drop page cache between traces
+    if [ "$idx" -gt 0 ]; then
+        sync
+        echo 3 > /proc/sys/vm/drop_caches
+        sleep 2
+    fi
+
+    # Detect dual-client traces (YAML has 'type: dual_client')
+    if python3 -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); exit(0 if c.get('type')=='dual_client' else 1)" "$trace_config" 2>/dev/null; then
+        # Dual-client: use run_dual_trace.py (server already running)
+        $DUAL_RUNNER "$trace_config" > "$trace_log" 2>&1
+        TP=$(grep "^total_throughput" "$trace_log" | awk '{print $2}')
+        [ -z "$TP" ] && TP=0
+    else
+        "$BENCH" "$trace_config" 2>&1 | tee "$trace_log"
+        TP=$(grep "overall:.*total throughput" "$trace_log" | tail -1 | grep -oP 'total throughput \K[0-9.]+' || echo "0")
+    fi
+    THROUGHPUTS[$idx]="$TP"
+    echo "  $trace_name throughput: $TP ops/sec"
+done
+
+# Parse results using dynamic throughputs array
 echo ""
 echo "=== Results ==="
-python3 << 'EOF'
+TP_LIST=$(IFS=,; echo "${THROUGHPUTS[*]}")
+python3 -c "
 import re
 
-with open('/mydata/cache_ext/eviction_evo/best_benchmark.log', 'r') as f:
-    content = f.read()
+trace_names = '${TRACE_NAMES[*]}'.split()
+throughputs = [$TP_LIST]
 
-# Parse metrics using actual My-YCSB output format
-total_tp = None
-read_avg_ns = None
-read_p99_ns = None
+for name, tp in zip(trace_names, throughputs):
+    print(f'  {name:24s}  {tp:.2f} ops/sec')
 
-for line in content.splitlines():
-    if "overall:" in line:
-        # Parse throughput: "total throughput 171.75 ops/sec"
-        match = re.search(r'total throughput ([\d.]+) ops/sec', line)
-        if match:
-            total_tp = float(match.group(1))
-        
-        # Parse latency in nanoseconds: "READ average latency 46550418.61 ns"
-        match = re.search(r'READ average latency ([\d.]+) ns', line)
-        if match:
-            read_avg_ns = float(match.group(1))
-        
-        match = re.search(r'READ p99 latency ([\d.]+) ns', line)
-        if match:
-            read_p99_ns = float(match.group(1))
-
-if total_tp is None or read_p99_ns is None:
-    print("ERROR: Could not parse benchmark output")
-    print(f"Found: total_tp={total_tp}, read_p99_ns={read_p99_ns}")
-    exit(1)
-
-# Calculate combined score
-latency_bonus = min(1.0, 1_000_000.0 / max(read_p99_ns, 1.0))
-combined_score = total_tp + total_tp * 0.1 * latency_bonus
-
-# Convert to ms for display
-read_avg_ms = read_avg_ns / 1_000_000 if read_avg_ns else 0
-read_p99_ms = read_p99_ns / 1_000_000
-
-print(f"Combined score:       {combined_score:.4f}")
-print(f"Total throughput:     {total_tp:.2f} ops/sec")
-print(f"Read  avg latency:    {read_avg_ms:.1f} ms")
-print(f"Read  p99 latency:    {read_p99_ms:.1f} ms")
-print(f"\nExpected best score: 729.14")
-print(f"Actual vs Expected:   {combined_score:.2f} vs 729.14")
-if abs(combined_score - 729.14) < 20:
-    print("Status: ✓ Matches (within tolerance)")
-elif abs(combined_score - 729.14) < 50:
-    print("Status: ~ Close (small variance expected)")
+nonzero = [t for t in throughputs if t > 0]
+if len(nonzero) == len(throughputs) and len(throughputs) > 0:
+    hm = len(throughputs) / sum(1.0 / t for t in throughputs)
+elif len(nonzero) > 0:
+    hm_partial = len(nonzero) / sum(1.0 / t for t in nonzero)
+    hm = hm_partial * (len(nonzero) / len(throughputs))
 else:
-    print("Status: ✗ Does not match (significant difference)")
-EOF
+    hm = 0.0
+
+print(f'\nCombined score (harmonic mean): {hm:.4f} ops/sec')
+print(f'Traces passed: {len(nonzero)}/{len(throughputs)}')
+"
 
 # Cleanup
 echo ""
@@ -211,5 +219,5 @@ fi
 
 echo ""
 echo "Test complete!"
-echo "  Benchmark log: /mydata/cache_ext/eviction_evo/best_benchmark.log"
-echo "  Loader log:    /mydata/cache_ext/eviction_evo/loader_output.log"
+echo "  Trace logs: /mydata/cache_ext/eviction_evo/best_*.log"
+echo "  Loader log: /mydata/cache_ext/eviction_evo/loader_output.log"

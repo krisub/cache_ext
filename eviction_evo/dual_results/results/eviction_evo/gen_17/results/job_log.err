@@ -1,0 +1,225 @@
+2026-03-09 22:58:10,107 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-09 23:02:46,652 INFO Acquired evaluation lock.
+2026-03-09 23:02:46,652 INFO === Step 0: Drop page cache ===
+2026-03-09 23:02:46,652 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-09 23:02:46,652 INFO CMD: sudo sync
+2026-03-09 23:02:46,896 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 23:02:47,229 INFO Page cache dropped.
+2026-03-09 23:02:47,230 INFO === Step 1: Compile evolved policy ===
+2026-03-09 23:02:47,241 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-09 23:02:47,517 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-09 23:02:51,336 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-09 23:02:51,522 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-09 23:02:52,458 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-09 23:02:52,459 INFO === Step 2: Disable MGLRU ===
+2026-03-09 23:02:52,459 INFO MGLRU current state: 0x0000 — disabling
+2026-03-09 23:02:52,459 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 23:02:52,477 INFO MGLRU disabled.
+2026-03-09 23:02:52,477 INFO === Step 3: Create cgroup ===
+2026-03-09 23:02:52,478 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 23:02:52,518 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-09 23:02:52,633 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-09 23:02:52,648 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-09 23:02:52,648 INFO === Step 4: Load BPF policy ===
+2026-03-09 23:02:52,648 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-09 23:03:02,664 ERROR Evaluation failed: RuntimeError: Policy loader exited immediately: libbpf: prog 'evolved_evict_folios': BPF program load failed: Permission denied
+libbpf: prog 'evolved_evict_folios': -- BEGIN PROG LOAD LOG --
+reg type unsupported for arg#0 function evolved_evict_folios#238
+0: R1=ctx(off=0,imm=0) R10=fp0
+; void BPF_STRUCT_OPS(evolved_evict_folios,
+0: (79) r7 = *(u64 *)(r1 +8)
+func 'evict_folios' arg1 has btf_id 2227 type STRUCT 'mem_cgroup'
+1: R1=ctx(off=0,imm=0) R7_w=trusted_ptr_mem_cgroup(off=0,imm=0)
+1: (79) r6 = *(u64 *)(r1 +0)
+func 'evict_folios' arg0 has btf_id 744 type STRUCT 'cache_ext_eviction_ctx'
+2: R1=ctx(off=0,imm=0) R6_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+2: (b7) r1 = 0                        ; R1_w=0
+3: (63) *(u32 *)(r10 -4) = r1         ; R1_w=0 R10=fp0 fp-8=0000????
+4: (bf) r2 = r10                      ; R2_w=fp0 R10=fp0
+; 
+5: (07) r2 += -4                      ; R2_w=fp-4
+; u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
+6: (18) r1 = 0xffff88908a92e800       ; R1_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+8: (85) call bpf_map_lookup_elem#1    ; R0_w=map_value_or_null(id=1,off=0,ks=4,vs=8,imm=0)
+; if (val) __sync_fetch_and_add(val, 1);
+9: (15) if r0 == 0x0 goto pc+2        ; R0_w=map_value(off=0,ks=4,vs=8,imm=0)
+10: (b7) r1 = 1                       ; R1_w=1
+; if (val) __sync_fetch_and_add(val, 1);
+11: (db) lock *(u64 *)(r0 +0) += r1   ; R0=map_value(off=0,ks=4,vs=8,imm=0) R1=1
+12: (b7) r1 = 400                     ; R1_w=400
+; u32 rtt_us = net_srtt_us >> 3;
+13: (18) r2 = 0xffffc9000662a018      ; R2_w=map_value(off=24,ks=4,vs=112,imm=0)
+15: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (rtt_us > 100000)
+16: (25) if r2 > 0xc3507 goto pc+8    ; R2_w=scalar(umax=800007,var_off=(0x0; 0xfffff))
+17: (b7) r1 = 300                     ; R1_w=300
+; else if (rtt_us > 50000)
+18: (25) if r2 > 0x61a87 goto pc+6    ; R2_w=scalar(umax=400007,var_off=(0x0; 0x7ffff))
+19: (b7) r1 = 200                     ; R1_w=200
+; else if (rtt_us > 20000)
+20: (25) if r2 > 0x27107 goto pc+4 25: R0=map_value(off=0,ks=4,vs=8,imm=0) R1_w=200 R2_w=scalar(umin=160008,umax=400007,var_off=(0x0; 0x7ffff)) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R10=fp0 fp-8=mmmm????
+; u32 mdev_us = net_mdev_us >> 3;
+25: (18) r2 = 0xffffc9000662a01c      ; R2_w=map_value(off=28,ks=4,vs=112,imm=0)
+27: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+28: (b7) r3 = 160008                  ; R3=160008
+; if (mdev_us > 20000)
+29: (2d) if r3 > r2 goto pc+2         ; R2=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=160008
+; score += 250;
+30: (07) r1 += 250                    ; R1_w=450
+31: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+43: (18) r2 = 0xffffc9000662a050      ; R2_w=map_value(off=80,ks=4,vs=112,imm=0)
+45: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_retrans_out > 5 || net_lost > 0)
+46: (25) if r2 > 0x5 goto pc+4        ; R2_w=scalar(umax=5,var_off=(0x0; 0x7))
+47: (18) r2 = 0xffffc9000662a054      ; R2_w=map_value(off=84,ks=4,vs=112,imm=0)
+49: (61) r2 = *(u32 *)(r2 +0)         ; R2=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+50: (15) if r2 == 0x0 goto pc+2       ; R2=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; score += 200;
+51: (07) r1 += 200                    ; R1_w=650
+52: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+62: (18) r2 = 0xffffc9000662a048      ; R2_w=map_value(off=72,ks=4,vs=112,imm=0)
+64: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+65: (15) if r2 == 0x0 goto pc+17      ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+66: (18) r3 = 0xffffc9000662a03c      ; R3_w=map_value(off=60,ks=4,vs=112,imm=0)
+68: (61) r3 = *(u32 *)(r3 +0)         ; R3_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+69: (bf) r4 = r3                      ; R3=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff))
+70: (15) if r4 == 0x0 goto pc+12      ; R4=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out * 2 > net_snd_cwnd)
+71: (bf) r5 = r2                      ; R2=scalar(id=629,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(id=629,umax=4294967295,var_off=(0x0; 0xffffffff))
+72: (67) r5 <<= 1                     ; R5_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2)
+73: (67) r5 <<= 32                    ; R5_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0)
+74: (77) r5 >>= 32                    ; R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; if (net_packets_out * 2 > net_snd_cwnd)
+75: (3d) if r4 >= r5 goto pc+2        ; R4=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; score += 150;
+76: (07) r1 += 150                    ; R1_w=800
+77: (05) goto pc+5
+; score += 100;
+83: (b7) r2 = 751                     ; R2_w=751
+; if (congestion > EXTREME_CONGESTION_THRESHOLD) {
+84: (2d) if r2 > r1 goto pc+14        ; R1=800 R2_w=751
+; bpf_cache_ext_list_sample(memcg, hot_list, bpf_evict_hot_cb, HOT_SAMPLE_RATIO, eviction_ctx);
+85: (18) r1 = 0xffffc9000662a058      ; R1_w=map_value(off=88,ks=4,vs=112,imm=0)
+87: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=88,ks=4,vs=112,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_sample(memcg, hot_list, bpf_evict_hot_cb, HOT_SAMPLE_RATIO, eviction_ctx);
+88: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+89: (18) r3 = 0x23                    ; R3_w=func(off=0,imm=0)
+91: (b7) r4 = 20                      ; R4_w=20
+92: (bf) r5 = r6                      ; R5_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+93: (85) call bpf_cache_ext_list_sample#69432
+R4 type=scalar expected=fp
+processed 23509 insns (limit 1000000) max_states_per_insn 14 total_states 2450 peak_states 808 mark_read 26
+-- END PROG LOAD LOG --
+libbpf: prog 'evolved_evict_folios': failed to load: -13
+libbpf: failed to load object 'cache_ext_evolved_bpf'
+libbpf: failed to load BPF skeleton 'cache_ext_evolved_bpf': -13
+Failed to load BPF program
+
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 596, in evaluate
+    policy_proc = start_policy(loader_path, LEVELDB_TEMP_DB)
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 324, in start_policy
+    raise RuntimeError(f"Policy loader exited immediately: {stderr}")
+RuntimeError: Policy loader exited immediately: libbpf: prog 'evolved_evict_folios': BPF program load failed: Permission denied
+libbpf: prog 'evolved_evict_folios': -- BEGIN PROG LOAD LOG --
+reg type unsupported for arg#0 function evolved_evict_folios#238
+0: R1=ctx(off=0,imm=0) R10=fp0
+; void BPF_STRUCT_OPS(evolved_evict_folios,
+0: (79) r7 = *(u64 *)(r1 +8)
+func 'evict_folios' arg1 has btf_id 2227 type STRUCT 'mem_cgroup'
+1: R1=ctx(off=0,imm=0) R7_w=trusted_ptr_mem_cgroup(off=0,imm=0)
+1: (79) r6 = *(u64 *)(r1 +0)
+func 'evict_folios' arg0 has btf_id 744 type STRUCT 'cache_ext_eviction_ctx'
+2: R1=ctx(off=0,imm=0) R6_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+2: (b7) r1 = 0                        ; R1_w=0
+3: (63) *(u32 *)(r10 -4) = r1         ; R1_w=0 R10=fp0 fp-8=0000????
+4: (bf) r2 = r10                      ; R2_w=fp0 R10=fp0
+; 
+5: (07) r2 += -4                      ; R2_w=fp-4
+; u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
+6: (18) r1 = 0xffff88908a92e800       ; R1_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+8: (85) call bpf_map_lookup_elem#1    ; R0_w=map_value_or_null(id=1,off=0,ks=4,vs=8,imm=0)
+; if (val) __sync_fetch_and_add(val, 1);
+9: (15) if r0 == 0x0 goto pc+2        ; R0_w=map_value(off=0,ks=4,vs=8,imm=0)
+10: (b7) r1 = 1                       ; R1_w=1
+; if (val) __sync_fetch_and_add(val, 1);
+11: (db) lock *(u64 *)(r0 +0) += r1   ; R0=map_value(off=0,ks=4,vs=8,imm=0) R1=1
+12: (b7) r1 = 400                     ; R1_w=400
+; u32 rtt_us = net_srtt_us >> 3;
+13: (18) r2 = 0xffffc9000662a018      ; R2_w=map_value(off=24,ks=4,vs=112,imm=0)
+15: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (rtt_us > 100000)
+16: (25) if r2 > 0xc3507 goto pc+8    ; R2_w=scalar(umax=800007,var_off=(0x0; 0xfffff))
+17: (b7) r1 = 300                     ; R1_w=300
+; else if (rtt_us > 50000)
+18: (25) if r2 > 0x61a87 goto pc+6    ; R2_w=scalar(umax=400007,var_off=(0x0; 0x7ffff))
+19: (b7) r1 = 200                     ; R1_w=200
+; else if (rtt_us > 20000)
+20: (25) if r2 > 0x27107 goto pc+4 25: R0=map_value(off=0,ks=4,vs=8,imm=0) R1_w=200 R2_w=scalar(umin=160008,umax=400007,var_off=(0x0; 0x7ffff)) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R10=fp0 fp-8=mmmm????
+; u32 mdev_us = net_mdev_us >> 3;
+25: (18) r2 = 0xffffc9000662a01c      ; R2_w=map_value(off=28,ks=4,vs=112,imm=0)
+27: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+28: (b7) r3 = 160008                  ; R3=160008
+; if (mdev_us > 20000)
+29: (2d) if r3 > r2 goto pc+2         ; R2=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=160008
+; score += 250;
+30: (07) r1 += 250                    ; R1_w=450
+31: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+43: (18) r2 = 0xffffc9000662a050      ; R2_w=map_value(off=80,ks=4,vs=112,imm=0)
+45: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_retrans_out > 5 || net_lost > 0)
+46: (25) if r2 > 0x5 goto pc+4        ; R2_w=scalar(umax=5,var_off=(0x0; 0x7))
+47: (18) r2 = 0xffffc9000662a054      ; R2_w=map_value(off=84,ks=4,vs=112,imm=0)
+49: (61) r2 = *(u32 *)(r2 +0)         ; R2=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+50: (15) if r2 == 0x0 goto pc+2       ; R2=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; score += 200;
+51: (07) r1 += 200                    ; R1_w=650
+52: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+62: (18) r2 = 0xffffc9000662a048      ; R2_w=map_value(off=72,ks=4,vs=112,imm=0)
+64: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+65: (15) if r2 == 0x0 goto pc+17      ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+66: (18) r3 = 0xffffc9000662a03c      ; R3_w=map_value(off=60,ks=4,vs=112,imm=0)
+68: (61) r3 = *(u32 *)(r3 +0)         ; R3_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+69: (bf) r4 = r3                      ; R3=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff))
+70: (15) if r4 == 0x0 goto pc+12      ; R4=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out * 2 > net_snd_cwnd)
+71: (bf) r5 = r2                      ; R2=scalar(id=629,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(id=629,umax=4294967295,var_off=(0x0; 0xffffffff))
+72: (67) r5 <<= 1                     ; R5_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2)
+73: (67) r5 <<= 32                    ; R5_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0)
+74: (77) r5 >>= 32                    ; R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; if (net_packets_out * 2 > net_snd_cwnd)
+75: (3d) if r4 >= r5 goto pc+2        ; R4=scalar(id=628,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; score += 150;
+76: (07) r1 += 150                    ; R1_w=800
+77: (05) goto pc+5
+; score += 100;
+83: (b7) r2 = 751                     ; R2_w=751
+; if (congestion > EXTREME_CONGESTION_THRESHOLD) {
+84: (2d) if r2 > r1 goto pc+14        ; R1=800 R2_w=751
+; bpf_cache_ext_list_sample(memcg, hot_list, bpf_evict_hot_cb, HOT_SAMPLE_RATIO, eviction_ctx);
+85: (18) r1 = 0xffffc9000662a058      ; R1_w=map_value(off=88,ks=4,vs=112,imm=0)
+87: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=88,ks=4,vs=112,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_sample(memcg, hot_list, bpf_evict_hot_cb, HOT_SAMPLE_RATIO, eviction_ctx);
+88: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+89: (18) r3 = 0x23                    ; R3_w=func(off=0,imm=0)
+91: (b7) r4 = 20                      ; R4_w=20
+92: (bf) r5 = r6                      ; R5_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+93: (85) call bpf_cache_ext_list_sample#69432
+R4 type=scalar expected=fp
+processed 23509 insns (limit 1000000) max_states_per_insn 14 total_states 2450 peak_states 808 mark_read 26
+-- END PROG LOAD LOG --
+libbpf: prog 'evolved_evict_folios': failed to load: -13
+libbpf: failed to load object 'cache_ext_evolved_bpf'
+libbpf: failed to load BPF skeleton 'cache_ext_evolved_bpf': -13
+Failed to load BPF program
+
+
+2026-03-09 23:03:02,669 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 23:03:02,690 INFO CMD: sudo sh -c echo 0x0000 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 23:03:02,705 INFO MGLRU re-enabled (restored to 0x0000).

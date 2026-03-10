@@ -1,0 +1,14 @@
+{
+  "generation": 24,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "congestion_aware_hot_list_sampling",
+  "patch_description": "The current best program (324.29 score) always iterates lists in fixed order (cold \u2192 warm \u2192 hot), which may be suboptimal during extreme congestion. When congestion score exceeds 750 (indicating severe network degradation with high RTT, jitter, and packet loss), the cost of evicting hot folios becomes extremely high because each subsequent cache miss will incur massive latency penalties.\n\nThe recommendation suggests using `bpf_cache_ext_list_sample()` to quickly sample the hot list during extreme congestion. However, I propose a more nuanced approach: instead of reversing iteration order (which could be too aggressive), we should use sampling on the hot list ONLY when congestion is extreme (>750) to quickly identify and protect the most critical folios, then proceed with normal iteration on warm/cold lists.\n\nThis optimization:\n1. Detects extreme congestion states (score > 750) where protecting hot folios is most critical\n2. Uses `bpf_cache_ext_list_sample()` with a 20% sampling ratio on the hot list to quickly scan and protect high-value folios\n3. Falls back to normal iteration for warm/cold lists to maintain eviction efficiency\n4. Reduces eviction latency during congestion by avoiding full hot list traversal when network conditions make cache misses extremely expensive\n\nThe key insight is that during extreme congestion (dual_congested scenario shows p99 latencies of 160-167ms), we need to minimize the risk of evicting hot folios that would cause expensive cache misses. Sampling allows us to quickly protect the hottest folios without the overhead of full list traversal.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T23:35:15.054713",
+  "llm_cost": 0.17419199999999999,
+  "llm_model": null
+}

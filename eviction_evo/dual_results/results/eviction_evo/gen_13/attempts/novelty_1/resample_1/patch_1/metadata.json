@@ -1,0 +1,14 @@
+{
+  "generation": 13,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "cold_list_aggressive_recency_with_congestion_scaling",
+  "patch_description": "The current program uses exponential decay scoring for all tiers, but the cold-list callback doesn't leverage tier-specific recency windows with differentiated congestion multipliers. Looking at the performance metrics:\n\n- dual_small_vs_large: 306.74 ops/sec (asymmetric load with fast reader + slow writer)\n- dual_congested: 326.03 ops/sec (both clients behind delay proxies)\n\nThe dual_congested workload performs better, suggesting the current decay-based approach handles congestion well. However, the dual_small_vs_large workload lags, which indicates cold pages may not be evicted aggressively enough during the asymmetric phase when the fast reader dominates.\n\nThe recommendation from the prompt suggests adding tier-specific recency window scaling with differentiated congestion multipliers for cold-list eviction. Currently, `bpf_evict_cold_cb()` uses only the exponential decay score without explicit recency window protection like warm/hot lists had in earlier versions.\n\nThe key insight: cold folios should be evicted more aggressively during low-congestion periods (when the fast reader is active and doesn't need protection), but still respect a minimum recency window during high congestion. This requires:\n\n1. Adding tier-specific base recency windows (cold tier gets a shorter, more aggressive window)\n2. Adding a congestion-aware scaling factor specific to cold tier (CONGESTION_SCALE_COLD) that scales slower than warm/hot\n3. Modifying `bpf_evict_cold_cb()` to check age against this adaptive window BEFORE applying the full decay score, enabling faster eviction of truly cold pages\n\nThis targeted optimization should improve dual_small_vs_large throughput by freeing cold pages faster during the fast-reader phase, while the decay-based scoring still protects warm/hot pages appropriately.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:42:25.878824",
+  "llm_cost": 0.061812,
+  "llm_model": null
+}

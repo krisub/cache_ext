@@ -1,0 +1,14 @@
+{
+  "generation": 18,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "piecewise_recency_decay_with_steeper_initial_slope",
+  "patch_description": "The current program uses linear recency decay (500 points over the entire recent_window), which may over-protect folios that are slightly older than the window boundary. Looking at the performance metrics, the best prior program (324.29) used tier-specific base windows and achieved better discrimination between recently-accessed and stale folios.\n\nThe current program's linear decay allocates points uniformly: a folio at 25ms gets 250 points, one at 50ms gets 0 points (assuming 50ms window). This doesn't sufficiently penalize folios that are \"somewhat old\" vs \"very old\".\n\nI propose implementing a piecewise-linear decay curve with steeper initial decay:\n- First 40% of recent_window (0-20ms at 50ms base): allocate 350 points (70% of total) with steep decay\n- Remaining 60% of recent_window (20-50ms): allocate 150 points (30% of total) with gentler decay\n\nThis creates a \"knee\" in the decay curve that more aggressively evicts folios outside the immediate working set while still providing some protection to moderately-aged folios. The steeper initial slope means folios age out of high-priority status faster, improving cache turnover for the dual_small_vs_large workload where the fast reader needs quick eviction of the slow writer's large values.\n\nThis preserves the current program's multi-factor scoring architecture (recency + frequency + burst protection + congestion protection + tier bonus) while improving the recency component's discrimination power.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T23:03:03.890844",
+  "llm_cost": 0.169353,
+  "llm_model": null
+}

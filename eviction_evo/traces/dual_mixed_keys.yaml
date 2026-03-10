@@ -1,0 +1,69 @@
+# Dual-client trace: different key formats accessing disjoint data regions
+# Client A: key_size=16 (standard), read-only zipfian, fast, 6 threads
+# Client B: key_size=32 (requires pre-population), large values, 2 threads, 10ms delay
+# Creates completely disjoint I/O streams competing for page cache.
+# Requires: run populate_extra_keys.sh once before using this trace.
+type: dual_client
+
+clients:
+  - name: standard_reader
+    proxy_port: 0
+    proxy_delay_ms: 0
+    proxy_bandwidth_kbps: 0
+    config:
+      database:
+        key_size: 16
+        value_size: 200
+        nr_entry: 536870912
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 30
+        runtime_seconds: 120
+        nr_op: 10000000
+        nr_thread: 6
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 1.0
+          update: 0
+          insert: 0
+          scan: 0
+          read_modify_write: 0
+        request_distribution: "zipfian"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "127.0.0.1"
+        port: 9100
+      measurement:
+        latency_file: ""
+
+  - name: largekey_mixed
+    proxy_port: 9102
+    proxy_delay_ms: 10
+    proxy_bandwidth_kbps: 100000
+    config:
+      database:
+        key_size: 32
+        value_size: 2048
+        nr_entry: 1000000
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 30
+        runtime_seconds: 120
+        nr_op: 10000000
+        nr_thread: 2
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 0.8
+          update: 0.2
+          insert: 0
+          scan: 0
+          read_modify_write: 0
+        request_distribution: "uniform"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "127.0.0.1"
+        port: 9102
+      measurement:
+        latency_file: ""

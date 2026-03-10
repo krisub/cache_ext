@@ -1,0 +1,14 @@
+{
+  "generation": 9,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "frequency_recency_scoring_with_aggressive_scan_eviction",
+  "patch_description": "This change implements a continuous scoring function that combines frequency (access_count) and recency to make more nuanced eviction decisions. Instead of binary protection rules (protect if hot AND recent, else evict), we compute:\n\nscore = (effective_accesses * 10) + recency_bonus\n\nwhere recency_bonus decays from 100 down to 0 over the RECENT_ACCESS_NS window.\n\nFolios with score < 50 are aggressively evicted, which targets single-access pages (common in scans) while protecting frequently-accessed pages. This should improve scan workload performance (ycsb_e) without hurting hot workloads.\n\nAdditionally, we reduce the decay half-life from 2s to 500ms so stale accesses fade faster, and lower the PROMOTED_THRESHOLD from 7 to 5 to prevent over-protection of moderately-accessed pages.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T16:36:57.661764",
+  "llm_cost": 0.052202,
+  "llm_model": null
+}

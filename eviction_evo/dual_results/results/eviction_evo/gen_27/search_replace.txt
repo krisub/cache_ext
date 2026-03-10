@@ -1,0 +1,444 @@
+# Analysis
+
+Looking at the performance metrics across all programs, I can see a clear trend:
+
+1. **Program 1 (baseline)**: 304.65 - Simple burst-aware tiering
+2. **Program 2**: 316.09 - Added exponential decay with frequency decay
+3. **Program 3**: 317.38 - Refined decay implementation
+4. **Program 4**: 318.69 - Added tier-specific adaptive recency windows
+5. **Program 5 (best)**: 324.29 - Further refined tier-specific windows
+6. **Current**: 311.10 - Regression! Despite having decay logic
+
+The current program shows a **significant regression** (from 324.29 to 311.10), particularly on `dual_small_vs_large_throughput` (314.32 → 304.32). The problem is clear: **the decay mechanism is TOO AGGRESSIVE and is being applied incorrectly**.
+
+## Key Issues:
+
+1. **Decay during active sessions**: The decay is applied in `folio_accessed` even during `session_active` periods, which suppresses access_count and prevents proper tier promotion during active workloads.
+
+2. **Decay during bursts**: Similarly, decay during bursts (high-throughput periods) is counterproductive because we should be protecting the working set, not suppressing it.
+
+3. **The recommendation wants tier-specific access_count decay on re-access**, but the current implementation applies global decay that interferes with session management.
+
+## Solution:
+
+The recommendation suggests decaying access_count when a folio **exceeds a tier-specific working-set window WITHOUT being re-accessed**. This is fundamentally different from applying decay on every access during active sessions.
+
+Instead of applying decay in `folio_accessed`, we should:
+1. **Only apply decay during eviction** when we're evaluating whether to keep a folio
+2. **Use a virtual/computed decay** that doesn't permanently modify access_count during active periods
+3. **Maintain the tier-specific recency windows** that worked well in Program 5
+
+<NAME>
+decay_on_eviction_not_access
+</NAME>
+
+<DESCRIPTION>
+The current program applies access_count decay every time a folio is accessed, which suppresses frequency signals during active sessions and bursts. This is counterproductive because:
+
+1. During high-throughput periods (bursts/active sessions), we should be *protecting* hot pages by maintaining their high access_count, not decaying it.
+2. The decay should only apply to folios that have genuinely gone *cold* (not accessed for a long time), not to every folio that's accessed during an active session.
+
+The solution is to move decay computation to the eviction path (where we compute a virtual decayed count for eviction decisions) rather than permanently modifying access_count in `folio_accessed`. This way:
+- Active/recently-accessed folios maintain their true access_count for tier classification
+- During eviction, we use a virtually decayed count for scoring to identify stale high-frequency folios
+- Tier promotions remain responsive to real access patterns
+- The working set is protected during bursts
+
+This approach aligns with the recommendation: apply tier-specific access_count decay when folios exceed their working-set window *without re-access*, not on every access during active periods.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Frequency decay constants ------------------------------------------------
+// Base decay window: if a folio hasn't been accessed for this long, apply exponential decay
+#define BASE_DECAY_WINDOW_NS     1000000000ULL  // 1000 ms (increased from 500ms)
+
+// Tier-specific decay sensitivity (higher = slower decay)
+#define DECAY_SENSITIVITY_COLD   800ULL         // cold tier: faster decay
+#define DECAY_SENSITIVITY_WARM   1200ULL        // warm tier: moderate decay
+#define DECAY_SENSITIVITY_HOT    1600ULL        // hot tier: slower decay
+
+// -- Helper: Compute burst detection score ---
+// Returns true if we're in a burst (packets arriving quickly)
+static __always_inline bool is_burst(u64 now) {
+    if (net_prev_packet_ts == 0)
+        return false;
+
+    u64 inter_arrival_ns = (now > net_prev_packet_ts) ?
+        (now - net_prev_packet_ts) : 0;
+
+    // Consider it a burst if packets arrive within 5ms of each other
+    return (inter_arrival_ns < 5000000ULL);
+}
+
+// -- Helper: Compute adaptive decay window based on congestion --
+// Higher congestion → slower decay (wider window)
+static __always_inline u64 get_adaptive_decay_window(u32 congestion) {
+    // Base 1000ms, scale to 2s at max congestion
+    u64 base = BASE_DECAY_WINDOW_NS;
+    u64 window = base + (1000000000ULL * congestion) / 1000;  // add 0-1s
+    return (window > 2000000000ULL) ? 2000000000ULL : window;
+}
+
+// -- Helper: Apply access count decay based on folio age and tier --
+// Uses exponential decay (divide by 2 per window) instead of linear
+// Protects during bursts and active sessions
+// Returns the decayed access_count
+static __always_inline u32 apply_access_count_decay(struct net_folio_metadata *meta,
+                                                     u64 now, u32 congestion,
+                                                     bool in_burst, bool session_active) {
+    if (!meta || meta->access_count <= 1)
+        return meta ? meta->access_count : 1;
+
+    // Never decay during bursts (protect working set during high-throughput periods)
+    if (in_burst)
+        return meta->access_count;
+
+    // Never decay during active sessions (session_active means packets arriving recently)
+    if (session_active)
+        return meta->access_count;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 decay_window = get_adaptive_decay_window(congestion);
+
+    // Tier-specific decay sensitivity
+    u64 tier_sensitivity = DECAY_SENSITIVITY_WARM;  // default
+    if (meta->access_tier == 0)
+        tier_sensitivity = DECAY_SENSITIVITY_COLD;
+    else if (meta->access_tier == 2)
+        tier_sensitivity = DECAY_SENSITIVITY_HOT;
+
+    // Scale decay window by tier sensitivity
+    u64 tier_decay_window = (decay_window * tier_sensitivity) / 1200ULL;
+
+    // Exponential decay: divide by 2 for each decay window that has passed
+    // This is much gentler than linear decay
+    if (age_ns > tier_decay_window) {
+        u32 num_windows = (age_ns - tier_decay_window) / tier_decay_window;
+        if (num_windows == 0)
+            return meta->access_count;  // Within first window, no decay
+
+        // Exponential decay: access_count >> num_windows (divide by 2^num_windows)
+        u32 decayed_count = meta->access_count >> num_windows;
+
+        // Ensure minimum of 1
+        return (decayed_count == 0) ? 1 : decayed_count;
+    }
+
+    return meta->access_count;
+}
+=======
+// -- Tier-specific working-set windows for decay trigger (time without re-access before decay applies) --
+// Decay only triggers when a folio hasn't been accessed for this long
+#define DECAY_TRIGGER_COLD_NS    600000000ULL   // 600 ms for cold tier
+#define DECAY_TRIGGER_WARM_NS    1200000000ULL  // 1.2 s for warm tier
+#define DECAY_TRIGGER_HOT_NS     1800000000ULL  // 1.8 s for hot tier
+
+// -- Helper: Compute burst detection score ---
+// Returns true if we're in a burst (packets arriving quickly)
+static __always_inline bool is_burst(u64 now) {
+    if (net_prev_packet_ts == 0)
+        return false;
+
+    u64 inter_arrival_ns = (now > net_prev_packet_ts) ?
+        (now - net_prev_packet_ts) : 0;
+
+    // Consider it a burst if packets arrive within 5ms of each other
+    return (inter_arrival_ns < 5000000ULL);
+}
+
+// -- Helper: Compute virtual decayed access_count for eviction scoring --
+// Does NOT modify the stored access_count; used only for eviction decisions
+// Applies tier-specific exponential decay when folio age exceeds tier's working-set window
+static __always_inline u32 compute_virtual_decayed_count(struct net_folio_metadata *meta,
+                                                          u64 now) {
+    if (!meta || meta->access_count <= 1)
+        return meta ? meta->access_count : 1;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+
+    // Determine tier-specific decay trigger window
+    u64 decay_trigger_window = DECAY_TRIGGER_WARM_NS;  // default
+    if (meta->access_tier == 0)
+        decay_trigger_window = DECAY_TRIGGER_COLD_NS;
+    else if (meta->access_tier == 2)
+        decay_trigger_window = DECAY_TRIGGER_HOT_NS;
+
+    // Only apply decay if age exceeds the tier's working-set window
+    if (age_ns <= decay_trigger_window)
+        return meta->access_count;
+
+    // Exponential decay: divide by 2 for each decay_trigger_window that has passed
+    u64 age_beyond_window = age_ns - decay_trigger_window;
+    u32 num_windows = age_beyond_window / decay_trigger_window;
+
+    if (num_windows >= 32)
+        return 1;  // Avoid excessive shifts
+
+    u32 decayed_count = meta->access_count >> num_windows;
+
+    // Ensure minimum of 1
+    return (decayed_count == 0) ? 1 : decayed_count;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Helper: Compute folio eviction score (higher = keep it) --
+static __always_inline u32 compute_folio_score(struct net_folio_metadata *meta,
+                                                u64 now, u32 congestion,
+                                                bool in_burst, bool session_active) {
+    u32 score = 0;
+
+    if (!meta)
+        return 0;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 recent_window = get_adaptive_recent_window(congestion);
+    u64 working_set_window = get_adaptive_working_set_window(congestion);
+
+    // Recency score (0-500 points)
+    // Linear decay from 500 (just accessed) to 0 (beyond recent window)
+    if (age_ns < recent_window) {
+        score += 500 - (500 * age_ns) / recent_window;
+    }
+
+    // Frequency score (0-300 points)
+    // Logarithmic: access_count 1→50, 2→100, 3→150, 4+→300
+    if (meta->access_count >= 4)
+        score += 300;
+    else if (meta->access_count == 3)
+        score += 150;
+    else if (meta->access_count == 2)
+        score += 100;
+    else if (meta->access_count == 1)
+        score += 50;
+
+    // Burst protection bonus (0-200 points)
+    // During bursts, protect the working set more aggressively
+    if (in_burst && age_ns < working_set_window) {
+        score += 200 - (200 * age_ns) / working_set_window;
+    }
+
+    // Congestion protection (0-100 points)
+    // In high congestion, protect pages in working set more
+    if (session_active && age_ns < working_set_window && congestion > 500) {
+        score += (congestion - 500) / 5;  // 0-100 points
+    }
+
+    // Tier bonus: hot folios get extra protection
+    if (meta->access_tier == 2)
+        score += 150;
+    else if (meta->access_tier == 1)
+        score += 75;
+
+    return score;
+}
+=======
+// -- Helper: Compute folio eviction score (higher = keep it) --
+// Uses virtually decayed access_count for stale frequency detection
+static __always_inline u32 compute_folio_score(struct net_folio_metadata *meta,
+                                                u64 now, u32 congestion,
+                                                bool in_burst, bool session_active) {
+    u32 score = 0;
+
+    if (!meta)
+        return 0;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 recent_window = get_adaptive_recent_window(congestion);
+    u64 working_set_window = get_adaptive_working_set_window(congestion);
+
+    // Recency score (0-500 points)
+    // Linear decay from 500 (just accessed) to 0 (beyond recent window)
+    if (age_ns < recent_window) {
+        score += 500 - (500 * age_ns) / recent_window;
+    }
+
+    // Frequency score (0-300 points) using VIRTUAL decayed count
+    // This allows us to identify stale high-frequency folios without affecting tier promotion
+    u32 virtual_access_count = compute_virtual_decayed_count(meta, now);
+    if (virtual_access_count >= 4)
+        score += 300;
+    else if (virtual_access_count == 3)
+        score += 150;
+    else if (virtual_access_count == 2)
+        score += 100;
+    else if (virtual_access_count == 1)
+        score += 50;
+
+    // Burst protection bonus (0-200 points)
+    // During bursts, protect the working set more aggressively
+    if (in_burst && age_ns < working_set_window) {
+        score += 200 - (200 * age_ns) / working_set_window;
+    }
+
+    // Congestion protection (0-100 points)
+    // In high congestion, protect pages in working set more
+    if (session_active && age_ns < working_set_window && congestion > 500) {
+        score += (congestion - 500) / 5;  // 0-100 points
+    }
+
+    // Tier bonus: hot folios get extra protection
+    if (meta->access_tier == 2)
+        score += 150;
+    else if (meta->access_tier == 1)
+        score += 75;
+
+    return score;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: folio_accessed -----------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 key = (u64)folio;
+    u64 now = bpf_ktime_get_ns();
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // First access: add to cold list
+        bpf_cache_ext_list_add_tail(cold_list, folio);
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = now,
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Apply decay to access_count based on current congestion, age, and session state
+    u32 congestion = compute_congestion_score();
+    bool in_burst = is_burst(now);
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    u32 decayed_count = apply_access_count_decay(meta, now, congestion, in_burst, session_active);
+
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count = decayed_count + 1;  // increment after decay
+
+    // Determine new tier based on access count (after decay + increment)
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Promote folio if tier changed
+    if (meta->access_tier > old_tier) {
+        // Remove from current list
+        bpf_cache_ext_list_del(folio);
+
+        // Add to appropriate new list
+        if (meta->access_tier == 2) {
+            bpf_cache_ext_list_add(hot_list, folio);  // hot at head
+        } else if (meta->access_tier == 1) {
+            bpf_cache_ext_list_add(warm_list, folio);  // warm at head
+        }
+    } else {
+        // Same tier: move to head (MRU position)
+        if (meta->access_tier == 2)
+            bpf_cache_ext_list_move(hot_list, folio, false);
+        else if (meta->access_tier == 1)
+            bpf_cache_ext_list_move(warm_list, folio, false);
+        else
+            bpf_cache_ext_list_move(cold_list, folio, false);
+    }
+
+    bump_counter(4);
+}
+=======
+// -- struct_ops: folio_accessed -----------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 key = (u64)folio;
+    u64 now = bpf_ktime_get_ns();
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // First access: add to cold list
+        bpf_cache_ext_list_add_tail(cold_list, folio);
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = now,
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Update metadata: just increment access_count directly (no decay here)
+    // Decay is computed virtually only during eviction for scoring decisions
+    meta->last_access_ts = now;
+    meta->access_count += 1;
+
+    // Determine new tier based on true (not decayed) access count
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Promote folio if tier changed
+    if (meta->access_tier > old_tier) {
+        // Remove from current list
+        bpf_cache_ext_list_del(folio);
+
+        // Add to appropriate new list
+        if (meta->access_tier == 2) {
+            bpf_cache_ext_list_add(hot_list, folio);  // hot at head
+        } else if (meta->access_tier == 1) {
+            bpf_cache_ext_list_add(warm_list, folio);  // warm at head
+        }
+    } else {
+        // Same tier: move to head (MRU position)
+        if (meta->access_tier == 2)
+            bpf_cache_ext_list_move(hot_list, folio, false);
+        else if (meta->access_tier == 1)
+            bpf_cache_ext_list_move(warm_list, folio, false);
+        else
+            bpf_cache_ext_list_move(cold_list, folio, false);
+    }
+
+    bump_counter(4);
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+## Rationale
+
+This change addresses the core regression by:
+
+1. **Removing decay from the access path**: No longer suppressing access_count during `folio_accessed`, so tier promotion remains responsive and active workloads are properly classified.
+
+2. **Moving decay to eviction scoring only**: Compute a "virtual decayed count" used *only* for eviction decisions, which allows us to identify and evict stale high-frequency folios without affecting their true tier.
+
+3. **Tier-specific decay triggers**: Cold folios trigger decay after 600ms without re-access, warm after 1.2s, hot after 1.8s. This matches the working-set window concept from the recommendation and naturally adapts to tier characteristics.
+
+4. **Simple, clean logic**: The virtual decay is computed only when needed (during eviction), avoiding expensive calculations during hot-path accesses.
+
+This approach preserves the benefits of Program 5 (tier-specific windows, network awareness, burst protection) while fixing the regression caused by aggressive decay during active sessions.

@@ -1,0 +1,959 @@
+2026-03-09 23:35:15,510 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-09 23:41:16,639 INFO Acquired evaluation lock.
+2026-03-09 23:41:16,639 INFO === Step 0: Drop page cache ===
+2026-03-09 23:41:16,639 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-09 23:41:16,639 INFO CMD: sudo sync
+2026-03-09 23:41:16,859 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 23:41:17,507 INFO Page cache dropped.
+2026-03-09 23:41:17,507 INFO === Step 1: Compile evolved policy ===
+2026-03-09 23:41:17,518 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-09 23:41:17,894 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-09 23:41:20,785 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-09 23:41:20,973 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-09 23:41:21,915 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-09 23:41:21,916 INFO === Step 2: Disable MGLRU ===
+2026-03-09 23:41:21,916 INFO MGLRU current state: 0x0000 — disabling
+2026-03-09 23:41:21,916 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 23:41:21,935 INFO MGLRU disabled.
+2026-03-09 23:41:21,935 INFO === Step 3: Create cgroup ===
+2026-03-09 23:41:21,935 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 23:41:21,996 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-09 23:41:22,108 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-09 23:41:22,123 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-09 23:41:22,123 INFO === Step 4: Load BPF policy ===
+2026-03-09 23:41:22,123 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-09 23:41:32,142 ERROR Evaluation failed: RuntimeError: Policy loader exited immediately: libbpf: prog 'evolved_evict_folios': BPF program load failed: Permission denied
+libbpf: prog 'evolved_evict_folios': -- BEGIN PROG LOAD LOG --
+reg type unsupported for arg#0 function evolved_evict_folios#238
+0: R1=ctx(off=0,imm=0) R10=fp0
+; void BPF_STRUCT_OPS(evolved_evict_folios,
+0: (79) r7 = *(u64 *)(r1 +8)
+func 'evict_folios' arg1 has btf_id 2227 type STRUCT 'mem_cgroup'
+1: R1=ctx(off=0,imm=0) R7_w=trusted_ptr_mem_cgroup(off=0,imm=0)
+1: (79) r6 = *(u64 *)(r1 +0)
+func 'evict_folios' arg0 has btf_id 744 type STRUCT 'cache_ext_eviction_ctx'
+2: R1=ctx(off=0,imm=0) R6_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+2: (b7) r1 = 0                        ; R1_w=0
+3: (63) *(u32 *)(r10 -4) = r1         ; R1_w=0 R10=fp0 fp-8=0000????
+4: (bf) r2 = r10                      ; R2_w=fp0 R10=fp0
+; 
+5: (07) r2 += -4                      ; R2_w=fp-4
+; u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
+6: (18) r1 = 0xffff888f5f457200       ; R1_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+8: (85) call bpf_map_lookup_elem#1    ; R0_w=map_value_or_null(id=1,off=0,ks=4,vs=8,imm=0)
+; if (val) __sync_fetch_and_add(val, 1);
+9: (15) if r0 == 0x0 goto pc+2        ; R0_w=map_value(off=0,ks=4,vs=8,imm=0)
+10: (b7) r1 = 1                       ; R1_w=1
+; if (val) __sync_fetch_and_add(val, 1);
+11: (db) lock *(u64 *)(r0 +0) += r1   ; R0=map_value(off=0,ks=4,vs=8,imm=0) R1=1
+12: (b7) r8 = 400                     ; R8_w=400
+; u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+13: (18) r1 = 0xffffc9000660b018      ; R1_w=map_value(off=24,ks=4,vs=112,imm=0)
+15: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (rtt_us > 100000)
+16: (25) if r1 > 0xc3507 goto pc+8    ; R1_w=scalar(umax=800007,var_off=(0x0; 0xfffff))
+17: (b7) r8 = 300                     ; R8_w=300
+; else if (rtt_us > 50000)
+18: (25) if r1 > 0x61a87 goto pc+6    ; R1_w=scalar(umax=400007,var_off=(0x0; 0x7ffff))
+19: (b7) r8 = 200                     ; R8_w=200
+; else if (rtt_us > 20000)
+20: (25) if r1 > 0x27107 goto pc+4 25: R0=map_value(off=0,ks=4,vs=8,imm=0) R1=scalar(umin=160008,umax=400007,var_off=(0x0; 0x7ffff)) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=200 R10=fp0 fp-8=mmmm????
+; u32 mdev_us = net_mdev_us >> 3;
+25: (18) r1 = 0xffffc9000660b01c      ; R1_w=map_value(off=28,ks=4,vs=112,imm=0)
+27: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+28: (b7) r2 = 160008                  ; R2_w=160008
+; if (mdev_us > 20000)
+29: (2d) if r2 > r1 goto pc+2         ; R1_w=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R2_w=160008
+; score += 250;
+30: (07) r8 += 250                    ; R8_w=450
+31: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+43: (18) r1 = 0xffffc9000660b050      ; R1_w=map_value(off=80,ks=4,vs=112,imm=0)
+45: (61) r1 = *(u32 *)(r1 +0)         ; R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_retrans_out > 5 || net_lost > 0)
+46: (25) if r1 > 0x5 goto pc+4        ; R1=scalar(umax=5,var_off=(0x0; 0x7))
+47: (18) r1 = 0xffffc9000660b054      ; R1_w=map_value(off=84,ks=4,vs=112,imm=0)
+49: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+50: (15) if r1 == 0x0 goto pc+2       ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; score += 200;
+51: (07) r8 += 200                    ; R8_w=650
+52: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+62: (18) r1 = 0xffffc9000660b048      ; R1_w=map_value(off=72,ks=4,vs=112,imm=0)
+64: (61) r1 = *(u32 *)(r1 +0)         ; R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+65: (15) if r1 == 0x0 goto pc+17      ; R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+66: (18) r2 = 0xffffc9000660b03c      ; R2_w=map_value(off=60,ks=4,vs=112,imm=0)
+68: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+69: (bf) r3 = r2                      ; R2_w=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff)) R3_w=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff))
+70: (15) if r3 == 0x0 goto pc+12      ; R3_w=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out * 2 > net_snd_cwnd)
+71: (bf) r4 = r1                      ; R1=scalar(id=3217,umax=4294967295,var_off=(0x0; 0xffffffff)) R4_w=scalar(id=3217,umax=4294967295,var_off=(0x0; 0xffffffff))
+72: (67) r4 <<= 1                     ; R4_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2)
+73: (67) r4 <<= 32                    ; R4_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0)
+74: (77) r4 >>= 32                    ; R4=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; if (net_packets_out * 2 > net_snd_cwnd)
+75: (3d) if r3 >= r4 goto pc+2        ; R3=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; score += 150;
+76: (07) r8 += 150                    ; R8_w=800
+77: (05) goto pc+5
+; bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+83: (18) r1 = 0xffffc9000660b068      ; R1_w=map_value(off=104,ks=4,vs=112,imm=0)
+85: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=104,ks=4,vs=112,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+86: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+87: (18) r3 = 0x1d                    ; R3_w=func(off=0,imm=0)
+89: (bf) r4 = r6                      ; R4_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+90: (85) call bpf_cache_ext_list_iterate#69427
+caller:
+ R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8_w=800 R10=fp0 fp-8=mmmm????
+callee:
+ frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+117: frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+; static int bpf_evict_cold_cb(int idx, struct cache_ext_list_node *node) {
+117: (bf) r7 = r2                     ; frame1: R2=ptr_cache_ext_list_node(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 now = bpf_ktime_get_ns();
+118: (85) call bpf_ktime_get_ns#5     ; frame1: R0_w=scalar() cb
+119: (bf) r6 = r0                     ; frame1: R0_w=scalar(id=3218) R6_w=scalar(id=3218) cb
+; u64 key = (u64)node->folio;
+120: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 key = (u64)node->folio;
+121: (7b) *(u64 *)(r10 -8) = r1       ; frame1: R1_w=ptr_folio(off=0,imm=0) R10=fp0 fp-8_w=ptr_ cb
+122: (bf) r2 = r10                    ; frame1: R2_w=fp0 R10=fp0 cb
+; 
+123: (07) r2 += -8                    ; frame1: R2_w=fp-8 cb
+; bpf_map_lookup_elem(&folio_metadata_map, &key);
+124: (18) r1 = 0xffff889080075800     ; frame1: R1_w=map_ptr(off=0,ks=8,vs=16,imm=0) cb
+126: (85) call bpf_map_lookup_elem#1          ; frame1: R0=map_value_or_null(id=3219,off=0,ks=8,vs=16,imm=0) cb
+127: (b7) r1 = 2                      ; frame1: R1_w=2 cb
+; if (!meta)
+128: (15) if r0 == 0x0 goto pc+106    ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) cb
+129: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+130: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+131: (0f) r1 += r2                    ; frame1: R1_w=ptr_folio(off=0,imm=0) R2_w=0 cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+132: (79) r3 = *(u64 *)(r1 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R3_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+133: (57) r3 &= 16                    ; frame1: R3_w=scalar(umax=16,var_off=(0x0; 0x10)) cb
+134: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+135: (55) if r3 != 0x0 goto pc+99     ; frame1: R3_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+136: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+137: (0f) r1 += r2                    ; frame1: R1_w=ptr_folio(off=0,imm=0) R2_w=0 cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+138: (79) r2 = *(u64 *)(r1 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R2_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+139: (57) r2 &= 2                     ; frame1: R2_w=scalar(umax=2,var_off=(0x0; 0x2)) cb
+140: (b7) r1 = 0                      ; frame1: R1=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+141: (55) if r2 != 0x0 goto pc+93     ; frame1: R2=0 cb
+142: (b7) r2 = 400                    ; frame1: R2_w=400 cb
+; u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+143: (18) r1 = 0xffffc9000660b018     ; frame1: R1_w=map_value(off=24,ks=4,vs=112,imm=0) cb
+145: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (rtt_us > 100000)
+146: (25) if r1 > 0xc3507 goto pc+8   ; frame1: R1_w=scalar(umax=800007,var_off=(0x0; 0xfffff)) cb
+147: (b7) r2 = 300                    ; frame1: R2_w=300 cb
+; else if (rtt_us > 50000)
+148: (25) if r1 > 0x61a87 goto pc+6   ; frame1: R1_w=scalar(umax=400007,var_off=(0x0; 0x7ffff)) cb
+149: (b7) r2 = 200                    ; frame1: R2=200 cb
+; else if (rtt_us > 20000)
+150: (25) if r1 > 0x27107 goto pc+4   ; frame1: R1=scalar(umax=160007,var_off=(0x0; 0x3ffff)) cb
+151: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+152: (b7) r3 = 40008                  ; frame1: R3_w=40008 cb
+; else if (rtt_us > 5000)
+153: (2d) if r3 > r1 goto pc+1        ; frame1: R1=scalar(umin=40008,umax=160007,var_off=(0x0; 0x3ffff)) R3_w=40008 cb
+154: (b7) r2 = 100                    ; frame1: R2_w=100 cb
+; u32 mdev_us = net_mdev_us >> 3;
+155: (18) r1 = 0xffffc9000660b01c     ; frame1: R1_w=map_value(off=28,ks=4,vs=112,imm=0) cb
+157: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+158: (b7) r3 = 160008                 ; frame1: R3=160008 cb
+; if (mdev_us > 20000)
+159: (2d) if r3 > r1 goto pc+2        ; frame1: R1=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=160008 cb
+; score += 250;
+160: (07) r2 += 250                   ; frame1: R2_w=350 cb
+161: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+173: (18) r1 = 0xffffc9000660b050     ; frame1: R1_w=map_value(off=80,ks=4,vs=112,imm=0) cb
+175: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_retrans_out > 5 || net_lost > 0)
+176: (25) if r1 > 0x5 goto pc+4       ; frame1: R1_w=scalar(umax=5,var_off=(0x0; 0x7)) cb
+177: (18) r1 = 0xffffc9000660b054     ; frame1: R1_w=map_value(off=84,ks=4,vs=112,imm=0) cb
+179: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+180: (15) if r1 == 0x0 goto pc+2      ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; score += 200;
+181: (07) r2 += 200                   ; frame1: R2_w=550 cb
+182: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+192: (18) r1 = 0xffffc9000660b048     ; frame1: R1_w=map_value(off=72,ks=4,vs=112,imm=0) cb
+194: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+195: (15) if r1 == 0x0 goto pc+17     ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+196: (18) r3 = 0xffffc9000660b03c     ; frame1: R3_w=map_value(off=60,ks=4,vs=112,imm=0) cb
+198: (61) r3 = *(u32 *)(r3 +0)        ; frame1: R3_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+199: (bf) r4 = r3                     ; frame1: R3=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+200: (15) if r4 == 0x0 goto pc+12     ; frame1: R4=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+201: (bf) r5 = r1                     ; frame1: R1=scalar(id=3221,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(id=3221,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+202: (67) r5 <<= 1                    ; frame1: R5_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2) cb
+203: (67) r5 <<= 32                   ; frame1: R5_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0) cb
+204: (77) r5 >>= 32                   ; frame1: R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+205: (3d) if r4 >= r5 goto pc+2       ; frame1: R4=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; score += 150;
+206: (07) r2 += 150                   ; frame1: R2_w=700 cb
+207: (05) goto pc+5
+; score += 100;
+213: (b7) r1 = 1000                   ; frame1: R1_w=1000 cb
+; return (score > 1000) ? 1000 : score;
+214: (2d) if r1 > r2 goto pc+1        ; frame1: R1_w=1000 R2=700 cb
+; if (meta->access_tier == 0) {
+216: (61) r1 = *(u32 *)(r0 +12)       ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (meta->access_tier == 0) {
+217: (55) if r1 != 0x0 goto pc+16     ; frame1: R1_w=0 cb
+; u64 age_ns = (now > meta->last_access_ts) ?
+218: (79) r3 = *(u64 *)(r0 +0)        ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R3_w=scalar() cb
+; u64 age_ns = (now > meta->last_access_ts) ?
+219: (bf) r1 = r6                     ; frame1: R1_w=scalar(id=3218) R6=scalar(id=3218) cb
+220: (1f) r1 -= r3                    ; frame1: R1_w=scalar() R3_w=scalar() cb
+221: (b7) r3 = 0                      ; frame1: R3_w=0 cb
+222: (b7) r4 = 1                      ; frame1: R4=1 cb
+223: (2d) if r1 > r6 goto pc+1        ; frame1: R1=scalar() R6=scalar(id=3218) cb
+224: (b7) r4 = 0                      ; frame1: R4_w=0 cb
+; 
+225: (27) r2 *= 170000                ; frame1: R2_w=119000000 cb
+; u64 age_ns = (now > meta->last_access_ts) ?
+226: (55) if r4 != 0x0 goto pc+1      ; frame1: R4_w=0 cb
+227: (bf) r3 = r1                     ; frame1: R1=scalar(id=3222) R3_w=scalar(id=3222) cb
+228: (b7) r1 = 170000000              ; frame1: R1_w=170000000 cb
+; return (window > 200000000ULL) ? 200000000ULL : window;
+229: (2d) if r1 > r2 goto pc+1        ; frame1: R1_w=170000000 R2_w=119000000 cb
+231: (07) r2 += 30000000              ; frame1: R2_w=149000000 cb
+232: (b7) r1 = 2                      ; frame1: R1=2 cb
+233: (2d) if r3 > r2 goto pc+1        ; frame1: R2=149000000 R3=scalar(id=3222,umax=149000000,var_off=(0x0; 0xfffffff)) cb
+234: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; }
+235: (bf) r0 = r1                     ; frame1: R0_w=0 R1_w=0 cb
+236: (95) exit
+returning from callee:
+ frame1: R0_w=0 R1_w=0 R2=149000000 R3=scalar(id=3222,umax=149000000,var_off=(0x0; 0xfffffff)) R4=0 R5=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) R6=scalar(id=3218) R7=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 fp-8=mmmmmmmm cb
+to caller at 91:
+ R0=scalar() R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=800 R10=fp0 fp-8=mmmm????
+; bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+91: (18) r1 = 0xffffc9000660b060      ; R1_w=map_value(off=96,ks=4,vs=112,imm=0)
+93: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=96,ks=4,vs=112,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+94: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+95: (18) r3 = 0x8d                    ; R3=func(off=0,imm=0)
+97: (bf) r4 = r6                      ; R4_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+98: (85) call bpf_cache_ext_list_iterate#69427
+caller:
+ R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=800 R10=fp0 fp-8=mmmm????
+callee:
+ frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+237: frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+; static int bpf_evict_warm_cb(int idx, struct cache_ext_list_node *node) {
+237: (bf) r7 = r2                     ; frame1: R2=ptr_cache_ext_list_node(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 now = bpf_ktime_get_ns();
+238: (85) call bpf_ktime_get_ns#5     ; frame1: R0_w=scalar() cb
+239: (bf) r6 = r0                     ; frame1: R0_w=scalar(id=3223) R6_w=scalar(id=3223) cb
+; u64 key = (u64)node->folio;
+240: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 key = (u64)node->folio;
+241: (7b) *(u64 *)(r10 -8) = r1       ; frame1: R1_w=ptr_folio(off=0,imm=0) R10=fp0 fp-8_w=ptr_ cb
+242: (bf) r2 = r10                    ; frame1: R2_w=fp0 R10=fp0 cb
+; 
+243: (07) r2 += -8                    ; frame1: R2_w=fp-8 cb
+; bpf_map_lookup_elem(&folio_metadata_map, &key);
+244: (18) r1 = 0xffff889080075800     ; frame1: R1_w=map_ptr(off=0,ks=8,vs=16,imm=0) cb
+246: (85) call bpf_map_lookup_elem#1          ; frame1: R0=map_value_or_null(id=3224,off=0,ks=8,vs=16,imm=0) cb
+247: (b7) r1 = 2                      ; frame1: R1_w=2 cb
+; if (!meta)
+248: (15) if r0 == 0x0 goto pc+205    ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) cb
+249: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+250: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+251: (79) r3 = *(u64 *)(r7 +0)        ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+252: (0f) r3 += r2                    ; frame1: R2_w=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+253: (79) r3 = *(u64 *)(r3 +0)        ; frame1: R3_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+254: (57) r3 &= 16                    ; frame1: R3_w=scalar(umax=16,var_off=(0x0; 0x10)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+255: (55) if r3 != 0x0 goto pc+198    ; frame1: R3_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+256: (79) r3 = *(u64 *)(r7 +0)        ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+257: (0f) r3 += r2                    ; frame1: R2_w=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+258: (79) r2 = *(u64 *)(r3 +0)        ; frame1: R2_w=scalar() R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+259: (57) r2 &= 2                     ; frame1: R2=scalar(umax=2,var_off=(0x0; 0x2)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+260: (55) if r2 != 0x0 goto pc+193    ; frame1: R2=0 cb
+261: (b7) r2 = 400                    ; frame1: R2_w=400 cb
+; u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+262: (18) r1 = 0xffffc9000660b018     ; frame1: R1_w=map_value(off=24,ks=4,vs=112,imm=0) cb
+264: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (rtt_us > 100000)
+265: (25) if r1 > 0xc3507 goto pc+8   ; frame1: R1_w=scalar(umax=800007,var_off=(0x0; 0xfffff)) cb
+266: (b7) r2 = 300                    ; frame1: R2_w=300 cb
+; else if (rtt_us > 50000)
+267: (25) if r1 > 0x61a87 goto pc+6   ; frame1: R1_w=scalar(umax=400007,var_off=(0x0; 0x7ffff)) cb
+268: (b7) r2 = 200                    ; frame1: R2=200 cb
+; else if (rtt_us > 20000)
+269: (25) if r1 > 0x27107 goto pc+4   ; frame1: R1=scalar(umax=160007,var_off=(0x0; 0x3ffff)) cb
+270: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+271: (b7) r3 = 40008                  ; frame1: R3_w=40008 cb
+; else if (rtt_us > 5000)
+272: (2d) if r3 > r1 goto pc+1        ; frame1: R1=scalar(umin=40008,umax=160007,var_off=(0x0; 0x3ffff)) R3_w=40008 cb
+273: (b7) r2 = 100                    ; frame1: R2_w=100 cb
+; u32 mdev_us = net_mdev_us >> 3;
+274: (18) r1 = 0xffffc9000660b01c     ; frame1: R1_w=map_value(off=28,ks=4,vs=112,imm=0) cb
+276: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+277: (b7) r3 = 160008                 ; frame1: R3=160008 cb
+; if (mdev_us > 20000)
+278: (2d) if r3 > r1 goto pc+2        ; frame1: R1=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=160008 cb
+; score += 250;
+279: (07) r2 += 250                   ; frame1: R2_w=350 cb
+280: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+292: (18) r1 = 0xffffc9000660b050     ; frame1: R1_w=map_value(off=80,ks=4,vs=112,imm=0) cb
+294: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_retrans_out > 5 || net_lost > 0)
+295: (25) if r1 > 0x5 goto pc+4       ; frame1: R1_w=scalar(umax=5,var_off=(0x0; 0x7)) cb
+296: (18) r1 = 0xffffc9000660b054     ; frame1: R1_w=map_value(off=84,ks=4,vs=112,imm=0) cb
+298: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+299: (15) if r1 == 0x0 goto pc+2      ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; score += 200;
+300: (07) r2 += 200                   ; frame1: R2_w=550 cb
+301: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+311: (18) r1 = 0xffffc9000660b048     ; frame1: R1_w=map_value(off=72,ks=4,vs=112,imm=0) cb
+313: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+314: (15) if r1 == 0x0 goto pc+17     ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+315: (18) r3 = 0xffffc9000660b03c     ; frame1: R3_w=map_value(off=60,ks=4,vs=112,imm=0) cb
+317: (61) r3 = *(u32 *)(r3 +0)        ; frame1: R3_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+318: (bf) r4 = r3                     ; frame1: R3=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+319: (15) if r4 == 0x0 goto pc+12     ; frame1: R4=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+320: (bf) r5 = r1                     ; frame1: R1=scalar(id=3226,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(id=3226,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+321: (67) r5 <<= 1                    ; frame1: R5_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2) cb
+322: (67) r5 <<= 32                   ; frame1: R5_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0) cb
+323: (77) r5 >>= 32                   ; frame1: R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+324: (3d) if r4 >= r5 goto pc+2       ; frame1: R4=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; score += 150;
+325: (07) r2 += 150                   ; frame1: R2_w=700 cb
+326: (05) goto pc+5
+; score += 100;
+332: (b7) r1 = 1000                   ; frame1: R1_w=1000 cb
+; return (score > 1000) ? 1000 : score;
+333: (2d) if r1 > r2 goto pc+1        ; frame1: R1_w=1000 R2=700 cb
+335: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; if (net_prev_packet_ts == 0)
+336: (18) r3 = 0xffffc9000660b010     ; frame1: R3_w=map_value(off=16,ks=4,vs=112,imm=0) cb
+338: (79) r5 = *(u64 *)(r3 +0)        ; frame1: R3_w=map_value(off=16,ks=4,vs=112,imm=0) R5_w=scalar() cb
+339: (b7) r3 = 0                      ; frame1: R3_w=0 cb
+; if (net_prev_packet_ts == 0)
+340: (15) if r5 == 0x0 goto pc+12     ; frame1: R5_w=scalar() cb
+; u64 inter_arrival_ns = (now > net_prev_packet_ts) ?
+341: (bf) r4 = r6                     ; frame1: R4_w=scalar(id=3223) R6=scalar(id=3223) cb
+342: (1f) r4 -= r5                    ; frame1: R4_w=scalar() R5_w=scalar() cb
+343: (b7) r3 = 1                      ; frame1: R3_w=1 cb
+344: (b7) r7 = 1                      ; frame1: R7=1 cb
+345: (2d) if r4 > r6 goto pc+1        ; frame1: R4=scalar() R6=scalar(id=3223) cb
+346: (b7) r7 = 0                      ; frame1: R7_w=0 cb
+347: (b7) r5 = 0                      ; frame1: R5_w=0 cb
+348: (55) if r7 != 0x0 goto pc+1      ; frame1: R7_w=0 cb
+349: (bf) r5 = r4                     ; frame1: R4=scalar(id=3227) R5_w=scalar(id=3227) cb
+350: (b7) r4 = 5000000                ; frame1: R4_w=5000000 cb
+; return (inter_arrival_ns < 5000000ULL);
+351: (2d) if r4 > r5 goto pc+1        ; frame1: R4_w=5000000 R5_w=scalar(id=3227,umin=5000000) cb
+352: (b7) r3 = 0                      ; frame1: R3=0 cb
+; u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+353: (79) r4 = *(u64 *)(r0 +0)        ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R4_w=scalar() cb
+; u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+354: (bf) r5 = r6                     ; frame1: R5_w=scalar(id=3223) R6=scalar(id=3223) cb
+355: (1f) r5 -= r4                    ; frame1: R4_w=scalar() R5_w=scalar() cb
+356: (b7) r7 = 1                      ; frame1: R7_w=1 cb
+357: (2d) if r5 > r6 goto pc+1        ; frame1: R5_w=scalar() R6=scalar(id=3223) cb
+358: (b7) r7 = 0                      ; frame1: R7_w=0 cb
+359: (b7) r4 = 0                      ; frame1: R4_w=0 cb
+360: (55) if r7 != 0x0 goto pc+1      ; frame1: R7_w=0 cb
+361: (bf) r4 = r5                     ; frame1: R4=scalar(id=3228) R5=scalar(id=3228) cb
+; u64 window = base + (320000000ULL * congestion) / 1000;  // add 0-320ms
+362: (bf) r7 = r2                     ; frame1: R2=700 R7_w=700 cb
+363: (67) r7 <<= 32                   ; frame1: R7_w=3006477107200 cb
+364: (77) r7 >>= 32                   ; frame1: R7_w=700 cb
+; u64 window = base + (320000000ULL * congestion) / 1000;  // add 0-320ms
+365: (bf) r5 = r7                     ; frame1: R5_w=700 R7_w=700 cb
+366: (27) r5 *= 320000                ; frame1: R5_w=224000000 cb
+367: (b7) r8 = 320000000              ; frame1: R8_w=320000000 cb
+; return (window > 400000000ULL) ? 400000000ULL : window;
+368: (2d) if r8 > r5 goto pc+1        ; frame1: R5_w=224000000 R8_w=320000000 cb
+370: (07) r5 += 80000000              ; frame1: R5_w=304000000 cb
+; if (age_ns < warm_recent_window)
+371: (2d) if r5 > r4 goto pc+82       ; frame1: R4=scalar(id=3228,umin=304000000) R5_w=304000000 cb
+; window += (BASE_WORKING_SET_NS * congestion) / 500;  // add 0-1.6s
+372: (bf) r1 = r7                     ; frame1: R1_w=700 R7_w=700 cb
+373: (27) r1 *= 1600000               ; frame1: R1_w=1120000000 cb
+374: (b7) r5 = 1200000000             ; frame1: R5=1200000000 cb
+; return (window > 2000000000ULL) ? 2000000000ULL : window;
+375: (2d) if r5 > r1 goto pc+1        ; frame1: R1=1120000000 R5=1200000000 cb
+377: (b7) r5 = 0                      ; frame1: R5_w=0 cb
+; window += (BASE_RECENT_ACCESS_NS * congestion) / 1000;  // add 0-50ms
+378: (27) r7 *= 50000                 ; frame1: R7_w=35000000 cb
+; window += (BASE_RECENT_ACCESS_NS * congestion) / 1000;  // add 0-50ms
+379: (07) r7 += 50000000              ; frame1: R7_w=85000000 cb
+; if (age_ns < recent_window) {
+380: (3d) if r4 >= r7 goto pc+19      ; frame1: R4=scalar(id=3228,umin=304000000) R7_w=85000000 cb
+; score += 150 - (150 * age_past_knee) / remaining_window;
+400: (18) r7 = 0xffffc9000660b000     ; frame1: R7_w=map_value(off=0,ks=4,vs=112,imm=0) cb
+; 
+402: (07) r1 += 800000000             ; frame1: R1_w=1920000000 cb
+; if (meta->access_count >= 4)
+403: (61) r8 = *(u32 *)(r0 +8)        ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R8_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+404: (b7) r9 = 4                      ; frame1: R9=4 cb
+; if (meta->access_count >= 4)
+405: (2d) if r9 > r8 goto pc+2        ; frame1: R8=scalar(umin=4,umax=4294967295,var_off=(0x0; 0xffffffff)) R9=4 cb
+; score += 300;
+406: (07) r5 += 300                   ; frame1: R5_w=300 cb
+407: (05) goto pc+8
+; score += 100;
+416: (79) r7 = *(u64 *)(r7 +0)        ; frame1: R7_w=scalar() cb
+417: (b7) r8 = 1                      ; frame1: R8_w=1 cb
+418: (2d) if r1 > r4 goto pc+1        ; frame1: R1=1920000000 R4=scalar(id=3228,umin=1920000000) cb
+419: (b7) r8 = 0                      ; frame1: R8_w=0 cb
+420: (1f) r6 -= r7                    ; frame1: R6_w=scalar() R7_w=scalar() cb
+; if (in_burst && age_ns < working_set_window) {
+421: (5f) r3 &= r8                    ; frame1: R3=0 R8=0 cb
+422: (55) if r3 != 0x1 goto pc+5      ; frame1: R3=0 cb
+; score += 200 - (200 * age_ns) / working_set_window;
+428: (18) r3 = 0x12a05f1ff            ; frame1: R3_w=4999999999 cb
+; if (session_active && age_ns < working_set_window && congestion > 500) {
+430: (2d) if r6 > r3 goto pc+10       ; frame1: R3_w=4999999999 R6=scalar(umax=4999999999,var_off=(0x0; 0x1ffffffff)) cb
+431: (bf) r3 = r2                     ; frame1: R2=700 R3_w=700 cb
+432: (67) r3 <<= 32                   ; frame1: R3_w=3006477107200 cb
+433: (77) r3 >>= 32                   ; frame1: R3_w=700 cb
+434: (b7) r6 = 501                    ; frame1: R6_w=501 cb
+435: (2d) if r6 > r3 goto pc+5        ; frame1: R3_w=700 R6_w=501 cb
+436: (3d) if r4 >= r1 goto pc+4       ; frame1: R1=1920000000 R4=scalar(id=3228,umin=1920000000) cb
+; if (meta->access_tier == 2)
+441: (61) r1 = *(u32 *)(r0 +12)       ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (meta->access_tier == 2)
+442: (15) if r1 == 0x1 goto pc+3      ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+443: (55) if r1 != 0x2 goto pc+3      ; frame1: R1_w=2 cb
+; score += 150;
+444: (07) r5 += 150                   ; frame1: R5_w=450 cb
+445: (05) goto pc+1
+; if (score < 200)
+447: (67) r5 <<= 32                   ; frame1: R5_w=1932735283200 cb
+448: (77) r5 >>= 32                   ; frame1: R5_w=450 cb
+449: (b7) r1 = 1                      ; frame1: R1_w=1 cb
+450: (b7) r2 = 200                    ; frame1: R2=200 cb
+451: (2d) if r2 > r5 goto pc+1        ; frame1: R2=200 R5=450 cb
+452: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; 
+453: (67) r1 <<= 1                    ; frame1: R1_w=0 cb
+; }
+454: (bf) r0 = r1                     ; frame1: R0_w=0 R1_w=0 cb
+455: (95) exit
+returning from callee:
+ frame1: R0_w=0 R1_w=0 R2=200 R3=700 R4=scalar(id=3228,umin=1920000000) R5=450 R6=501 R7=scalar() R8=0 R9=4 R10=fp0 fp-8=mmmmmmmm cb
+to caller at 99:
+ R0=scalar() R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=800 R10=fp0 fp-8=mmmm????
+; 
+99: (18) r1 = 0xffffc9000660b058      ; R1_w=map_value(off=88,ks=4,vs=112,imm=0)
+101: (79) r2 = *(u64 *)(r1 +0)        ; R1_w=map_value(off=88,ks=4,vs=112,imm=0) R2_w=scalar()
+102: (b7) r1 = 751                    ; R1=751
+; if (congestion > 750) {
+103: (2d) if r1 > r8 goto pc+7        ; R1=751 R8=800
+; bpf_cache_ext_list_sample(memcg, hot_list, bpf_evict_hot_cb, 20, eviction_ctx);
+104: (bf) r1 = r7                     ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+105: (18) r3 = 0x15e                  ; R3_w=func(off=0,imm=0)
+107: (b7) r4 = 20                     ; R4_w=20
+108: (bf) r5 = r6                     ; R5_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+109: (85) call bpf_cache_ext_list_sample#69432
+R4 type=scalar expected=fp
+processed 128905 insns (limit 1000000) max_states_per_insn 18 total_states 12865 peak_states 961 mark_read 27
+-- END PROG LOAD LOG --
+libbpf: prog 'evolved_evict_folios': failed to load: -13
+libbpf: failed to load object 'cache_ext_evolved_bpf'
+libbpf: failed to load BPF skeleton 'cache_ext_evolved_bpf': -13
+Failed to load BPF program
+
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 596, in evaluate
+    policy_proc = start_policy(loader_path, LEVELDB_TEMP_DB)
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 324, in start_policy
+    raise RuntimeError(f"Policy loader exited immediately: {stderr}")
+RuntimeError: Policy loader exited immediately: libbpf: prog 'evolved_evict_folios': BPF program load failed: Permission denied
+libbpf: prog 'evolved_evict_folios': -- BEGIN PROG LOAD LOG --
+reg type unsupported for arg#0 function evolved_evict_folios#238
+0: R1=ctx(off=0,imm=0) R10=fp0
+; void BPF_STRUCT_OPS(evolved_evict_folios,
+0: (79) r7 = *(u64 *)(r1 +8)
+func 'evict_folios' arg1 has btf_id 2227 type STRUCT 'mem_cgroup'
+1: R1=ctx(off=0,imm=0) R7_w=trusted_ptr_mem_cgroup(off=0,imm=0)
+1: (79) r6 = *(u64 *)(r1 +0)
+func 'evict_folios' arg0 has btf_id 744 type STRUCT 'cache_ext_eviction_ctx'
+2: R1=ctx(off=0,imm=0) R6_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+2: (b7) r1 = 0                        ; R1_w=0
+3: (63) *(u32 *)(r10 -4) = r1         ; R1_w=0 R10=fp0 fp-8=0000????
+4: (bf) r2 = r10                      ; R2_w=fp0 R10=fp0
+; 
+5: (07) r2 += -4                      ; R2_w=fp-4
+; u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
+6: (18) r1 = 0xffff888f5f457200       ; R1_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+8: (85) call bpf_map_lookup_elem#1    ; R0_w=map_value_or_null(id=1,off=0,ks=4,vs=8,imm=0)
+; if (val) __sync_fetch_and_add(val, 1);
+9: (15) if r0 == 0x0 goto pc+2        ; R0_w=map_value(off=0,ks=4,vs=8,imm=0)
+10: (b7) r1 = 1                       ; R1_w=1
+; if (val) __sync_fetch_and_add(val, 1);
+11: (db) lock *(u64 *)(r0 +0) += r1   ; R0=map_value(off=0,ks=4,vs=8,imm=0) R1=1
+12: (b7) r8 = 400                     ; R8_w=400
+; u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+13: (18) r1 = 0xffffc9000660b018      ; R1_w=map_value(off=24,ks=4,vs=112,imm=0)
+15: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (rtt_us > 100000)
+16: (25) if r1 > 0xc3507 goto pc+8    ; R1_w=scalar(umax=800007,var_off=(0x0; 0xfffff))
+17: (b7) r8 = 300                     ; R8_w=300
+; else if (rtt_us > 50000)
+18: (25) if r1 > 0x61a87 goto pc+6    ; R1_w=scalar(umax=400007,var_off=(0x0; 0x7ffff))
+19: (b7) r8 = 200                     ; R8_w=200
+; else if (rtt_us > 20000)
+20: (25) if r1 > 0x27107 goto pc+4 25: R0=map_value(off=0,ks=4,vs=8,imm=0) R1=scalar(umin=160008,umax=400007,var_off=(0x0; 0x7ffff)) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=200 R10=fp0 fp-8=mmmm????
+; u32 mdev_us = net_mdev_us >> 3;
+25: (18) r1 = 0xffffc9000660b01c      ; R1_w=map_value(off=28,ks=4,vs=112,imm=0)
+27: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+28: (b7) r2 = 160008                  ; R2_w=160008
+; if (mdev_us > 20000)
+29: (2d) if r2 > r1 goto pc+2         ; R1_w=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R2_w=160008
+; score += 250;
+30: (07) r8 += 250                    ; R8_w=450
+31: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+43: (18) r1 = 0xffffc9000660b050      ; R1_w=map_value(off=80,ks=4,vs=112,imm=0)
+45: (61) r1 = *(u32 *)(r1 +0)         ; R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_retrans_out > 5 || net_lost > 0)
+46: (25) if r1 > 0x5 goto pc+4        ; R1=scalar(umax=5,var_off=(0x0; 0x7))
+47: (18) r1 = 0xffffc9000660b054      ; R1_w=map_value(off=84,ks=4,vs=112,imm=0)
+49: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+50: (15) if r1 == 0x0 goto pc+2       ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; score += 200;
+51: (07) r8 += 200                    ; R8_w=650
+52: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+62: (18) r1 = 0xffffc9000660b048      ; R1_w=map_value(off=72,ks=4,vs=112,imm=0)
+64: (61) r1 = *(u32 *)(r1 +0)         ; R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+65: (15) if r1 == 0x0 goto pc+17      ; R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+66: (18) r2 = 0xffffc9000660b03c      ; R2_w=map_value(off=60,ks=4,vs=112,imm=0)
+68: (61) r2 = *(u32 *)(r2 +0)         ; R2_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+69: (bf) r3 = r2                      ; R2_w=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff)) R3_w=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff))
+70: (15) if r3 == 0x0 goto pc+12      ; R3_w=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff))
+; if (net_packets_out * 2 > net_snd_cwnd)
+71: (bf) r4 = r1                      ; R1=scalar(id=3217,umax=4294967295,var_off=(0x0; 0xffffffff)) R4_w=scalar(id=3217,umax=4294967295,var_off=(0x0; 0xffffffff))
+72: (67) r4 <<= 1                     ; R4_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2)
+73: (67) r4 <<= 32                    ; R4_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0)
+74: (77) r4 >>= 32                    ; R4=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; if (net_packets_out * 2 > net_snd_cwnd)
+75: (3d) if r3 >= r4 goto pc+2        ; R3=scalar(id=3216,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646)
+; score += 150;
+76: (07) r8 += 150                    ; R8_w=800
+77: (05) goto pc+5
+; bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+83: (18) r1 = 0xffffc9000660b068      ; R1_w=map_value(off=104,ks=4,vs=112,imm=0)
+85: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=104,ks=4,vs=112,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+86: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+87: (18) r3 = 0x1d                    ; R3_w=func(off=0,imm=0)
+89: (bf) r4 = r6                      ; R4_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+90: (85) call bpf_cache_ext_list_iterate#69427
+caller:
+ R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8_w=800 R10=fp0 fp-8=mmmm????
+callee:
+ frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+117: frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+; static int bpf_evict_cold_cb(int idx, struct cache_ext_list_node *node) {
+117: (bf) r7 = r2                     ; frame1: R2=ptr_cache_ext_list_node(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 now = bpf_ktime_get_ns();
+118: (85) call bpf_ktime_get_ns#5     ; frame1: R0_w=scalar() cb
+119: (bf) r6 = r0                     ; frame1: R0_w=scalar(id=3218) R6_w=scalar(id=3218) cb
+; u64 key = (u64)node->folio;
+120: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 key = (u64)node->folio;
+121: (7b) *(u64 *)(r10 -8) = r1       ; frame1: R1_w=ptr_folio(off=0,imm=0) R10=fp0 fp-8_w=ptr_ cb
+122: (bf) r2 = r10                    ; frame1: R2_w=fp0 R10=fp0 cb
+; 
+123: (07) r2 += -8                    ; frame1: R2_w=fp-8 cb
+; bpf_map_lookup_elem(&folio_metadata_map, &key);
+124: (18) r1 = 0xffff889080075800     ; frame1: R1_w=map_ptr(off=0,ks=8,vs=16,imm=0) cb
+126: (85) call bpf_map_lookup_elem#1          ; frame1: R0=map_value_or_null(id=3219,off=0,ks=8,vs=16,imm=0) cb
+127: (b7) r1 = 2                      ; frame1: R1_w=2 cb
+; if (!meta)
+128: (15) if r0 == 0x0 goto pc+106    ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) cb
+129: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+130: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+131: (0f) r1 += r2                    ; frame1: R1_w=ptr_folio(off=0,imm=0) R2_w=0 cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+132: (79) r3 = *(u64 *)(r1 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R3_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+133: (57) r3 &= 16                    ; frame1: R3_w=scalar(umax=16,var_off=(0x0; 0x10)) cb
+134: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+135: (55) if r3 != 0x0 goto pc+99     ; frame1: R3_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+136: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+137: (0f) r1 += r2                    ; frame1: R1_w=ptr_folio(off=0,imm=0) R2_w=0 cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+138: (79) r2 = *(u64 *)(r1 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R2_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+139: (57) r2 &= 2                     ; frame1: R2_w=scalar(umax=2,var_off=(0x0; 0x2)) cb
+140: (b7) r1 = 0                      ; frame1: R1=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+141: (55) if r2 != 0x0 goto pc+93     ; frame1: R2=0 cb
+142: (b7) r2 = 400                    ; frame1: R2_w=400 cb
+; u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+143: (18) r1 = 0xffffc9000660b018     ; frame1: R1_w=map_value(off=24,ks=4,vs=112,imm=0) cb
+145: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (rtt_us > 100000)
+146: (25) if r1 > 0xc3507 goto pc+8   ; frame1: R1_w=scalar(umax=800007,var_off=(0x0; 0xfffff)) cb
+147: (b7) r2 = 300                    ; frame1: R2_w=300 cb
+; else if (rtt_us > 50000)
+148: (25) if r1 > 0x61a87 goto pc+6   ; frame1: R1_w=scalar(umax=400007,var_off=(0x0; 0x7ffff)) cb
+149: (b7) r2 = 200                    ; frame1: R2=200 cb
+; else if (rtt_us > 20000)
+150: (25) if r1 > 0x27107 goto pc+4   ; frame1: R1=scalar(umax=160007,var_off=(0x0; 0x3ffff)) cb
+151: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+152: (b7) r3 = 40008                  ; frame1: R3_w=40008 cb
+; else if (rtt_us > 5000)
+153: (2d) if r3 > r1 goto pc+1        ; frame1: R1=scalar(umin=40008,umax=160007,var_off=(0x0; 0x3ffff)) R3_w=40008 cb
+154: (b7) r2 = 100                    ; frame1: R2_w=100 cb
+; u32 mdev_us = net_mdev_us >> 3;
+155: (18) r1 = 0xffffc9000660b01c     ; frame1: R1_w=map_value(off=28,ks=4,vs=112,imm=0) cb
+157: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+158: (b7) r3 = 160008                 ; frame1: R3=160008 cb
+; if (mdev_us > 20000)
+159: (2d) if r3 > r1 goto pc+2        ; frame1: R1=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=160008 cb
+; score += 250;
+160: (07) r2 += 250                   ; frame1: R2_w=350 cb
+161: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+173: (18) r1 = 0xffffc9000660b050     ; frame1: R1_w=map_value(off=80,ks=4,vs=112,imm=0) cb
+175: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_retrans_out > 5 || net_lost > 0)
+176: (25) if r1 > 0x5 goto pc+4       ; frame1: R1_w=scalar(umax=5,var_off=(0x0; 0x7)) cb
+177: (18) r1 = 0xffffc9000660b054     ; frame1: R1_w=map_value(off=84,ks=4,vs=112,imm=0) cb
+179: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+180: (15) if r1 == 0x0 goto pc+2      ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; score += 200;
+181: (07) r2 += 200                   ; frame1: R2_w=550 cb
+182: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+192: (18) r1 = 0xffffc9000660b048     ; frame1: R1_w=map_value(off=72,ks=4,vs=112,imm=0) cb
+194: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+195: (15) if r1 == 0x0 goto pc+17     ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+196: (18) r3 = 0xffffc9000660b03c     ; frame1: R3_w=map_value(off=60,ks=4,vs=112,imm=0) cb
+198: (61) r3 = *(u32 *)(r3 +0)        ; frame1: R3_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+199: (bf) r4 = r3                     ; frame1: R3=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+200: (15) if r4 == 0x0 goto pc+12     ; frame1: R4=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+201: (bf) r5 = r1                     ; frame1: R1=scalar(id=3221,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(id=3221,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+202: (67) r5 <<= 1                    ; frame1: R5_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2) cb
+203: (67) r5 <<= 32                   ; frame1: R5_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0) cb
+204: (77) r5 >>= 32                   ; frame1: R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+205: (3d) if r4 >= r5 goto pc+2       ; frame1: R4=scalar(id=3220,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; score += 150;
+206: (07) r2 += 150                   ; frame1: R2_w=700 cb
+207: (05) goto pc+5
+; score += 100;
+213: (b7) r1 = 1000                   ; frame1: R1_w=1000 cb
+; return (score > 1000) ? 1000 : score;
+214: (2d) if r1 > r2 goto pc+1        ; frame1: R1_w=1000 R2=700 cb
+; if (meta->access_tier == 0) {
+216: (61) r1 = *(u32 *)(r0 +12)       ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (meta->access_tier == 0) {
+217: (55) if r1 != 0x0 goto pc+16     ; frame1: R1_w=0 cb
+; u64 age_ns = (now > meta->last_access_ts) ?
+218: (79) r3 = *(u64 *)(r0 +0)        ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R3_w=scalar() cb
+; u64 age_ns = (now > meta->last_access_ts) ?
+219: (bf) r1 = r6                     ; frame1: R1_w=scalar(id=3218) R6=scalar(id=3218) cb
+220: (1f) r1 -= r3                    ; frame1: R1_w=scalar() R3_w=scalar() cb
+221: (b7) r3 = 0                      ; frame1: R3_w=0 cb
+222: (b7) r4 = 1                      ; frame1: R4=1 cb
+223: (2d) if r1 > r6 goto pc+1        ; frame1: R1=scalar() R6=scalar(id=3218) cb
+224: (b7) r4 = 0                      ; frame1: R4_w=0 cb
+; 
+225: (27) r2 *= 170000                ; frame1: R2_w=119000000 cb
+; u64 age_ns = (now > meta->last_access_ts) ?
+226: (55) if r4 != 0x0 goto pc+1      ; frame1: R4_w=0 cb
+227: (bf) r3 = r1                     ; frame1: R1=scalar(id=3222) R3_w=scalar(id=3222) cb
+228: (b7) r1 = 170000000              ; frame1: R1_w=170000000 cb
+; return (window > 200000000ULL) ? 200000000ULL : window;
+229: (2d) if r1 > r2 goto pc+1        ; frame1: R1_w=170000000 R2_w=119000000 cb
+231: (07) r2 += 30000000              ; frame1: R2_w=149000000 cb
+232: (b7) r1 = 2                      ; frame1: R1=2 cb
+233: (2d) if r3 > r2 goto pc+1        ; frame1: R2=149000000 R3=scalar(id=3222,umax=149000000,var_off=(0x0; 0xfffffff)) cb
+234: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; }
+235: (bf) r0 = r1                     ; frame1: R0_w=0 R1_w=0 cb
+236: (95) exit
+returning from callee:
+ frame1: R0_w=0 R1_w=0 R2=149000000 R3=scalar(id=3222,umax=149000000,var_off=(0x0; 0xfffffff)) R4=0 R5=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) R6=scalar(id=3218) R7=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 fp-8=mmmmmmmm cb
+to caller at 91:
+ R0=scalar() R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=800 R10=fp0 fp-8=mmmm????
+; bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+91: (18) r1 = 0xffffc9000660b060      ; R1_w=map_value(off=96,ks=4,vs=112,imm=0)
+93: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=96,ks=4,vs=112,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+94: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+95: (18) r3 = 0x8d                    ; R3=func(off=0,imm=0)
+97: (bf) r4 = r6                      ; R4_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+98: (85) call bpf_cache_ext_list_iterate#69427
+caller:
+ R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=800 R10=fp0 fp-8=mmmm????
+callee:
+ frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+237: frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+; static int bpf_evict_warm_cb(int idx, struct cache_ext_list_node *node) {
+237: (bf) r7 = r2                     ; frame1: R2=ptr_cache_ext_list_node(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 now = bpf_ktime_get_ns();
+238: (85) call bpf_ktime_get_ns#5     ; frame1: R0_w=scalar() cb
+239: (bf) r6 = r0                     ; frame1: R0_w=scalar(id=3223) R6_w=scalar(id=3223) cb
+; u64 key = (u64)node->folio;
+240: (79) r1 = *(u64 *)(r7 +0)        ; frame1: R1_w=ptr_folio(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 key = (u64)node->folio;
+241: (7b) *(u64 *)(r10 -8) = r1       ; frame1: R1_w=ptr_folio(off=0,imm=0) R10=fp0 fp-8_w=ptr_ cb
+242: (bf) r2 = r10                    ; frame1: R2_w=fp0 R10=fp0 cb
+; 
+243: (07) r2 += -8                    ; frame1: R2_w=fp-8 cb
+; bpf_map_lookup_elem(&folio_metadata_map, &key);
+244: (18) r1 = 0xffff889080075800     ; frame1: R1_w=map_ptr(off=0,ks=8,vs=16,imm=0) cb
+246: (85) call bpf_map_lookup_elem#1          ; frame1: R0=map_value_or_null(id=3224,off=0,ks=8,vs=16,imm=0) cb
+247: (b7) r1 = 2                      ; frame1: R1_w=2 cb
+; if (!meta)
+248: (15) if r0 == 0x0 goto pc+205    ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) cb
+249: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+250: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+251: (79) r3 = *(u64 *)(r7 +0)        ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+252: (0f) r3 += r2                    ; frame1: R2_w=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+253: (79) r3 = *(u64 *)(r3 +0)        ; frame1: R3_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+254: (57) r3 &= 16                    ; frame1: R3_w=scalar(umax=16,var_off=(0x0; 0x10)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+255: (55) if r3 != 0x0 goto pc+198    ; frame1: R3_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+256: (79) r3 = *(u64 *)(r7 +0)        ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+257: (0f) r3 += r2                    ; frame1: R2_w=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+258: (79) r2 = *(u64 *)(r3 +0)        ; frame1: R2_w=scalar() R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+259: (57) r2 &= 2                     ; frame1: R2=scalar(umax=2,var_off=(0x0; 0x2)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+260: (55) if r2 != 0x0 goto pc+193    ; frame1: R2=0 cb
+261: (b7) r2 = 400                    ; frame1: R2_w=400 cb
+; u32 rtt_us = net_srtt_us >> 3;  // kernel stores srtt<<3, divide by 8
+262: (18) r1 = 0xffffc9000660b018     ; frame1: R1_w=map_value(off=24,ks=4,vs=112,imm=0) cb
+264: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (rtt_us > 100000)
+265: (25) if r1 > 0xc3507 goto pc+8   ; frame1: R1_w=scalar(umax=800007,var_off=(0x0; 0xfffff)) cb
+266: (b7) r2 = 300                    ; frame1: R2_w=300 cb
+; else if (rtt_us > 50000)
+267: (25) if r1 > 0x61a87 goto pc+6   ; frame1: R1_w=scalar(umax=400007,var_off=(0x0; 0x7ffff)) cb
+268: (b7) r2 = 200                    ; frame1: R2=200 cb
+; else if (rtt_us > 20000)
+269: (25) if r1 > 0x27107 goto pc+4   ; frame1: R1=scalar(umax=160007,var_off=(0x0; 0x3ffff)) cb
+270: (b7) r2 = 0                      ; frame1: R2_w=0 cb
+271: (b7) r3 = 40008                  ; frame1: R3_w=40008 cb
+; else if (rtt_us > 5000)
+272: (2d) if r3 > r1 goto pc+1        ; frame1: R1=scalar(umin=40008,umax=160007,var_off=(0x0; 0x3ffff)) R3_w=40008 cb
+273: (b7) r2 = 100                    ; frame1: R2_w=100 cb
+; u32 mdev_us = net_mdev_us >> 3;
+274: (18) r1 = 0xffffc9000660b01c     ; frame1: R1_w=map_value(off=28,ks=4,vs=112,imm=0) cb
+276: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+277: (b7) r3 = 160008                 ; frame1: R3=160008 cb
+; if (mdev_us > 20000)
+278: (2d) if r3 > r1 goto pc+2        ; frame1: R1=scalar(umin=160008,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=160008 cb
+; score += 250;
+279: (07) r2 += 250                   ; frame1: R2_w=350 cb
+280: (05) goto pc+11
+; if (net_retrans_out > 5 || net_lost > 0)
+292: (18) r1 = 0xffffc9000660b050     ; frame1: R1_w=map_value(off=80,ks=4,vs=112,imm=0) cb
+294: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_retrans_out > 5 || net_lost > 0)
+295: (25) if r1 > 0x5 goto pc+4       ; frame1: R1_w=scalar(umax=5,var_off=(0x0; 0x7)) cb
+296: (18) r1 = 0xffffc9000660b054     ; frame1: R1_w=map_value(off=84,ks=4,vs=112,imm=0) cb
+298: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+299: (15) if r1 == 0x0 goto pc+2      ; frame1: R1=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; score += 200;
+300: (07) r2 += 200                   ; frame1: R2_w=550 cb
+301: (05) goto pc+9
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+311: (18) r1 = 0xffffc9000660b048     ; frame1: R1_w=map_value(off=72,ks=4,vs=112,imm=0) cb
+313: (61) r1 = *(u32 *)(r1 +0)        ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out > 0 && net_snd_cwnd > 0) {
+314: (15) if r1 == 0x0 goto pc+17     ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+315: (18) r3 = 0xffffc9000660b03c     ; frame1: R3_w=map_value(off=60,ks=4,vs=112,imm=0) cb
+317: (61) r3 = *(u32 *)(r3 +0)        ; frame1: R3_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+318: (bf) r4 = r3                     ; frame1: R3=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) R4=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+319: (15) if r4 == 0x0 goto pc+12     ; frame1: R4=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+320: (bf) r5 = r1                     ; frame1: R1=scalar(id=3226,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(id=3226,umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+321: (67) r5 <<= 1                    ; frame1: R5_w=scalar(umax=8589934590,var_off=(0x0; 0x1fffffffe),s32_max=2147483646,u32_max=-2) cb
+322: (67) r5 <<= 32                   ; frame1: R5_w=scalar(smax=9223372028264841216,umax=18446744065119617024,var_off=(0x0; 0xfffffffe00000000),s32_min=0,s32_max=0,u32_max=0) cb
+323: (77) r5 >>= 32                   ; frame1: R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; if (net_packets_out * 2 > net_snd_cwnd)
+324: (3d) if r4 >= r5 goto pc+2       ; frame1: R4=scalar(id=3225,umax=4294967295,var_off=(0x0; 0xffffffff)) R5_w=scalar(umax=4294967294,var_off=(0x0; 0xfffffffe),s32_max=2147483646) cb
+; score += 150;
+325: (07) r2 += 150                   ; frame1: R2_w=700 cb
+326: (05) goto pc+5
+; score += 100;
+332: (b7) r1 = 1000                   ; frame1: R1_w=1000 cb
+; return (score > 1000) ? 1000 : score;
+333: (2d) if r1 > r2 goto pc+1        ; frame1: R1_w=1000 R2=700 cb
+335: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; if (net_prev_packet_ts == 0)
+336: (18) r3 = 0xffffc9000660b010     ; frame1: R3_w=map_value(off=16,ks=4,vs=112,imm=0) cb
+338: (79) r5 = *(u64 *)(r3 +0)        ; frame1: R3_w=map_value(off=16,ks=4,vs=112,imm=0) R5_w=scalar() cb
+339: (b7) r3 = 0                      ; frame1: R3_w=0 cb
+; if (net_prev_packet_ts == 0)
+340: (15) if r5 == 0x0 goto pc+12     ; frame1: R5_w=scalar() cb
+; u64 inter_arrival_ns = (now > net_prev_packet_ts) ?
+341: (bf) r4 = r6                     ; frame1: R4_w=scalar(id=3223) R6=scalar(id=3223) cb
+342: (1f) r4 -= r5                    ; frame1: R4_w=scalar() R5_w=scalar() cb
+343: (b7) r3 = 1                      ; frame1: R3_w=1 cb
+344: (b7) r7 = 1                      ; frame1: R7=1 cb
+345: (2d) if r4 > r6 goto pc+1        ; frame1: R4=scalar() R6=scalar(id=3223) cb
+346: (b7) r7 = 0                      ; frame1: R7_w=0 cb
+347: (b7) r5 = 0                      ; frame1: R5_w=0 cb
+348: (55) if r7 != 0x0 goto pc+1      ; frame1: R7_w=0 cb
+349: (bf) r5 = r4                     ; frame1: R4=scalar(id=3227) R5_w=scalar(id=3227) cb
+350: (b7) r4 = 5000000                ; frame1: R4_w=5000000 cb
+; return (inter_arrival_ns < 5000000ULL);
+351: (2d) if r4 > r5 goto pc+1        ; frame1: R4_w=5000000 R5_w=scalar(id=3227,umin=5000000) cb
+352: (b7) r3 = 0                      ; frame1: R3=0 cb
+; u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+353: (79) r4 = *(u64 *)(r0 +0)        ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R4_w=scalar() cb
+; u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+354: (bf) r5 = r6                     ; frame1: R5_w=scalar(id=3223) R6=scalar(id=3223) cb
+355: (1f) r5 -= r4                    ; frame1: R4_w=scalar() R5_w=scalar() cb
+356: (b7) r7 = 1                      ; frame1: R7_w=1 cb
+357: (2d) if r5 > r6 goto pc+1        ; frame1: R5_w=scalar() R6=scalar(id=3223) cb
+358: (b7) r7 = 0                      ; frame1: R7_w=0 cb
+359: (b7) r4 = 0                      ; frame1: R4_w=0 cb
+360: (55) if r7 != 0x0 goto pc+1      ; frame1: R7_w=0 cb
+361: (bf) r4 = r5                     ; frame1: R4=scalar(id=3228) R5=scalar(id=3228) cb
+; u64 window = base + (320000000ULL * congestion) / 1000;  // add 0-320ms
+362: (bf) r7 = r2                     ; frame1: R2=700 R7_w=700 cb
+363: (67) r7 <<= 32                   ; frame1: R7_w=3006477107200 cb
+364: (77) r7 >>= 32                   ; frame1: R7_w=700 cb
+; u64 window = base + (320000000ULL * congestion) / 1000;  // add 0-320ms
+365: (bf) r5 = r7                     ; frame1: R5_w=700 R7_w=700 cb
+366: (27) r5 *= 320000                ; frame1: R5_w=224000000 cb
+367: (b7) r8 = 320000000              ; frame1: R8_w=320000000 cb
+; return (window > 400000000ULL) ? 400000000ULL : window;
+368: (2d) if r8 > r5 goto pc+1        ; frame1: R5_w=224000000 R8_w=320000000 cb
+370: (07) r5 += 80000000              ; frame1: R5_w=304000000 cb
+; if (age_ns < warm_recent_window)
+371: (2d) if r5 > r4 goto pc+82       ; frame1: R4=scalar(id=3228,umin=304000000) R5_w=304000000 cb
+; window += (BASE_WORKING_SET_NS * congestion) / 500;  // add 0-1.6s
+372: (bf) r1 = r7                     ; frame1: R1_w=700 R7_w=700 cb
+373: (27) r1 *= 1600000               ; frame1: R1_w=1120000000 cb
+374: (b7) r5 = 1200000000             ; frame1: R5=1200000000 cb
+; return (window > 2000000000ULL) ? 2000000000ULL : window;
+375: (2d) if r5 > r1 goto pc+1        ; frame1: R1=1120000000 R5=1200000000 cb
+377: (b7) r5 = 0                      ; frame1: R5_w=0 cb
+; window += (BASE_RECENT_ACCESS_NS * congestion) / 1000;  // add 0-50ms
+378: (27) r7 *= 50000                 ; frame1: R7_w=35000000 cb
+; window += (BASE_RECENT_ACCESS_NS * congestion) / 1000;  // add 0-50ms
+379: (07) r7 += 50000000              ; frame1: R7_w=85000000 cb
+; if (age_ns < recent_window) {
+380: (3d) if r4 >= r7 goto pc+19      ; frame1: R4=scalar(id=3228,umin=304000000) R7_w=85000000 cb
+; score += 150 - (150 * age_past_knee) / remaining_window;
+400: (18) r7 = 0xffffc9000660b000     ; frame1: R7_w=map_value(off=0,ks=4,vs=112,imm=0) cb
+; 
+402: (07) r1 += 800000000             ; frame1: R1_w=1920000000 cb
+; if (meta->access_count >= 4)
+403: (61) r8 = *(u32 *)(r0 +8)        ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R8_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+404: (b7) r9 = 4                      ; frame1: R9=4 cb
+; if (meta->access_count >= 4)
+405: (2d) if r9 > r8 goto pc+2        ; frame1: R8=scalar(umin=4,umax=4294967295,var_off=(0x0; 0xffffffff)) R9=4 cb
+; score += 300;
+406: (07) r5 += 300                   ; frame1: R5_w=300 cb
+407: (05) goto pc+8
+; score += 100;
+416: (79) r7 = *(u64 *)(r7 +0)        ; frame1: R7_w=scalar() cb
+417: (b7) r8 = 1                      ; frame1: R8_w=1 cb
+418: (2d) if r1 > r4 goto pc+1        ; frame1: R1=1920000000 R4=scalar(id=3228,umin=1920000000) cb
+419: (b7) r8 = 0                      ; frame1: R8_w=0 cb
+420: (1f) r6 -= r7                    ; frame1: R6_w=scalar() R7_w=scalar() cb
+; if (in_burst && age_ns < working_set_window) {
+421: (5f) r3 &= r8                    ; frame1: R3=0 R8=0 cb
+422: (55) if r3 != 0x1 goto pc+5      ; frame1: R3=0 cb
+; score += 200 - (200 * age_ns) / working_set_window;
+428: (18) r3 = 0x12a05f1ff            ; frame1: R3_w=4999999999 cb
+; if (session_active && age_ns < working_set_window && congestion > 500) {
+430: (2d) if r6 > r3 goto pc+10       ; frame1: R3_w=4999999999 R6=scalar(umax=4999999999,var_off=(0x0; 0x1ffffffff)) cb
+431: (bf) r3 = r2                     ; frame1: R2=700 R3_w=700 cb
+432: (67) r3 <<= 32                   ; frame1: R3_w=3006477107200 cb
+433: (77) r3 >>= 32                   ; frame1: R3_w=700 cb
+434: (b7) r6 = 501                    ; frame1: R6_w=501 cb
+435: (2d) if r6 > r3 goto pc+5        ; frame1: R3_w=700 R6_w=501 cb
+436: (3d) if r4 >= r1 goto pc+4       ; frame1: R1=1920000000 R4=scalar(id=3228,umin=1920000000) cb
+; if (meta->access_tier == 2)
+441: (61) r1 = *(u32 *)(r0 +12)       ; frame1: R0=map_value(off=0,ks=8,vs=16,imm=0) R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+; if (meta->access_tier == 2)
+442: (15) if r1 == 0x1 goto pc+3      ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+443: (55) if r1 != 0x2 goto pc+3      ; frame1: R1_w=2 cb
+; score += 150;
+444: (07) r5 += 150                   ; frame1: R5_w=450 cb
+445: (05) goto pc+1
+; if (score < 200)
+447: (67) r5 <<= 32                   ; frame1: R5_w=1932735283200 cb
+448: (77) r5 >>= 32                   ; frame1: R5_w=450 cb
+449: (b7) r1 = 1                      ; frame1: R1_w=1 cb
+450: (b7) r2 = 200                    ; frame1: R2=200 cb
+451: (2d) if r2 > r5 goto pc+1        ; frame1: R2=200 R5=450 cb
+452: (b7) r1 = 0                      ; frame1: R1_w=0 cb
+; 
+453: (67) r1 <<= 1                    ; frame1: R1_w=0 cb
+; }
+454: (bf) r0 = r1                     ; frame1: R0_w=0 R1_w=0 cb
+455: (95) exit
+returning from callee:
+ frame1: R0_w=0 R1_w=0 R2=200 R3=700 R4=scalar(id=3228,umin=1920000000) R5=450 R6=501 R7=scalar() R8=0 R9=4 R10=fp0 fp-8=mmmmmmmm cb
+to caller at 99:
+ R0=scalar() R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R8=800 R10=fp0 fp-8=mmmm????
+; 
+99: (18) r1 = 0xffffc9000660b058      ; R1_w=map_value(off=88,ks=4,vs=112,imm=0)
+101: (79) r2 = *(u64 *)(r1 +0)        ; R1_w=map_value(off=88,ks=4,vs=112,imm=0) R2_w=scalar()
+102: (b7) r1 = 751                    ; R1=751
+; if (congestion > 750) {
+103: (2d) if r1 > r8 goto pc+7        ; R1=751 R8=800
+; bpf_cache_ext_list_sample(memcg, hot_list, bpf_evict_hot_cb, 20, eviction_ctx);
+104: (bf) r1 = r7                     ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+105: (18) r3 = 0x15e                  ; R3_w=func(off=0,imm=0)
+107: (b7) r4 = 20                     ; R4_w=20
+108: (bf) r5 = r6                     ; R5_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+109: (85) call bpf_cache_ext_list_sample#69432
+R4 type=scalar expected=fp
+processed 128905 insns (limit 1000000) max_states_per_insn 18 total_states 12865 peak_states 961 mark_read 27
+-- END PROG LOAD LOG --
+libbpf: prog 'evolved_evict_folios': failed to load: -13
+libbpf: failed to load object 'cache_ext_evolved_bpf'
+libbpf: failed to load BPF skeleton 'cache_ext_evolved_bpf': -13
+Failed to load BPF program
+
+
+2026-03-09 23:41:32,149 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 23:41:32,168 INFO CMD: sudo sh -c echo 0x0000 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 23:41:32,185 INFO MGLRU re-enabled (restored to 0x0000).

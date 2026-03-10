@@ -1,0 +1,65 @@
+2026-03-09 23:03:29,035 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-09 23:09:30,666 INFO Acquired evaluation lock.
+2026-03-09 23:09:30,666 INFO === Step 0: Drop page cache ===
+2026-03-09 23:09:30,666 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-09 23:09:30,666 INFO CMD: sudo sync
+2026-03-09 23:09:30,899 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 23:09:31,454 INFO Page cache dropped.
+2026-03-09 23:09:31,454 INFO === Step 1: Compile evolved policy ===
+2026-03-09 23:09:31,465 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-09 23:09:31,756 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-09 23:09:35,869 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-09 23:09:36,056 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-09 23:09:37,043 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-09 23:09:37,043 INFO === Step 2: Disable MGLRU ===
+2026-03-09 23:09:37,044 INFO MGLRU current state: 0x0000 — disabling
+2026-03-09 23:09:37,044 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 23:09:37,062 INFO MGLRU disabled.
+2026-03-09 23:09:37,062 INFO === Step 3: Create cgroup ===
+2026-03-09 23:09:37,062 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 23:09:37,097 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-09 23:09:37,212 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-09 23:09:37,228 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-09 23:09:37,228 INFO === Step 4: Load BPF policy ===
+2026-03-09 23:09:37,229 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-09 23:09:47,240 INFO Policy loaded (PID 259391)
+2026-03-09 23:09:47,240 INFO === Step 5: Start server ===
+2026-03-09 23:09:47,240 INFO Starting server: sudo cgexec -g memory:cache_ext_test /mydata/cache_ext/net_leveldb_server 9100 /mydata/leveldb_temp
+2026-03-09 23:09:47,242 INFO Waiting for server on port 9100 ...
+2026-03-09 23:09:48,349 INFO Server ready (PID 259394) on port 9100
+2026-03-09 23:09:48,350 INFO === Step 6: Run 2 trace benchmarks ===
+2026-03-09 23:09:48,350 INFO --- Trace 1/2: dual_small_vs_large ---
+2026-03-09 23:09:48,377 INFO Starting proxy: /usr/bin/python /mydata/cache_ext/eviction_evo/tcp_delay_proxy.py --listen-port 9101 --target-port 9100 --delay-ms 1 --bandwidth-kbps 500000
+2026-03-09 23:09:49,386 INFO Proxy ready on port 9101
+2026-03-09 23:09:49,394 INFO Starting client reader_fast: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_514sefzu.yaml
+2026-03-09 23:09:49,411 INFO Starting client writer_slow: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_omeya92e.yaml
+2026-03-09 23:12:46,690 INFO Client reader_fast: throughput=176.66
+2026-03-09 23:12:46,691 INFO Client writer_slow: throughput=128.44
+2026-03-09 23:12:46,691 INFO Dual-client combined throughput: 305.10 ops/sec
+2026-03-09 23:12:46,695 INFO Trace dual_small_vs_large: throughput=305.10 ops/sec
+2026-03-09 23:12:46,695 INFO --- Trace 2/2: dual_congested ---
+2026-03-09 23:12:46,695 INFO CMD: sudo sync
+2026-03-09 23:12:46,849 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 23:12:47,615 INFO Page cache dropped.
+2026-03-09 23:12:49,654 INFO Starting proxy: /usr/bin/python /mydata/cache_ext/eviction_evo/tcp_delay_proxy.py --listen-port 9101 --target-port 9100 --delay-ms 2 --bandwidth-kbps 100000
+2026-03-09 23:12:50,692 INFO Proxy ready on port 9101
+2026-03-09 23:12:50,693 INFO Starting proxy: /usr/bin/python /mydata/cache_ext/eviction_evo/tcp_delay_proxy.py --listen-port 9102 --target-port 9100 --delay-ms 5 --bandwidth-kbps 50000
+2026-03-09 23:12:51,695 INFO Proxy ready on port 9102
+2026-03-09 23:12:51,706 INFO Starting client wan_reader: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_b60pkc9k.yaml
+2026-03-09 23:12:51,734 INFO Starting client wan_writer: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_y2g0huky.yaml
+2026-03-09 23:15:48,806 INFO Client wan_reader: throughput=151.64
+2026-03-09 23:15:48,807 INFO Client wan_writer: throughput=162.88
+2026-03-09 23:15:48,807 INFO Dual-client combined throughput: 314.52 ops/sec
+2026-03-09 23:15:48,814 INFO Trace dual_congested: throughput=314.52 ops/sec
+2026-03-09 23:15:48,826 INFO === Evaluation complete ===
+2026-03-09 23:15:48,827 INFO Combined score (harmonic mean): 309.74  (2/2 traces passed)
+2026-03-09 23:15:48,827 INFO   dual_small_vs_large: 305.10 ops/sec
+2026-03-09 23:15:48,827 INFO   dual_congested: 314.52 ops/sec
+2026-03-09 23:15:48,827 INFO Stopping net_leveldb_server (PID 259394)
+2026-03-09 23:15:48,827 INFO CMD: sudo kill 259394
+2026-03-09 23:15:48,985 INFO Unloading BPF policy (PID 259391)
+2026-03-09 23:15:48,985 INFO CMD: sudo kill -2 259391
+2026-03-09 23:15:49,217 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
+2026-03-09 23:15:49,259 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 23:15:49,294 INFO CMD: sudo sh -c echo 0x0000 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 23:15:49,314 INFO MGLRU re-enabled (restored to 0x0000).

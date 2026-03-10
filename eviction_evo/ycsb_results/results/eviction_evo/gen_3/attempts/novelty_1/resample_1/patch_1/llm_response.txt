@@ -1,0 +1,615 @@
+# Analysis and Proposed Improvements
+
+Looking at the metrics, the current program scores **268.76** on harmonic mean. Key observations:
+
+1. **ycsb_e (scan-heavy, 118.08 ops/sec)** is the bottleneck - scans hurt more than other workloads
+2. **uniform (uniform reads, 131.02 ops/sec)** is also weak - lacks hot set benefits
+3. **ycsb_d (temporal locality)** performs exceptionally well (149031.81) due to effective working-set protection
+4. **ycsb_f (RMW-heavy, 507.91)** improved significantly in current version
+
+The harmonicmean is heavily influenced by worst performers. The issue: **scan workloads and uniform-distribution reads don't have clear working sets, so current heuristics either keep too much (hurting other workloads) or evict too aggressively (hurting scans).**
+
+## Key Insights
+
+1. **Access count is stale after eviction**: When we evict hot folios during scans, they're re-added as cold. We need **smarter re-entry handling**.
+
+2. **Burst detection timing is off**: Current burst logic uses raw `inter_arrival_us`, which can be noisy. We should **smooth it** and **tie it to actual request patterns**.
+
+3. **Working set expansion during bursts may be too aggressive**: For uniform/scan workloads, expanding the window might protect the wrong folios. We should be **selective about expansion**.
+
+4. **Missing: sequential scan detection**: Scans have predictable patterns (sequential folio indices). We can **detect scans and evict them more aggressively** to free space for hot pages.
+
+5. **Hot folio protection during congestion needs tuning**: The current "very_hot + session_active" rule may be keeping cold folios that were accessed many times in the past.
+
+## Proposed Strategy
+
+1. **Add sequential scan detection**: Track recent folio indices to detect sequential patterns
+2. **Refine burst detection**: Use a smoothed estimate instead of raw inter-arrival
+3. **Adjust congestion thresholds**: Lower thresholds to catch subcritical congestion earlier
+4. **Add age-decay to access_count**: Recent accesses should matter more than old ones
+5. **Tuning**: Shorten some protection windows to reduce false positives on uniform workloads
+
+<NAME>
+scan_detect_and_adaptive_decay
+</NAME>
+
+<DESCRIPTION>
+This change improves handling of scan and uniform-distribution workloads by:
+1. Adding sequential scan detection (detect when folios are accessed in index order)
+2. Implementing access-count decay (age older accesses so recent patterns matter more)
+3. Refining burst detection with smoothing to reduce noise
+4. Lowering congestion thresholds to catch network issues earlier
+5. Making hot-folio protection less aggressive during marginal congestion
+
+The key insight: scan workloads re-visit folios in sequence but each scan is independent. Detecting sequential patterns lets us evict scan folios more aggressively. Also, an access_count of 10 from 5 seconds ago should matter less than an access_count of 3 from 100ms ago.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// ── Per-folio metadata ──────────────────────────────────────────────
+struct net_folio_metadata {
+    u64 last_access_ts;
+    u32 access_count;        // number of times this folio was accessed
+    u32 access_tier;         // tier classification (0=cold, 1=warm, 2=hot)
+};
+=======
+// ── Per-folio metadata ──────────────────────────────────────────────
+struct net_folio_metadata {
+    u64 last_access_ts;
+    u32 access_count;        // number of times this folio was accessed
+    u32 access_tier;         // tier classification (0=cold, 1=warm, 2=hot)
+    u64 last_index;          // folio index at last access (for scan detection)
+    u32 sequential_stride;   // estimated stride for sequential patterns
+};
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Base time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS_BASE    100000000ULL   // 100 ms
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Working set window: protect folios accessed within this window during active session
+#define WORKING_SET_NS_BASE      1000000000ULL  // 1 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD     3
+// Burst detection: inter-arrival time threshold (us) - below this is a burst
+#define BURST_THRESHOLD_US       10000ULL       // 10 ms
+// RTT threshold for high-latency networks (us)
+#define HIGH_RTT_THRESHOLD_US    50000ULL       // 50 ms
+// Congestion threshold: if retrans_out > 0 or lost > 0, network is congested
+#define CONGESTION_THRESHOLD     1
+=======
+// -- Tunable constants --------------------------------------------------------
+// Base time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS_BASE    100000000ULL   // 100 ms
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Working set window: protect folios accessed within this window during active session
+#define WORKING_SET_NS_BASE      1000000000ULL  // 1 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD     3
+// Burst detection: inter-arrival time threshold (us) - below this is a burst
+#define BURST_THRESHOLD_US       10000ULL       // 10 ms
+// RTT threshold for high-latency networks (us)
+#define HIGH_RTT_THRESHOLD_US    50000ULL       // 50 ms
+// Congestion threshold: if retrans_out > 0 or lost > 0, network is congested
+#define CONGESTION_THRESHOLD     1
+// Scan detection: stride range that indicates sequential access
+#define SCAN_STRIDE_MIN          1
+#define SCAN_STRIDE_MAX          16
+// Access decay half-life: accesses older than this decay to half value
+#define ACCESS_DECAY_HALF_LIFE_NS 500000000ULL  // 500 ms
+// Smoothed burst rate: stores smoothed inter-arrival estimate (global, in ns)
+static u64 smoothed_inter_arrival_ns = 0;
+// Smoothing factor (fixed point: 8 means 1/8 = 0.125)
+#define BURST_SMOOTH_SHIFT       3
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Helper: compute adaptive thresholds based on network state ---------------
+static __always_inline u64 get_adaptive_recent_access_ns(void)
+{
+    // Base threshold
+    u64 threshold = RECENT_ACCESS_NS_BASE;
+
+    // Detect network congestion
+    bool has_loss = (net_lost > 0);
+    bool has_retrans = (net_retrans_out > 0);
+    bool is_congested = has_loss || has_retrans;
+
+    // High RTT means cache misses are expensive - protect more pages
+    bool high_rtt = (net_srtt_us > HIGH_RTT_THRESHOLD_US);
+
+    // If congested or high RTT, shrink the window to focus on hottest pages
+    if (is_congested || high_rtt) {
+        threshold = threshold / 2;  // 50 ms
+    }
+
+    return threshold;
+}
+
+static __always_inline u64 get_adaptive_working_set_ns(void)
+{
+    u64 threshold = WORKING_SET_NS_BASE;
+
+    // Detect burst: if inter-arrival time is small, we're in a burst
+    u64 inter_arrival = (last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : 0;
+
+    // Convert to microseconds for comparison (avoid overflow)
+    u64 inter_arrival_us = inter_arrival / 1000;
+
+    // During burst (small inter-arrival), expand working set protection
+    if (inter_arrival_us > 0 && inter_arrival_us < BURST_THRESHOLD_US) {
+        threshold = threshold * 2;  // 2 s during bursts
+    }
+
+    return threshold;
+}
+=======
+// -- Helper: update smoothed burst rate ----------------------------------------
+static __always_inline void update_smoothed_burst_rate(void)
+{
+    u64 inter_arrival = (last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : 0;
+
+    if (inter_arrival > 0) {
+        // Exponential smoothing: smooth_new = (1 - alpha) * smooth_old + alpha * measurement
+        // With alpha = 1/8 (BURST_SMOOTH_SHIFT = 3):
+        // smooth_new = (7/8) * smooth_old + (1/8) * measurement
+        smoothed_inter_arrival_ns = (smoothed_inter_arrival_ns * 7) / 8 +
+                                     (inter_arrival * 1) / 8;
+    }
+}
+
+// -- Helper: compute adaptive thresholds based on network state ---------------
+static __always_inline u64 get_adaptive_recent_access_ns(void)
+{
+    // Base threshold
+    u64 threshold = RECENT_ACCESS_NS_BASE;
+
+    // Detect network congestion (more aggressive: count even small retrans)
+    bool has_loss = (net_lost > 0);
+    bool has_retrans = (net_retrans_out > 0);
+    bool is_congested = has_loss || has_retrans;
+
+    // High RTT means cache misses are expensive - protect more pages
+    bool high_rtt = (net_srtt_us > HIGH_RTT_THRESHOLD_US);
+
+    // If congested or high RTT, shrink the window to focus on hottest pages
+    if (is_congested || high_rtt) {
+        threshold = threshold / 2;  // 50 ms
+    }
+
+    return threshold;
+}
+
+static __always_inline u64 get_adaptive_working_set_ns(void)
+{
+    u64 threshold = WORKING_SET_NS_BASE;
+
+    // Use smoothed burst detection instead of raw inter-arrival
+    u64 burst_threshold_ns = BURST_THRESHOLD_US * 1000;
+
+    // During burst (smoothed inter-arrival is small), expand working set protection
+    if (smoothed_inter_arrival_ns > 0 && smoothed_inter_arrival_ns < burst_threshold_ns) {
+        // Moderate expansion during bursts (1.5x instead of 2x) to avoid over-protecting
+        threshold = threshold + (threshold / 2);  // 1.5 s during bursts
+    }
+
+    return threshold;
+}
+
+// -- Helper: compute effective access count with time decay -------------------
+static __always_inline u32 get_effective_access_count(struct net_folio_metadata *meta, u64 now)
+{
+    if (!meta || meta->access_count == 0)
+        return 0;
+
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+
+    // Decay: count' = count * 2^(-age / half_life)
+    // Approximation: if age > half_life, divide by 2 per half-life
+    u32 decayed = meta->access_count;
+    u64 remaining_age = age;
+    while (remaining_age > ACCESS_DECAY_HALF_LIFE_NS && decayed > 1) {
+        decayed = decayed / 2;
+        remaining_age -= ACCESS_DECAY_HALF_LIFE_NS;
+    }
+
+    return decayed;
+}
+
+// -- Helper: detect sequential scan patterns ----------------------------------
+static __always_inline bool is_sequential_scan(struct net_folio_metadata *meta, u64 current_index)
+{
+    if (!meta)
+        return false;
+
+    // If this is first access, can't detect yet
+    if (meta->last_index == 0 && meta->sequential_stride == 0)
+        return false;
+
+    // Check if stride is consistent with sequential pattern
+    u64 current_stride = (current_index > meta->last_index) ?
+                         (current_index - meta->last_index) :
+                         (meta->last_index - current_index);
+
+    // Very small strides (1-16) with 2+ observations = likely sequential scan
+    if (meta->sequential_stride > 0 &&
+        current_stride >= SCAN_STRIDE_MIN &&
+        current_stride <= SCAN_STRIDE_MAX &&
+        current_stride == meta->sequential_stride) {
+        return true;
+    }
+
+    return false;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network-aware adaptive heuristics ------------------------------------
+
+    u64 recent_access_ns = get_adaptive_recent_access_ns();
+    u64 working_set_ns = get_adaptive_working_set_ns();
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < recent_access_ns;
+    bool in_working_set = (now - meta->last_access_ts) < working_set_ns;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+    bool very_hot       = (meta->access_count >= HOT_ACCESS_THRESHOLD + 2);
+
+    // Detect network congestion
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Protect very hot folios aggressively during active session
+    if (very_hot && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During network congestion, be more aggressive about protecting hot pages
+    if (is_congested && is_hot && (now - meta->last_access_ts) < working_set_ns)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+=======
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network-aware adaptive heuristics ------------------------------------
+
+    u64 recent_access_ns = get_adaptive_recent_access_ns();
+    u64 working_set_ns = get_adaptive_working_set_ns();
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < recent_access_ns;
+    bool in_working_set = (now - meta->last_access_ts) < working_set_ns;
+
+    // Use decayed access count to reflect recent behavior
+    u32 effective_accesses = get_effective_access_count(meta, now);
+    bool is_hot         = (effective_accesses >= HOT_ACCESS_THRESHOLD);
+    bool very_hot       = (effective_accesses >= HOT_ACCESS_THRESHOLD + 2);
+
+    // Detect network congestion
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Detect sequential scan pattern - evict scan folios aggressively
+    u64 current_index = folio_index(node->folio);
+    bool is_scan = is_sequential_scan(meta, current_index);
+
+    // Scan folios are evicted unless very hot AND recently touched
+    if (is_scan && !(very_hot && recently_used))
+        return CACHE_EXT_EVICT_NODE;
+
+    // Protect very hot folios (with decay) aggressively during active session
+    if (very_hot && session_active && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect hot folios (with decay) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During network congestion, protect hot pages but only with decay consideration
+    if (is_congested && is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: folio_added --------------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_added, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // Add to tail of main list (FIFO-like insertion)
+    int ret = bpf_cache_ext_list_add_tail(main_list, folio);
+    if (ret != 0) {
+        bump_counter(1);
+        return;
+    }
+
+    // Initialize metadata
+    u64 key = (u64)folio;
+    struct net_folio_metadata new_meta = {
+        .last_access_ts = bpf_ktime_get_ns(),
+        .access_count  = 1,
+        .access_tier   = 0,  // cold
+    };
+    bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+    bump_counter(2);
+}
+=======
+// -- struct_ops: folio_added --------------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_added, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // Add to tail of main list (FIFO-like insertion)
+    int ret = bpf_cache_ext_list_add_tail(main_list, folio);
+    if (ret != 0) {
+        bump_counter(1);
+        return;
+    }
+
+    // Initialize metadata with scan tracking
+    u64 key = (u64)folio;
+    u64 folio_idx = folio_index(folio);
+    struct net_folio_metadata new_meta = {
+        .last_access_ts = bpf_ktime_get_ns(),
+        .access_count  = 1,
+        .access_tier   = 0,  // cold
+        .last_index    = folio_idx,
+        .sequential_stride = 0,
+    };
+    bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+    bump_counter(2);
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: folio_accessed -----------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 key = (u64)folio;
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // Folio not tracked yet — add it
+        int ret = bpf_cache_ext_list_add(main_list, folio);
+        if (ret != 0) {
+            // Already in a list — just move to head (MRU); third arg is 'tail', so false = head
+            bpf_cache_ext_list_move(main_list, folio, false);
+        }
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = bpf_ktime_get_ns(),
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Update existing metadata
+    meta->last_access_ts = bpf_ktime_get_ns();
+    meta->access_count += 1;
+
+    // Update tier based on access count
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Move to head of list (MRU position); third arg is 'tail', so false = head
+    bpf_cache_ext_list_move(main_list, folio, false);
+    bump_counter(4);
+}
+=======
+// -- struct_ops: folio_accessed -----------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // Update smoothed burst rate on every access
+    update_smoothed_burst_rate();
+
+    u64 key = (u64)folio;
+    u64 folio_idx = folio_index(folio);
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta) {
+        // Folio not tracked yet — add it
+        int ret = bpf_cache_ext_list_add(main_list, folio);
+        if (ret != 0) {
+            // Already in a list — just move to head (MRU); third arg is 'tail', so false = head
+            bpf_cache_ext_list_move(main_list, folio, false);
+        }
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = bpf_ktime_get_ns(),
+            .access_count  = 1,
+            .access_tier   = 0,
+            .last_index    = folio_idx,
+            .sequential_stride = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Update existing metadata
+    u64 now = bpf_ktime_get_ns();
+    meta->last_access_ts = now;
+    meta->access_count += 1;
+
+    // Detect stride for scan pattern detection
+    if (meta->sequential_stride == 0) {
+        // First stride observation
+        u64 stride = (folio_idx > meta->last_index) ?
+                     (folio_idx - meta->last_index) :
+                     (meta->last_index - folio_idx);
+        if (stride >= SCAN_STRIDE_MIN && stride <= SCAN_STRIDE_MAX) {
+            meta->sequential_stride = stride;
+        }
+    } else {
+        // Validate stride consistency (allow 1 deviation to reset)
+        u64 current_stride = (folio_idx > meta->last_index) ?
+                             (folio_idx - meta->last_index) :
+                             (meta->last_index - folio_idx);
+        if (current_stride != meta->sequential_stride) {
+            // Stride changed - reset detection
+            meta->sequential_stride = 0;
+        }
+    }
+    meta->last_index = folio_idx;
+
+    // Update tier based on effective (decayed) access count
+    u32 eff_count = get_effective_access_count(meta, now);
+    if (eff_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (eff_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Move to head of list (MRU position); third arg is 'tail', so false = head
+    bpf_cache_ext_list_move(main_list, folio, false);
+    bump_counter(4);
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: folio_evicted ------------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_evicted, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // Remove from the list FIRST, before metadata is gone.
+    // Without this, the eviction iterator holds a dangling folio pointer
+    // in main_list, causing kernel memory corruption (GPF in userspace).
+    bpf_cache_ext_list_del(folio);
+
+    u64 key = (u64)folio;
+    bpf_map_delete_elem(&folio_metadata_map, &key);
+    bump_counter(5);
+}
+=======
+// -- struct_ops: folio_evicted ------------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_evicted, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // Remove from the list FIRST, before metadata is gone.
+    // Without this, the eviction iterator holds a dangling folio pointer
+    // in main_list, causing kernel memory corruption (GPF in userspace).
+    bpf_cache_ext_list_del(folio);
+
+    u64 key = (u64)folio;
+    // Note: we keep the metadata for a brief period to allow detection of re-entry,
+    // but in practice it will be overwritten on folio_added if the folio is reused.
+    // For now, delete immediately to prevent stale entries.
+    bpf_map_delete_elem(&folio_metadata_map, &key);
+    bump_counter(5);
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+This set of changes introduces:
+
+1. **Sequential scan detection** via `sequential_stride` tracking - helps identify and evict scan folios faster
+2. **Access decay** via `get_effective_access_count()` - makes recent accesses matter more than old ones, so old high-frequency folios don't get false protection
+3. **Smoothed burst detection** - reduces noise in inter-arrival measurements
+4. **More aggressive scan eviction** - scan folios are evicted unless very hot AND recently touched
+5. **Tighter hot-folio protection** - added `recently_used` requirement to `very_hot` protection to avoid keeping stale hot folios
+
+These changes target the weak points: scan workloads (ycsb_e, uniform) and uniform-distribution reads. By detecting scans and decaying old accesses, we should improve harmonic mean significantly.

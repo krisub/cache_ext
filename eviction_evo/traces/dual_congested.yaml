@@ -1,0 +1,69 @@
+# Dual-client trace: both clients through delay proxies
+# Client A: zipfian reader through 2ms delay, 100 Mbps link
+# Client B: RMW-heavy through 5ms delay, 50 Mbps link
+# Both clients are slightly delayed, creating measurable TCP metric shifts
+# while still allowing enough throughput to stress the 512 MiB cgroup.
+type: dual_client
+
+clients:
+  - name: wan_reader
+    proxy_port: 9101
+    proxy_delay_ms: 2
+    proxy_bandwidth_kbps: 100000
+    config:
+      database:
+        key_size: 16
+        value_size: 200
+        nr_entry: 536870912
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 30
+        runtime_seconds: 120
+        nr_op: 10000000
+        nr_thread: 4
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 0.95
+          update: 0.05
+          insert: 0
+          scan: 0
+          read_modify_write: 0
+        request_distribution: "zipfian"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "127.0.0.1"
+        port: 9101
+      measurement:
+        latency_file: ""
+
+  - name: wan_writer
+    proxy_port: 9102
+    proxy_delay_ms: 5
+    proxy_bandwidth_kbps: 50000
+    config:
+      database:
+        key_size: 16
+        value_size: 1024
+        nr_entry: 536870912
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 30
+        runtime_seconds: 120
+        nr_op: 10000000
+        nr_thread: 4
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 0.5
+          update: 0
+          insert: 0
+          scan: 0
+          read_modify_write: 0.5
+        request_distribution: "zipfian"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "127.0.0.1"
+        port: 9102
+      measurement:
+        latency_file: ""

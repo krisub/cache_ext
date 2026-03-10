@@ -1,0 +1,14 @@
+{
+  "generation": 10,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_decay_windows_network_state",
+  "patch_description": "The current program uses a fixed ACCESS_DECAY_HALF_LIFE_NS of 500ms, which caused regression from Gen 4's score of 275.99 to 270.98. Gen 4 achieved better performance by adapting the decay window based on real-time network conditions.\n\nThe key improvement is to make access count decay adaptive:\n1. **Congestion state** (net_lost > 0 or net_retrans_out > 0): Accelerate decay to 250ms to aggressively free cache for current working set, since cache misses are expensive during congestion\n2. **Burst state** (smoothed inter-arrival < 10ms): Extend decay to 750ms to retain hot pages longer, since rapid re-accesses are expected\n3. **Normal state**: Use baseline 500ms\n\nThis couples decay directly to network state, making the eviction policy more responsive to actual network conditions. The improvement aligns with the recommendation and restores the Gen 4 strategy that achieved 275.99.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T17:00:13.509367",
+  "llm_cost": 0.050176,
+  "llm_model": null
+}

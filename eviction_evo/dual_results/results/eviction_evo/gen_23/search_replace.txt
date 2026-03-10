@@ -1,0 +1,76 @@
+<NAME>
+congestion_aware_tier_promotion
+</NAME>
+
+<DESCRIPTION>
+Looking at the performance data, the current best program (324.29 score) uses fixed tier promotion thresholds (access_count >= 2 for warm, >= 4 for hot) regardless of network state. However, the recommendation explicitly suggests implementing "congestion-aware tier promotion thresholds that dynamically lower access_count requirements during high-congestion periods."
+
+The key insight is that during extreme congestion (score > 700), cache misses are extremely expensive due to high RTT and jitter. The current program already computes congestion scores and uses them for adaptive windowing, but doesn't use them to accelerate working-set identification during congestion.
+
+This change implements dynamic tier promotion thresholds in `evolved_folio_accessed()`:
+- During extreme congestion (score > 700): lower thresholds to access_count >= 1 for warm and >= 2 for hot to identify working sets earlier when cache misses are most costly
+- During normal congestion (score < 400): raise thresholds to access_count >= 3 for warm and >= 5 for hot to maintain aggressive eviction and prevent premature promotion
+- During moderate congestion (400-700): use intermediate thresholds
+
+This directly builds on the best program's existing tier-specific adaptive windowing pattern by extending the network-aware logic to the promotion decision itself. The program already achieves strong throughput (334.92) on dual_congested where it demonstrates effectiveness under network pressure - this change should further improve that strength while maintaining performance on dual_small_vs_large by being more selective during low-congestion phases.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Apply decay to access_count based on current congestion, age, and session state
+    u32 congestion = compute_congestion_score();
+    bool in_burst = is_burst(now);
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    u32 decayed_count = apply_access_count_decay(meta, now, congestion, in_burst, session_active);
+
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count = decayed_count + 1;  // increment after decay
+
+    // Determine new tier based on access count (after decay + increment)
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+=======
+    // Apply decay to access_count based on current congestion, age, and session state
+    u32 congestion = compute_congestion_score();
+    bool in_burst = is_burst(now);
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    u32 decayed_count = apply_access_count_decay(meta, now, congestion, in_burst, session_active);
+
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count = decayed_count + 1;  // increment after decay
+
+    // Determine congestion-adaptive tier promotion thresholds
+    // High congestion → lower thresholds (faster promotion to protect working set)
+    // Low congestion → higher thresholds (more selective, aggressive eviction)
+    u32 warm_threshold, hot_threshold;
+    if (congestion > 700) {
+        // Extreme congestion: very aggressive promotion
+        warm_threshold = 1;
+        hot_threshold = 2;
+    } else if (congestion > 400) {
+        // Moderate congestion: standard thresholds
+        warm_threshold = 2;
+        hot_threshold = 4;
+    } else {
+        // Low congestion: conservative promotion (more aggressive eviction)
+        warm_threshold = 3;
+        hot_threshold = 5;
+    }
+
+    // Determine new tier based on adaptive thresholds
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= hot_threshold)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= warm_threshold)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+>>>>>>> REPLACE
+</DIFF>

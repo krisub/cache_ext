@@ -1,0 +1,14 @@
+{
+  "generation": 9,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_recency_decay_with_burst_protection",
+  "patch_description": "This novel approach draws inspiration from the prior programs' tier-specific window scaling and burst detection, but implements a fundamentally different eviction mechanism based on **adaptive recency decay** combined with **burst-phase memory protection**.\n\nKey insights from prior programs:\n1. Tier-specific time windows (cold/warm/hot) provide better granularity than uniform windows\n2. Congestion-aware scaling protects working sets during network stress\n3. Burst detection identifies periods of high request intensity\n\nNovel approach:\nInstead of computing static scores and comparing against thresholds, this program uses **exponential decay scoring** where each folio's \"survival score\" decays over time based on:\n- **Tier-specific decay rates**: Cold folios decay fast (aggressive eviction), hot folios decay slowly (protective)\n- **Congestion-modulated decay**: High congestion slows decay (protects more), low congestion speeds decay (evicts more aggressively)\n- **Burst-phase freeze**: During detected bursts, decay is nearly frozen for all tiers, preserving the working set\n- **Access frequency amplification**: Each access resets decay and applies a frequency multiplier that compounds over time\n\nThe key innovation is replacing threshold-based decisions with a **continuous decay model** that naturally adapts to network conditions. This avoids sharp cliff edges in eviction behavior and provides smoother, more predictable memory management.\n\nAdditionally, the program introduces **per-tier eviction thresholds** that scale inversely with congestion (high congestion \u2192 higher threshold to keep more pages, low congestion \u2192 lower threshold to evict more aggressively), creating a more nuanced response to network conditions than prior approaches.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:17:35.766814",
+  "llm_cost": 0.06936700000000001,
+  "llm_model": null
+}

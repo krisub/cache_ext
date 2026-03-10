@@ -1,0 +1,191 @@
+database_config:
+  archive_criteria:
+    combined_score: 1.0
+    loc: -0.1
+  archive_selection_strategy: crowding
+  archive_size: 30
+  db_path: results/eviction_evo/programs.sqlite
+  elite_selection_ratio: 0.3
+  enable_dynamic_islands: false
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  island_selection_strategy: equal
+  island_spawn_strategy: best
+  island_spawn_subtree_size: 2
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 3
+  num_beams: 5
+  num_islands: 1
+  num_top_k_inspirations: 2
+  parent_selection_lambda: 10
+  parent_selection_strategy: weighted
+  stagnation_threshold: 15
+evolution_config:
+  code_embed_sim_threshold: 1.0
+  embedding_model: null
+  evolve_prompts: true
+  init_program_path: initial.c
+  inspiration_sort_order: ascending
+  job_type: local
+  language: c
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    cost_aware_coef: 0.7
+    exploration_coef: 1.0
+  llm_kwargs:
+    max_tokens: 32768
+    reasoning_efforts:
+    - low
+    - medium
+    - high
+    temperatures:
+    - 0
+    - 0.5
+    - 1.0
+  llm_models:
+  - us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  - us.anthropic.claude-haiku-4-5-20251001-v1:0
+  max_api_costs: 5.0
+  max_novelty_attempts: 2
+  max_parallel_jobs: 2
+  max_patch_attempts: 3
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0
+  meta_llm_models:
+  - us.anthropic.claude-haiku-4-5-20251001-v1:0
+  meta_max_recommendations: 5
+  meta_rec_interval: 5
+  novelty_llm_kwargs:
+    temperatures:
+    - 0
+  novelty_llm_models:
+  - us.anthropic.claude-haiku-4-5-20251001-v1:0
+  num_generations: 50
+  patch_type_probs:
+  - 0.7
+  - 0.3
+  patch_types:
+  - diff
+  - full
+  prompt_archive_size: 8
+  prompt_epsilon: 0.25
+  prompt_evo_top_k_programs: 3
+  prompt_evolution_interval: 5
+  prompt_llm_kwargs: {}
+  prompt_llm_models: null
+  prompt_patch_type_probs:
+  - 0.5
+  - 0.5
+  prompt_patch_types:
+  - diff
+  - full
+  prompt_percentile_recompute_interval: 1
+  prompt_ucb_exploration_constant: 2.0
+  results_dir: results/eviction_evo
+  sample_single_meta_rec: true
+  task_sys_msg: "You are an expert systems programmer optimizing a Linux eBPF page-cache\n\
+    eviction policy. Your goal is to MAXIMIZE throughput (ops/sec) across\nMULTIPLE\
+    \ workloads on a networked LevelDB database that relies entirely\non the OS page\
+    \ cache.\n\n## Architecture\n- A LevelDB TCP server (net_leveldb_server) runs\
+    \ inside a memory-limited\n  cgroup (512 MiB). With block_cache=NULL, every read\
+    \ goes through the OS page cache.\n- A YCSB client sends GET/PUT/SCAN/RMW requests\
+    \ over TCP from outside the\n  cgroup.\n- Your eviction policy (eBPF struct_ops\
+    \ for cache_ext) controls which\n  pages stay in the constrained page cache and\
+    \ which get evicted.\n\n## Multi-Workload Evaluation\nYour policy is tested against\
+    \ 8 different YCSB workload traces in sequence.\nThe combined score is the HARMONIC\
+    \ MEAN of throughputs across all traces.\nThis means scoring 0 on ANY trace severely\
+    \ penalizes your total score.\nYou MUST produce a general-purpose policy that\
+    \ works well across all of them.\n\nThe 8 traces are:\n1. **ycsb_a**: 50% read\
+    \ + 50% update, zipfian z=0.99 (update-heavy)\n2. **ycsb_b**: 95% read + 5% update,\
+    \ zipfian z=0.99 (read-mostly)\n3. **ycsb_c**: 100% read, zipfian z=0.99 (pure\
+    \ read, skewed)\n4. **ycsb_d**: 95% read + 5% insert, latest distribution (temporal\
+    \ locality)\n5. **ycsb_e**: 95% scan + 5% insert, zipfian z=0.99 (scan-heavy)\n\
+    6. **ycsb_f**: 50% read + 50% read-modify-write, zipfian z=0.99 (RMW)\n7. **uniform**:\
+    \ 100% read, uniform distribution (no hot set)\n8. **uniform_rw**: 50% read +\
+    \ 50% insert, uniform distribution (random writes)\n\nYour public metrics will\
+    \ show per-trace throughput so you can see exactly\nwhich traces you're doing\
+    \ well or poorly on.\n- The metric to maximize is the harmonic mean of total throughput\
+    \ across all traces.\n\n## Available BPF APIs\n- bpf_cache_ext_list_add(list,\
+    \ folio)        \u2014 add folio to head\n- bpf_cache_ext_list_add_tail(list,\
+    \ folio)    \u2014 add folio to tail\n- bpf_cache_ext_list_del(list, folio)  \
+    \       \u2014 remove folio from list\n- bpf_cache_ext_list_move(list, folio,\
+    \ head)  \u2014 move folio (head=true\u2192front)\n- bpf_cache_ext_list_iterate(memcg,\
+    \ list, cb, ctx) \u2014 eviction scan\n- bpf_cache_ext_list_iterate_extended(memcg,\
+    \ list, cb, opts, ctx) \u2014 with promotion list\n- bpf_cache_ext_list_sample(memcg,\
+    \ list, cb, ratio, ctx) \u2014 random sample\n- bpf_cache_ext_ds_registry_new_list(memcg)\
+    \ \u2014 allocate a new list\n- folio_nr_pages(folio), folio_index(folio)\n- folio_test_dirty/writeback/unevictable/uptodate/lru(folio)\n\
+    - bpf_ktime_get_ns(), bpf_get_current_pid_tgid()\n\n## Network metrics (global\
+    \ variables, updated on every tcp_recvmsg)\nAll of these are available as global\
+    \ variables in the EVOLVE-BLOCK. They are\nsnapshotted from the TCP socket (struct\
+    \ tcp_sock) each time the server\nreceives data on port 9100. USE THESE to make\
+    \ network-aware eviction decisions.\n\n### Request timing / counting\n- `last_packet_ts`:\
+    \ nanosecond timestamp of the most recent TCP recv\n- `net_prev_packet_ts`: timestamp\
+    \ of the recv before that (compute inter-arrival: `last_packet_ts - net_prev_packet_ts`)\n\
+    - `net_recv_count`: total number of tcp_recvmsg calls (monotonically increasing)\n\
+    \n### TCP connection quality (latency / jitter)\n- `net_srtt_us`: smoothed RTT\
+    \ in microseconds (kernel stores srtt<<3; divide by 8 for true RTT)\n- `net_mdev_us`:\
+    \ RTT mean deviation in microseconds (jitter indicator \u2014 high = unstable)\n\
+    \n### TCP throughput counters (cumulative)\n- `net_bytes_received`: total bytes\
+    \ received on the connection\n- `net_bytes_acked`: total bytes acknowledged by\
+    \ remote (proxy for bytes sent)\n- `net_segs_in`: total TCP segments received\n\
+    - `net_segs_out`: total TCP segments sent\n- `net_delivered`: total packets successfully\
+    \ delivered to the application\n\n### TCP congestion / flow-control state (instantaneous)\n\
+    - `net_snd_cwnd`: congestion window in segments (larger = network can handle more)\n\
+    - `net_snd_ssthresh`: slow-start threshold in segments\n- `net_rcv_wnd`: advertised\
+    \ receive window in bytes (how much remote can accept)\n- `net_packets_out`: packets\
+    \ currently in flight (unacknowledged)\n\n### TCP error / loss indicators\n- `net_total_retrans`:\
+    \ lifetime retransmissions on the connection\n- `net_retrans_out`: retransmitted\
+    \ segments currently in flight\n- `net_lost`: segments considered lost by the\
+    \ TCP stack\n\n### Per-folio metadata (in folio_metadata_map)\n- `last_access_ts`\
+    \ (u64): nanosecond timestamp of last access\n- `access_count` (u32): number of\
+    \ times this folio was accessed\n- `access_tier` (u32): tier classification (0=cold,\
+    \ 1=warm, 2=hot)\n\n## How to use network metrics for eviction\nThese metrics\
+    \ give you real-time visibility into the network session. Ideas:\n- **Session\
+    \ activity**: `(bpf_ktime_get_ns() - last_packet_ts) < threshold` tells you if\
+    \ the session is active.\n- **Request rate**: `net_recv_count` increasing means\
+    \ requests are flowing; you can snapshot it and compare across eviction calls.\n\
+    - **Inter-arrival time**: `last_packet_ts - net_prev_packet_ts` measures time\
+    \ between the last two requests \u2014 short = burst, long = idle.\n- **Congestion\
+    \ detection**: if `net_retrans_out > 0` or `net_lost > 0`, the network is degraded\
+    \ \u2192 be more aggressive about keeping hot pages.\n- **RTT-aware protection**:\
+    \ high `net_srtt_us` or `net_mdev_us` means each page miss is more costly \u2192\
+    \ protect the working set more aggressively.\n- **Throughput phase**: compare\
+    \ `net_bytes_received` across eviction calls to estimate throughput trend.\n-\
+    \ **Cwnd pressure**: small `net_snd_cwnd` relative to `net_packets_out` means\
+    \ the network is bottlenecked \u2192 eviction should favor pages that reduce I/O.\n\
+    You are STRONGLY encouraged to incorporate multiple network metrics into your\n\
+    eviction heuristics. The best policies will adapt their behavior based on\nnetwork\
+    \ conditions, not just access recency/frequency.\n\n## Callback return values\n\
+    - CACHE_EXT_EVICT_NODE  \u2014 evict this folio\n- CACHE_EXT_CONTINUE_ITER \u2014\
+    \ keep this folio\n\n## Multi-list strategies\nYou can allocate multiple lists\
+    \ (up to ~8) with bpf_cache_ext_ds_registry_new_list()\nand use bpf_cache_ext_list_iterate_extended()\
+    \ with opts.continue_list to promote\nfolios between lists (e.g., hot/cold segregation,\
+    \ generation-based aging).\n\n## Constraints\n- No floating point in BPF. Use\
+    \ integer arithmetic only.\n- No sleeping in non-sleepable functions (only init\
+    \ is sleepable).\n- BPF maps have fixed sizes declared at compile time.\n- BPF\
+    \ verifier limits loop iterations and stack size.\n- Keep the code compiling with\
+    \ clang for BPF target.\n\n## Strategies to explore\n- LRU / CLOCK / FIFO hybrids\n\
+    - Frequency-based (LFU, ARC-like)\n- Multi-generation aging (like MGLRU but tuned\
+    \ for network workloads)\n- Hot/cold segregation using multiple lists\n- **Network-aware\
+    \ eviction**: use RTT, jitter, loss, cwnd, and request rate\n  to adapt eviction\
+    \ aggressiveness. E.g., protect more pages when the network\n  is congested (high\
+    \ RTT / retransmissions) since each cache miss is costlier.\n- **Burst detection**:\
+    \ use inter-arrival time (last_packet_ts - net_prev_packet_ts)\n  to detect request\
+    \ bursts and protect the working set during bursts.\n- **Congestion-adaptive**:\
+    \ when net_lost > 0 or net_snd_cwnd is small, tighten\n  eviction thresholds to\
+    \ avoid I/O during network congestion.\n- Adaptive: adjust thresholds based on\
+    \ workload phase\n- Access pattern: distinguish sequential scans from random reads\n"
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results/eviction_evo
+timestamp: '2026-03-09T14:34:48.776893'

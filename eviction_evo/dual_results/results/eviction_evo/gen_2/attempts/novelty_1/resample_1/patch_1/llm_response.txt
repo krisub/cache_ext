@@ -1,0 +1,270 @@
+Looking at the current performance metrics and the program structure, I can see that the policy is performing reasonably well (292.57 combined score) but there's room for improvement. The current policy uses simple time-based thresholds and doesn't fully leverage the rich network metrics available.
+
+Let me propose several targeted improvements inspired by adaptive caching research and network-aware systems:
+
+<NAME>
+network_adaptive_thresholds
+</NAME>
+
+<DESCRIPTION>
+The current policy uses fixed time thresholds (100ms for recent access, 1s for working set) regardless of network conditions. This is suboptimal because:
+
+1. When network RTT is high (e.g., in dual_congested with 2-5ms delays), cache misses are more expensive, so we should protect pages more aggressively (longer working set window).
+2. When the network is congested (high retransmissions, low cwnd), we should be more conservative about eviction.
+3. The inter-arrival time between requests can indicate burst vs. steady-state behavior.
+
+I'll introduce adaptive thresholds that scale based on:
+- RTT (net_srtt_us): Higher RTT → longer protection windows
+- Network congestion (net_lost, net_retrans_out): More congestion → more aggressive protection
+- Request rate (inter-arrival time): Faster requests → tighter working set
+
+This should improve performance especially on dual_congested where network conditions vary significantly.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS    100000000ULL   // 100 ms
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Working set window: protect folios accessed within this window during active session
+#define WORKING_SET_NS      1000000000ULL  // 1 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+=======
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be scaled by network conditions)
+#define BASE_RECENT_ACCESS_NS    100000000ULL   // 100 ms
+#define BASE_WORKING_SET_NS      1000000000ULL  // 1 s
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+
+// Network-adaptive scaling factors
+#define RTT_SCALE_FACTOR 8        // Scale protection by RTT / 1ms
+#define CONGESTION_BOOST 2        // Multiply protection when congested
+#define BURST_THRESHOLD_NS 50000000ULL  // 50ms inter-arrival = burst
+
+// Helper: compute adaptive working set window based on network state
+static __always_inline u64 get_adaptive_working_set_ns(void)
+{
+    u64 base = BASE_WORKING_SET_NS;
+    
+    // Scale by RTT: higher RTT = more expensive misses = longer protection
+    // net_srtt_us is in microseconds, divide by 8 to get true RTT
+    u32 rtt_us = net_srtt_us >> 3;
+    if (rtt_us > 1000) {  // > 1ms RTT
+        u64 rtt_multiplier = (rtt_us / 1000);  // RTT in ms
+        if (rtt_multiplier > RTT_SCALE_FACTOR)
+            rtt_multiplier = RTT_SCALE_FACTOR;
+        base = base * (1 + rtt_multiplier) / 2;  // Scale up to 4.5x
+    }
+    
+    // Boost protection during network congestion
+    if (net_lost > 0 || net_retrans_out > 0) {
+        base *= CONGESTION_BOOST;
+    }
+    
+    // Detect burst mode: if requests are coming fast, tighten working set
+    u64 inter_arrival = last_packet_ts - net_prev_packet_ts;
+    if (inter_arrival > 0 && inter_arrival < BURST_THRESHOLD_NS) {
+        base = base * 3 / 2;  // 1.5x during bursts
+    }
+    
+    return base;
+}
+
+// Helper: compute adaptive recent access window
+static __always_inline u64 get_adaptive_recent_ns(void)
+{
+    u64 base = BASE_RECENT_ACCESS_NS;
+    
+    // Scale by RTT
+    u32 rtt_us = net_srtt_us >> 3;
+    if (rtt_us > 1000) {
+        u64 rtt_multiplier = (rtt_us / 1000);
+        if (rtt_multiplier > RTT_SCALE_FACTOR)
+            rtt_multiplier = RTT_SCALE_FACTOR;
+        base = base * (1 + rtt_multiplier) / 2;
+    }
+    
+    return base;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < RECENT_ACCESS_NS;
+    bool in_working_set = (now - meta->last_access_ts) < WORKING_SET_NS;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+=======
+    // -- Network-aware heuristics with adaptive thresholds --------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    
+    // Use adaptive thresholds based on network conditions
+    u64 recent_threshold = get_adaptive_recent_ns();
+    u64 working_set_threshold = get_adaptive_working_set_ns();
+    
+    bool recently_used  = (now - meta->last_access_ts) < recent_threshold;
+    bool in_working_set = (now - meta->last_access_ts) < working_set_threshold;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Additional protection during severe congestion: keep warm folios
+    if ((net_lost > 0 || net_retrans_out > 0) && meta->access_tier >= 1) {
+        // During congestion, protect even warm (tier 1+) folios
+        if ((now - meta->last_access_ts) < (working_set_threshold * 2))
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+frequency_aware_promotion
+</NAME>
+
+<DESCRIPTION>
+The current policy moves all accessed folios to the head of the list (MRU), which can cause thrashing when there are sequential scans mixed with random accesses. Research on ARC and LIRS shows that frequency information should influence promotion decisions.
+
+I'll modify folio_accessed to only promote to head if the folio is "warm" or "hot" (access_count >= 2). Cold folios (first or second access) will be added/moved to tail instead, preventing them from evicting truly hot pages. This implements a simple frequency-aware promotion strategy.
+
+This should help especially in dual_small_vs_large where one client does sequential scans (uniform distribution) while another does random reads (zipfian).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH>
+    // Update existing metadata
+    meta->last_access_ts = bpf_ktime_get_ns();
+    meta->access_count += 1;
+
+    // Update tier based on access count
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Move to head of list (MRU position); third arg is 'tail', so false = head
+    bpf_cache_ext_list_move(main_list, folio, false);
+    bump_counter(4);
+=======
+    // Update existing metadata
+    meta->last_access_ts = bpf_ktime_get_ns();
+    meta->access_count += 1;
+
+    // Update tier based on access count
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Frequency-aware promotion: only promote to head if warm/hot
+    // Cold folios (tier 0) go to tail to avoid polluting the hot end
+    if (meta->access_tier >= 1) {
+        // Warm or hot: move to head (MRU position)
+        bpf_cache_ext_list_move(main_list, folio, false);
+    } else {
+        // Cold: move to tail (less priority)
+        bpf_cache_ext_list_move(main_list, folio, true);
+    }
+    bump_counter(4);
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+cwnd_aware_eviction_pressure
+</NAME>
+
+<DESCRIPTION>
+The current policy doesn't consider the congestion window (cwnd) when deciding eviction aggressiveness. When cwnd is small relative to packets_out, the network is bottlenecked and we should avoid causing additional I/O that would further congest the network.
+
+I'll add logic to detect when the network is at capacity (packets_out close to snd_cwnd) and in that state, be even more conservative about evicting pages. This is particularly relevant for dual_congested where bandwidth limits are enforced.
+
+Additionally, I'll track whether we're in slow-start (cwnd < ssthresh) vs congestion avoidance, as these phases have different characteristics.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH>
+    // Additional protection during severe congestion: keep warm folios
+    if ((net_lost > 0 || net_retrans_out > 0) && meta->access_tier >= 1) {
+        // During congestion, protect even warm (tier 1+) folios
+        if ((now - meta->last_access_ts) < (working_set_threshold * 2))
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+=======
+    // Additional protection during severe congestion: keep warm folios
+    if ((net_lost > 0 || net_retrans_out > 0) && meta->access_tier >= 1) {
+        // During congestion, protect even warm (tier 1+) folios
+        if ((now - meta->last_access_ts) < (working_set_threshold * 2))
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Cwnd-aware protection: if network is at capacity, be very conservative
+    // packets_out close to snd_cwnd means we're bottlenecked
+    if (net_snd_cwnd > 0 && net_packets_out > 0) {
+        u32 utilization = (net_packets_out * 100) / net_snd_cwnd;
+        if (utilization > 80) {  // > 80% network utilization
+            // Network is saturated - protect more aggressively
+            if (meta->access_tier >= 1 || 
+                (now - meta->last_access_ts) < (working_set_threshold * 3)) {
+                return CACHE_EXT_CONTINUE_ITER;
+            }
+        }
+    }
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+>>>>>>> REPLACE
+</DIFF>
+
+These changes implement a network-adaptive eviction policy that:
+
+1. **Scales protection windows based on RTT**: Higher latency networks get longer protection windows since cache misses are more expensive
+2. **Detects and responds to congestion**: Uses packet loss, retransmissions, and cwnd utilization to be more conservative during network stress
+3. **Adapts to request bursts**: Detects fast inter-arrival times and adjusts working set accordingly
+4. **Implements frequency-aware promotion**: Prevents cold pages from polluting the hot end of the LRU list
+5. **Considers network capacity**: When the network is saturated (high cwnd utilization), avoids evictions that would cause I/O
+
+These improvements should particularly help on dual_congested where network conditions vary significantly, while maintaining good performance on dual_small_vs_large by better handling the mixed workload patterns.

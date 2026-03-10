@@ -1,0 +1,133 @@
+Looking at the performance metrics across all prior programs, I can see a clear pattern:
+
+1. **Generation 6** (324.29 score): Used tier-specific adaptive windows without access count decay, achieving the best performance
+2. **Current program** (310.27 score): Added access count decay logic, but this **regressed performance by 14 points**, particularly hurting `dual_small_vs_large` (314.32 → 292.13)
+
+The regression suggests that the decay mechanism is too aggressive, causing frequently-accessed pages to lose their tier classification prematurely. This is especially problematic in the `dual_small_vs_large` workload where the fast reader needs consistent hot-tier protection.
+
+**Key insight from the recommendation**: The recommendation mentions "adaptive tier promotion thresholds that scale inversely with congestion state" - but the current implementation applies decay uniformly. Instead, I should:
+
+1. **Make decay congestion-aware**: During high congestion (when cache misses are costly), disable or greatly reduce decay to preserve the working set
+2. **Revert to fixed tier thresholds**: The decay mechanism's complexity isn't helping; simpler fixed thresholds worked better
+3. **Tighten the decay window**: The current 500ms base is too aggressive; use a longer window to preserve access counts
+
+Let me propose a targeted fix that removes the problematic decay logic and restores the simpler, more effective approach from Generation 6:
+
+<NAME>
+revert_decay_restore_gen6_thresholds
+</NAME>
+
+<DESCRIPTION>
+The current program's access count decay mechanism regressed performance from 324.29 to 310.27, particularly hurting dual_small_vs_large (314.32→292.13). Analysis shows:
+
+1. Decay is applied too aggressively during folio_accessed(), causing frequently-accessed pages to lose tier status prematurely
+2. Generation 6 (without decay) achieved better results with simpler fixed thresholds
+3. The decay window (500ms) is too short for typical workload patterns
+
+Solution: Remove the decay mechanism entirely and restore Generation 6's simpler approach:
+- Use fixed tier thresholds (access_count >= 2 for warm, >= 4 for hot)
+- Keep the tier-specific adaptive recency windows (which work well)
+- Eliminate the decay_window and decay_sensitivity constants
+- Simplify compute_folio_score to use actual access_count without decay
+
+This restores the proven effective strategy while keeping the beneficial tier-specific window tuning.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Access count decay constants -----------------------------------------------
+// Base decay window: if a folio hasn't been accessed for this long, decay its access_count
+#define BASE_DECAY_WINDOW_NS     500000000ULL   // 500 ms
+
+// Tier-specific decay sensitivity (higher = slower decay)
+#define DECAY_SENSITIVITY_COLD   1000ULL        // cold tier: fast decay
+#define DECAY_SENSITIVITY_WARM   1500ULL        // warm tier: moderate decay
+#define DECAY_SENSITIVITY_HOT    2000ULL        // hot tier: slow decay
+=======
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Helper: Compute adaptive decay window based on congestion --
+// Higher congestion → slower decay (wider window)
+static __always_inline u64 get_adaptive_decay_window(u32 congestion) {
+    // Base 500ms, scale to 1.5s at max congestion
+    u64 base = BASE_DECAY_WINDOW_NS;
+    u64 window = base + (1000000000ULL * congestion) / 1000;  // add 0-1s
+    return (window > 1500000000ULL) ? 1500000000ULL : window;
+}
+
+// -- Helper: Apply access count decay based on folio age and tier --
+// Decays access_count if folio hasn't been accessed recently
+// Returns the decayed access_count
+static __always_inline u32 apply_access_count_decay(struct net_folio_metadata *meta,
+                                                     u64 now, u32 congestion) {
+    if (!meta || meta->access_count <= 1)
+        return meta ? meta->access_count : 1;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 decay_window = get_adaptive_decay_window(congestion);
+
+    // Tier-specific decay sensitivity
+    u64 tier_sensitivity = DECAY_SENSITIVITY_WARM;  // default
+    if (meta->access_tier == 0)
+        tier_sensitivity = DECAY_SENSITIVITY_COLD;
+    else if (meta->access_tier == 2)
+        tier_sensitivity = DECAY_SENSITIVITY_HOT;
+
+    // Scale decay window by tier sensitivity
+    u64 tier_decay_window = (decay_window * tier_sensitivity) / 1500ULL;
+
+    // If age exceeds tier-specific decay window, decay access_count by 1
+    if (age_ns > tier_decay_window) {
+        u32 decayed_count = meta->access_count - 1;
+        if (decayed_count < 1)
+            decayed_count = 1;
+        return decayed_count;
+    }
+
+    return meta->access_count;
+}
+
+// -- Helper: Compute tier-specific adaptive time windows based on network conditions --
+=======
+// -- Helper: Compute tier-specific adaptive time windows based on network conditions --
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    // Frequency score (0-300 points) — now uses decayed access_count
+    u32 decayed_count = apply_access_count_decay(meta, now, congestion);
+    if (decayed_count >= 4)
+        score += 300;
+    else if (decayed_count == 3)
+        score += 150;
+    else if (decayed_count == 2)
+        score += 100;
+    else if (decayed_count == 1)
+        score += 50;
+=======
+    // Frequency score (0-300 points)
+    // Logarithmic: access_count 1→50, 2→100, 3→150, 4+→300
+    if (meta->access_count >= 4)
+        score += 300;
+    else if (meta->access_count == 3)
+        score += 150;
+    else if (meta->access_count == 2)
+        score += 100;
+    else if (meta->access_count == 1)
+        score += 50;
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    // Apply decay to access_count based on current congestion and age
+    u32 congestion = compute_congestion_score();
+    u32 decayed_count = apply_access_count_decay(meta, now, congestion);
+    
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count = decayed_count + 1;  // increment after decay
+=======
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count += 1;
+>>>>>>> REPLACE
+</DIFF>

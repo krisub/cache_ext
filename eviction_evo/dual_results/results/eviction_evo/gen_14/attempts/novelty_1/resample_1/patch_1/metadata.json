@@ -1,0 +1,14 @@
+{
+  "generation": 14,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "frequency_decay_with_age_penalty",
+  "patch_description": "The current program tracks `access_count` but never decays it, causing folios that were frequently accessed in the past but are now cold to remain artificially protected indefinitely. This is particularly problematic during workload phase transitions (e.g., when dual_small_vs_large shifts from small reads to large writes, or when dual_congested experiences network condition changes).\n\nThe recommendation is to implement frequency decay: when a folio hasn't been accessed for longer than a tier-specific decay window, reduce its `access_count` by 1 (minimum 1). This decay should be applied during `folio_accessed()` when we update the metadata, ensuring that stale high-frequency folios gradually lose their protection and make room for newly-active working sets.\n\nThis complements the existing burst-detection and congestion-adaptive logic by enabling responsive adaptation to sustained workload changes. The decay windows should be tier-aware (hot folios decay slower than cold) and congestion-aware (high congestion slows decay to preserve the working set).\n\nExpected impact:\n- Reduce p99 latencies (currently 229-246ms on dual_small_vs_large) by preventing stale hot folios from blocking eviction of newly-active pages\n- Maintain or improve throughput on dual_congested by being more responsive to workload shifts\n- Improve harmonic mean by balancing both traces better",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:42:44.626649",
+  "llm_cost": 0.061178,
+  "llm_model": null
+}

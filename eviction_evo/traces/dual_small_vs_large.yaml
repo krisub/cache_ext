@@ -1,0 +1,69 @@
+# Dual-client trace: fast reader + slow large-value writer
+# Client A: read-only, small values, zipfian hot-set, fast (direct connection)
+# Client B: write-heavy, large values, uniform, delayed (1ms proxy, 500 Mbps)
+# Creates asymmetric cache pressure: Client A's hot set competes with Client B's
+# large scattered writes. Proxy adds small but measurable network effect.
+type: dual_client
+
+clients:
+  - name: reader_fast
+    proxy_port: 0
+    proxy_delay_ms: 0
+    proxy_bandwidth_kbps: 0
+    config:
+      database:
+        key_size: 16
+        value_size: 200
+        nr_entry: 536870912
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 30
+        runtime_seconds: 120
+        nr_op: 10000000
+        nr_thread: 4
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 1.0
+          update: 0
+          insert: 0
+          scan: 0
+          read_modify_write: 0
+        request_distribution: "zipfian"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "127.0.0.1"
+        port: 9100
+      measurement:
+        latency_file: ""
+
+  - name: writer_slow
+    proxy_port: 9101
+    proxy_delay_ms: 1
+    proxy_bandwidth_kbps: 500000
+    config:
+      database:
+        key_size: 16
+        value_size: 4096
+        nr_entry: 536870912
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 30
+        runtime_seconds: 120
+        nr_op: 10000000
+        nr_thread: 4
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 0.5
+          update: 0.5
+          insert: 0
+          scan: 0
+          read_modify_write: 0
+        request_distribution: "uniform"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "127.0.0.1"
+        port: 9101
+      measurement:
+        latency_file: ""

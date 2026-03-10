@@ -1,0 +1,3 @@
+timestamp	combined_score	dual_small_vs_large	dual_congested
+20260309_194329	89.3344	262.65	53.82
+20260309_213254	287.4209	306.78	270.36

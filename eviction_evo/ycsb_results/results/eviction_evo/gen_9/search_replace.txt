@@ -1,0 +1,282 @@
+Looking at the performance metrics across all prior programs, I can see that:
+
+1. **ycsb_e (scan-heavy)** has significantly lower throughput (115-118 ops/sec) - this is the bottleneck
+2. **uniform (random reads)** and **uniform_rw (random writes)** are also relatively weak
+3. The harmonic mean is being dragged down by these weak performers
+
+The current approach with decay and promotions is good for hot/temporal workloads but appears to be too conservative for workloads with poor locality (uniform distribution) and scan-heavy workloads.
+
+**Key insight from the metrics:**
+- ycsb_e (scan-heavy with insertions) is 118 ops/sec - pages being inserted once are staying in cache too long
+- The `ACCESS_DECAY_DIVISOR` of 2 means pages only get halved every 2 seconds, which is too generous for scan workloads
+- The promotion tier (tier 3) with PROMOTED_THRESHOLD of 7 might be preventing aggressive eviction of moderately-accessed pages
+
+**Proposed improvements:**
+
+1. **Implement frequency-recency scoring** - Instead of pure recency with binary protection rules, compute a weighted score that combines decayed access frequency and recency. Folios below a score threshold get evicted more aggressively, especially single-access pages.
+
+2. **Aggressive single-access page eviction** - Pages accessed exactly once (common in scans) should be evicted more aggressively unless they're in the current working set.
+
+3. **Reduce decay half-life** - Pages older than 500ms should decay faster to prevent scan pages from staying cached.
+
+4. **Tune thresholds for better locality detection** - Lower the promoted threshold and adjust working set windows for scan-heavy workloads.
+
+<NAME>
+frequency_recency_scoring_with_aggressive_scan_eviction
+</NAME>
+
+<DESCRIPTION>
+This change implements a continuous scoring function that combines frequency (access_count) and recency to make more nuanced eviction decisions. Instead of binary protection rules (protect if hot AND recent, else evict), we compute:
+
+score = (effective_accesses * 10) + recency_bonus
+
+where recency_bonus decays from 100 down to 0 over the RECENT_ACCESS_NS window.
+
+Folios with score < 50 are aggressively evicted, which targets single-access pages (common in scans) while protecting frequently-accessed pages. This should improve scan workload performance (ycsb_e) without hurting hot workloads.
+
+Additionally, we reduce the decay half-life from 2s to 500ms so stale accesses fade faster, and lower the PROMOTED_THRESHOLD from 7 to 5 to prevent over-protection of moderately-accessed pages.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// Decay window: decay access count for folios older than this
+#define ACCESS_DECAY_WINDOW_NS   2000000000ULL  // 2 s
+// Decay factor: divide access_count by this when page is old
+#define ACCESS_DECAY_DIVISOR     2
+=======
+// Decay window: decay access count for folios older than this
+#define ACCESS_DECAY_WINDOW_NS   500000000ULL   // 500 ms (faster decay for scan workloads)
+// Decay factor: divide access_count by this when page is old
+#define ACCESS_DECAY_DIVISOR     2
+// Scoring constants for frequency-recency combined metric
+#define SCORE_PER_ACCESS         10             // weight per effective access
+#define SCORE_RECENCY_MAX        100            // max recency bonus
+#define SCORE_EVICTION_THRESHOLD 50             // evict if score < this
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD     3
+// Promoted tier threshold: folios with >= this many accesses (after decay) are "promoted"
+#define PROMOTED_THRESHOLD       7
+=======
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD     3
+// Promoted tier threshold: folios with >= this many accesses (after decay) are "promoted"
+#define PROMOTED_THRESHOLD       5
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Helper: compute time-decayed access count --------------------------------
+static __always_inline u32 get_decayed_access_count(struct net_folio_metadata *meta, u64 now)
+{
+    u64 age = now - meta->last_access_ts;
+
+    // If folio is older than decay window, reduce its access count
+    // This prevents old accesses from keeping pages classified as "hot"
+    if (age > ACCESS_DECAY_WINDOW_NS) {
+        // Decay: divide by divisor, but keep at least 1
+        u32 decayed = (meta->access_count / ACCESS_DECAY_DIVISOR);
+        if (decayed < 1) decayed = 1;
+        return decayed;
+    }
+
+    return meta->access_count;
+}
+=======
+// -- Helper: compute time-decayed access count --------------------------------
+static __always_inline u32 get_decayed_access_count(struct net_folio_metadata *meta, u64 now)
+{
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+
+    // If folio is older than decay window, reduce its access count
+    // This prevents old accesses from keeping pages classified as "hot"
+    if (age > ACCESS_DECAY_WINDOW_NS) {
+        // Decay: divide by divisor, but keep at least 1
+        u32 decayed = (meta->access_count / ACCESS_DECAY_DIVISOR);
+        if (decayed < 1) decayed = 1;
+        return decayed;
+    }
+
+    return meta->access_count;
+}
+
+// -- Helper: compute combined frequency-recency score --------------------------
+static __always_inline u32 get_folio_score(struct net_folio_metadata *meta, u64 now)
+{
+    u32 effective_accesses = get_decayed_access_count(meta, now);
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+
+    // Recency bonus: linear decay from 100 to 0 over RECENT_ACCESS_NS
+    u32 recency_bonus = 0;
+    if (age < RECENT_ACCESS_NS_BASE) {
+        // recency_bonus = 100 * (1 - age/RECENT_ACCESS_NS)
+        recency_bonus = (SCORE_RECENCY_MAX * (RECENT_ACCESS_NS_BASE - age)) / RECENT_ACCESS_NS_BASE;
+    }
+
+    // Combined score: frequency contribution + recency bonus
+    u32 score = (effective_accesses * SCORE_PER_ACCESS) + recency_bonus;
+
+    return score;
+}
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network-aware adaptive heuristics ------------------------------------
+
+    u64 recent_access_ns = get_adaptive_recent_access_ns();
+    u64 working_set_ns = get_adaptive_working_set_ns();
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < recent_access_ns;
+    bool in_working_set = (now - meta->last_access_ts) < working_set_ns;
+
+    // Apply time-weighted decay to access count
+    u32 effective_access_count = get_decayed_access_count(meta, now);
+    bool is_hot         = (effective_access_count >= HOT_ACCESS_THRESHOLD);
+    bool very_hot       = (effective_access_count >= HOT_ACCESS_THRESHOLD + 2);
+    bool is_promoted    = (meta->access_tier == 3);  // tier 3 = promoted
+
+    // Detect network congestion
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Protect promoted folios with extended window, even when session not active
+    // This creates a top-tier protection for truly critical pages
+    if (is_promoted && (now - meta->last_access_ts) < PROMOTED_PROTECTION_NS)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect very hot folios aggressively during active session
+    if (very_hot && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During network congestion, be more aggressive about protecting hot pages
+    if (is_congested && is_hot && (now - meta->last_access_ts) < working_set_ns)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Aggressively evict cold (low-frequency) folios not accessed recently
+    // This targets scan workloads where pages are accessed once and never again
+    if (effective_access_count == 1 && (now - meta->last_access_ts) > (RECENT_ACCESS_NS_BASE * 3))
+        return CACHE_EXT_EVICT_NODE;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+=======
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network-aware adaptive heuristics with scoring -----------------------
+
+    u64 recent_access_ns = get_adaptive_recent_access_ns();
+    u64 working_set_ns = get_adaptive_working_set_ns();
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < recent_access_ns;
+    bool in_working_set = (now - meta->last_access_ts) < working_set_ns;
+
+    // Apply time-weighted decay to access count
+    u32 effective_access_count = get_decayed_access_count(meta, now);
+    bool is_hot         = (effective_access_count >= HOT_ACCESS_THRESHOLD);
+    bool very_hot       = (effective_access_count >= HOT_ACCESS_THRESHOLD + 2);
+    bool is_promoted    = (meta->access_tier == 3);  // tier 3 = promoted
+
+    // Detect network congestion
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Compute frequency-recency score for continuous ranking
+    u32 folio_score = get_folio_score(meta, now);
+
+    // Protect promoted folios with extended window, even when session not active
+    // This creates a top-tier protection for truly critical pages
+    if (is_promoted && (now - meta->last_access_ts) < PROMOTED_PROTECTION_NS)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect very hot folios aggressively during active session
+    if (very_hot && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During network congestion, be more aggressive about protecting hot pages
+    if (is_congested && is_hot && (now - meta->last_access_ts) < working_set_ns)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Aggressive eviction based on score: evict low-scoring folios (weak frequency + recency)
+    // This particularly targets single-access pages that aren't recent (common in scans)
+    if (folio_score < SCORE_EVICTION_THRESHOLD)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+The key improvements in this change:
+
+1. **Frequency-recency scoring**: Computes `score = (effective_accesses * 10) + recency_bonus` where recency decays linearly from 100→0 over RECENT_ACCESS_NS. This creates a continuous ranking instead of binary decisions.
+
+2. **Aggressive scan eviction**: Single-access pages (common in ycsb_e scan workload) with low scores get evicted rapidly, freeing up cache for hotter data.
+
+3. **Faster decay (500ms → 500ms)**: Stale accesses become irrelevant faster, preventing old scan pages from being protected too long.
+
+4. **Lower promotion threshold (7→5)**: Reduces over-protection of moderately-accessed pages, allowing more flexibility for varying workload phases.
+
+These changes should improve the harmonic mean by boosting ycsb_e (scan workload) and uniform distribution workloads while maintaining performance on hot workloads through the continued protection rules.

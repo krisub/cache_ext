@@ -1,0 +1,14 @@
+{
+  "generation": 26,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "refined_frequency_bonus_curve",
+  "patch_description": "The current frequency bonus uses a logarithmic curve where access_count 4+ all receive 300 points, which may over-protect stale high-frequency folios that are no longer part of the active working set. This is particularly problematic during workload transitions when frequently-accessed pages from a previous phase should be evicted faster.\n\nThe recommendation proposes a steeper curve with diminishing returns above access_count=3:\n- access_count 1 \u2192 40 (down from 0, slight boost for re-accessed pages)\n- access_count 2 \u2192 90 (down from 100, reduced bonus)\n- access_count 3 \u2192 160 (down from 200, tighter threshold)\n- access_count 4 \u2192 220 (down from 300, significant reduction)\n- access_count 5+ \u2192 280 (down from 350-400, capped diminishing returns)\n\nThis preserves the multi-factor scoring architecture while improving discrimination between frequently-accessed and aged folios. The lower baseline bonuses combined with steeper diminishing returns enable faster eviction of aged high-frequency folios, which should reduce p99 latencies (currently 167-246ms) by preventing stale hot pages from blocking cache space needed by the active working set.\n\nThe change is conservative (reduces protection on high-frequency pages) but maintains enough protection to avoid thrashing on genuinely hot pages that are still actively accessed.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T23:43:15.171077",
+  "llm_cost": 0.05599799999999999,
+  "llm_model": null
+}

@@ -1,0 +1,181 @@
+2026-03-09 14:34:50,447 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-09 14:34:50,447 INFO Acquired evaluation lock.
+2026-03-09 14:34:50,448 INFO === Step 0: Drop page cache ===
+2026-03-09 14:34:50,448 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-09 14:34:50,448 INFO CMD: sudo sync
+2026-03-09 14:34:50,711 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:34:51,518 INFO Page cache dropped.
+2026-03-09 14:34:51,519 INFO === Step 1: Compile evolved policy ===
+2026-03-09 14:34:51,549 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-09 14:34:51,878 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-09 14:34:54,656 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-09 14:34:54,844 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-09 14:34:55,821 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-09 14:34:55,821 INFO === Step 2: Disable MGLRU ===
+2026-03-09 14:34:55,821 INFO MGLRU current state: 0x0000 — disabling
+2026-03-09 14:34:55,821 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 14:34:55,840 INFO MGLRU disabled.
+2026-03-09 14:34:55,840 INFO === Step 3: Create cgroup ===
+2026-03-09 14:34:55,840 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 14:34:55,908 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-09 14:34:56,026 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-09 14:34:56,040 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-09 14:34:56,040 INFO === Step 4: Load BPF policy ===
+2026-03-09 14:34:56,041 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-09 14:35:06,052 INFO Policy loaded (PID 201579)
+2026-03-09 14:35:06,052 INFO === Step 5: Start server ===
+2026-03-09 14:35:06,052 INFO Starting server: sudo cgexec -g memory:cache_ext_test /mydata/cache_ext/net_leveldb_server 9100 /mydata/leveldb_temp
+2026-03-09 14:35:06,053 INFO Waiting for server on port 9100 ...
+2026-03-09 14:35:07,159 INFO Server ready (PID 201663) on port 9100
+2026-03-09 14:35:07,159 INFO === Step 6: Run 8 trace benchmarks ===
+2026-03-09 14:35:07,159 INFO --- Trace 1/8: ycsb_a ---
+2026-03-09 14:35:07,163 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_a.yaml
+2026-03-09 14:35:07,294 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_a.yaml
+2026-03-09 14:38:04,242 INFO Benchmark stdout:
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 147.98 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 126.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 274.96 ops/sec
+Zipfian (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 208.97 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 203.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 412.94 ops/sec
+Zipfian (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 185.97 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 185.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 371.95 ops/sec
+Zipfian (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 215.98 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 222.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 438.95 ops/sec
+Zipfian (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 191.98 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 203.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 395.96 ops/sec
+Zipfian (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 204.97 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 187.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 392.95 ops/sec
+Zipfian (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 166.98 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 161.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throu
+2026-03-09 14:38:04,243 INFO Trace ycsb_a: throughput=620.63 ops/sec
+2026-03-09 14:38:04,244 INFO --- Trace 2/8: ycsb_b ---
+2026-03-09 14:38:04,244 INFO CMD: sudo sync
+2026-03-09 14:38:04,520 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:38:05,251 INFO Page cache dropped.
+2026-03-09 14:38:07,264 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_b.yaml
+2026-03-09 14:38:07,289 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_b.yaml
+2026-03-09 14:41:04,306 INFO Benchmark stdout:
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 5.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 120.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 125.99 ops/sec
+Zipfian (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 10.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 143.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 153.98 ops/sec
+Zipfian (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 5.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 145.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 150.98 ops/sec
+Zipfian (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 7.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 163.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 170.98 ops/sec
+Zipfian (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 9.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 174.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 183.97 ops/sec
+Zipfian (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 5.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 188.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 193.97 ops/sec
+Zipfian (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 9.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 167.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 op
+2026-03-09 14:41:04,307 INFO Trace ycsb_b: throughput=317.91 ops/sec
+2026-03-09 14:41:04,307 INFO --- Trace 3/8: ycsb_c ---
+2026-03-09 14:41:04,307 INFO CMD: sudo sync
+2026-03-09 14:41:04,668 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:41:05,256 INFO Page cache dropped.
+2026-03-09 14:41:07,271 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_c.yaml
+2026-03-09 14:41:07,291 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_c.yaml
+2026-03-09 14:44:04,199 INFO Benchmark stdout:
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 131.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 131.99 ops/sec
+Zipfian (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 142.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 142.98 ops/sec
+Zipfian (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 162.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 162.98 ops/sec
+Zipfian (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 182.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 182.97 ops/sec
+Zipfian (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 209.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 209.98 ops/sec
+Zipfian (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 187.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 187.97 ops/sec
+Zipfian (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 194.97 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops
+2026-03-09 14:44:04,200 INFO Trace ycsb_c: throughput=310.61 ops/sec
+2026-03-09 14:44:04,200 INFO --- Trace 4/8: ycsb_d ---
+2026-03-09 14:44:04,200 INFO CMD: sudo sync
+2026-03-09 14:44:04,405 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:44:05,012 INFO Page cache dropped.
+2026-03-09 14:44:07,027 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_d.yaml
+2026-03-09 14:44:07,052 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_d.yaml
+2026-03-09 14:47:04,477 INFO Benchmark stdout:
+LatestWorkload: start initializing zipfian variables, might take a while
+Latest (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Latest (Warm-Up) (epoch 1, progress 0.18%): UPDATE throughput 0.00 ops/sec, INSERT throughput 7090.34 ops/sec, READ throughput 135236.42 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 142326.76 ops/sec
+Latest (Warm-Up) (epoch 2, progress 0.45%): UPDATE throughput 0.00 ops/sec, INSERT throughput 10937.98 ops/sec, READ throughput 203385.09 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 214323.07 ops/sec
+Latest (Warm-Up) (epoch 3, progress 0.63%): UPDATE throughput 0.00 ops/sec, INSERT throughput 7415.31 ops/sec, READ throughput 138027.16 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 145442.47 ops/sec
+Latest (Warm-Up) (epoch 4, progress 0.87%): UPDATE throughput 0.00 ops/sec, INSERT throughput 9632.05 ops/sec, READ throughput 183058.88 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 192690.92 ops/sec
+Latest (Warm-Up) (epoch 5, progress 1.05%): UPDATE throughput 0.00 ops/sec, INSERT throughput 7426.27 ops/sec, READ throughput 140035.28 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 147461.55 ops/sec
+Latest (Warm-Up) (epoch 6, progress 1.30%): UPDATE throughput 0.00 ops/sec, INSERT throughput 9909.00 ops/sec, READ throughput 187293.08 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 197202.08 ops/sec
+Latest (Warm-Up) (epoch 7, progress 1.48%): UPDATE throughput 0.00 ops/sec, INSERT throughput 7204.36 ops/sec, READ throughput 137126.80 ops/sec, SCAN throughput
+2026-03-09 14:47:04,478 INFO Trace ycsb_d: throughput=142926.25 ops/sec
+2026-03-09 14:47:04,478 INFO --- Trace 5/8: ycsb_e ---
+2026-03-09 14:47:04,478 INFO CMD: sudo sync
+2026-03-09 14:47:04,733 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:47:05,139 INFO Page cache dropped.
+2026-03-09 14:47:07,155 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_e.yaml
+2026-03-09 14:47:07,180 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_e.yaml
+2026-03-09 14:50:04,213 INFO Benchmark stdout:
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 2.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 46.99 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 48.99 ops/sec
+Zipfian (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 3.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 69.99 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 72.99 ops/sec
+Zipfian (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 4.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 68.99 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 72.99 ops/sec
+Zipfian (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 3.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 68.99 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 71.99 ops/sec
+Zipfian (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 5.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 60.99 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 65.99 ops/sec
+Zipfian (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 2.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 64.99 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 66.99 ops/sec
+Zipfian (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 3.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 68.99 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total t
+2026-03-09 14:50:04,214 INFO Trace ycsb_e: throughput=118.46 ops/sec
+2026-03-09 14:50:04,214 INFO --- Trace 6/8: ycsb_f ---
+2026-03-09 14:50:04,214 INFO CMD: sudo sync
+2026-03-09 14:50:04,403 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:50:04,935 INFO Page cache dropped.
+2026-03-09 14:50:06,956 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_f.yaml
+2026-03-09 14:50:06,981 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/ycsb_f.yaml
+2026-03-09 14:53:03,992 INFO Benchmark stdout:
+ZipfianWorkload: start initializing zipfian variables, might take a while
+Zipfian (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Zipfian (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 120.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 144.98 ops/sec, total throughput 265.97 ops/sec
+Zipfian (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 128.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 149.98 ops/sec, total throughput 278.97 ops/sec
+Zipfian (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 147.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 131.98 ops/sec, total throughput 279.96 ops/sec
+Zipfian (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 175.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 173.98 ops/sec, total throughput 349.95 ops/sec
+Zipfian (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 165.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 167.98 ops/sec, total throughput 333.96 ops/sec
+Zipfian (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 172.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 157.98 ops/sec, total throughput 330.95 ops/sec
+Zipfian (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 198.98 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE through
+2026-03-09 14:53:03,993 INFO Trace ycsb_f: throughput=450.96 ops/sec
+2026-03-09 14:53:03,993 INFO --- Trace 7/8: uniform ---
+2026-03-09 14:53:03,993 INFO CMD: sudo sync
+2026-03-09 14:53:04,286 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:53:05,133 INFO Page cache dropped.
+2026-03-09 14:53:07,146 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/uniform.yaml
+2026-03-09 14:53:07,183 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/uniform.yaml
+2026-03-09 14:55:39,297 INFO Benchmark stdout:
+Uniform (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Uniform (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 53.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 53.99 ops/sec
+Uniform (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 76.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 76.99 ops/sec
+Uniform (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 65.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 65.99 ops/sec
+Uniform (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 80.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 80.99 ops/sec
+Uniform (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 87.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 87.99 ops/sec
+Uniform (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 79.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 79.99 ops/sec
+Uniform (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 78.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 78.99 ops/sec
+Uniform (Warm-Up) (epoch 8, progress 0.00%): UPDAT
+2026-03-09 14:55:39,298 INFO Trace uniform: throughput=132.53 ops/sec
+2026-03-09 14:55:39,298 INFO --- Trace 8/8: uniform_rw ---
+2026-03-09 14:55:39,298 INFO CMD: sudo sync
+2026-03-09 14:55:39,655 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-09 14:55:40,476 INFO Page cache dropped.
+2026-03-09 14:55:42,497 INFO Running benchmark: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/uniform_read_write.yaml
+2026-03-09 14:55:42,516 INFO CMD: /mydata/cache_ext/My-YCSB/build/run_net_leveldb /mydata/cache_ext/eviction_evo/traces/uniform_read_write.yaml
+2026-03-09 14:58:14,671 INFO Benchmark stdout:
+Uniform (Warm-Up) (epoch 0, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 0.00 ops/sec, READ throughput 0.00 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 0.00 ops/sec
+Uniform (Warm-Up) (epoch 1, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 34.99 ops/sec, READ throughput 30.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 65.98 ops/sec
+Uniform (Warm-Up) (epoch 2, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 55.99 ops/sec, READ throughput 67.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 123.98 ops/sec
+Uniform (Warm-Up) (epoch 3, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 66.99 ops/sec, READ throughput 75.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 142.99 ops/sec
+Uniform (Warm-Up) (epoch 4, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 98.99 ops/sec, READ throughput 82.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 181.97 ops/sec
+Uniform (Warm-Up) (epoch 5, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 72.99 ops/sec, READ throughput 79.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 152.98 ops/sec
+Uniform (Warm-Up) (epoch 6, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 62.99 ops/sec, READ throughput 81.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 144.98 ops/sec
+Uniform (Warm-Up) (epoch 7, progress 0.00%): UPDATE throughput 0.00 ops/sec, INSERT throughput 97.99 ops/sec, READ throughput 89.99 ops/sec, SCAN throughput 0.00 ops/sec, READ_MODIFY_WRITE throughput 0.00 ops/sec, total throughput 187.98 ops/sec
+Uniform (Warm-Up) (epoch 8, progress 
+2026-03-09 14:58:14,671 INFO Trace uniform_rw: throughput=265.36 ops/sec
+2026-03-09 14:58:14,681 INFO === Evaluation complete ===
+2026-03-09 14:58:14,681 INFO Combined score (harmonic mean): 267.06  (8/8 traces passed)
+2026-03-09 14:58:14,681 INFO   ycsb_a: 620.63 ops/sec
+2026-03-09 14:58:14,681 INFO   ycsb_b: 317.91 ops/sec
+2026-03-09 14:58:14,681 INFO   ycsb_c: 310.61 ops/sec
+2026-03-09 14:58:14,681 INFO   ycsb_d: 142926.25 ops/sec
+2026-03-09 14:58:14,681 INFO   ycsb_e: 118.46 ops/sec
+2026-03-09 14:58:14,681 INFO   ycsb_f: 450.96 ops/sec
+2026-03-09 14:58:14,681 INFO   uniform: 132.53 ops/sec
+2026-03-09 14:58:14,681 INFO   uniform_rw: 265.36 ops/sec
+2026-03-09 14:58:14,681 INFO Stopping net_leveldb_server (PID 201663)
+2026-03-09 14:58:14,681 INFO CMD: sudo kill 201663
+2026-03-09 14:58:14,858 INFO Unloading BPF policy (PID 201579)
+2026-03-09 14:58:14,858 INFO CMD: sudo kill -2 201579
+2026-03-09 14:58:15,090 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
+2026-03-09 14:58:15,130 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-09 14:58:15,171 INFO CMD: sudo sh -c echo 0x0000 > /sys/kernel/mm/lru_gen/enabled
+2026-03-09 14:58:15,185 INFO MGLRU re-enabled (restored to 0x0000).

@@ -1,0 +1,3 @@
+2026-03-09 18:11:00,840 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 597, in <module>

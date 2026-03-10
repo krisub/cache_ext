@@ -1,0 +1,14 @@
+{
+  "generation": 16,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_burst_protected_decay",
+  "patch_description": "The current access count decay is too aggressive and causes performance regression on dual_small_vs_large from 324.29 to 311.40. The issue is that decay happens on every access and uses a fixed linear decay (\u22121 per window), which erodes frequency information too quickly during sustained high-throughput periods.\n\nThis fix implements:\n1. **Burst protection**: Disable decay entirely during burst mode (packets arriving < 5ms apart)\n2. **Exponential decay**: Use exponential decay (divide by 2 per window) instead of linear to be gentler\n3. **Longer decay windows**: Increase base from 500ms to 1000ms to give folios more time before decay\n4. **Session-aware protection**: Don't decay if session is actively receiving packets\n\nThis preserves frequency information during high-throughput periods while still allowing stale folios to decay during idle periods, balancing the working set management.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:56:27.291305",
+  "llm_cost": 0.063584,
+  "llm_model": null
+}

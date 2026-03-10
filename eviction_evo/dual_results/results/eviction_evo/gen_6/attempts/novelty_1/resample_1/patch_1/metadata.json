@@ -1,0 +1,14 @@
+{
+  "generation": 6,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_tier_promotion_with_congestion_scaling",
+  "patch_description": "This redesigned program restructures the eviction policy around a **congestion-adaptive tier promotion system** rather than a monolithic single-list approach. The key architectural changes are:\n\n1. **Decoupled Congestion Analysis**: Moves congestion scoring into a dedicated, reusable helper that's computed once per eviction cycle and cached, reducing redundant calculations.\n\n2. **Adaptive Tier Thresholds**: Instead of fixed promotion thresholds (access_count >= 2 for warm, >= 4 for hot), tier promotion now scales inversely with congestion state. During high congestion (score > 700), thresholds lower to (access_count >= 1 for warm, >= 2 for hot), enabling faster working-set identification when cache misses are costliest. During low congestion, thresholds raise to (access_count >= 3 for warm, >= 6 for hot) for aggressive eviction.\n\n3. **Three-Tier Segregation with Congestion-Aware Callbacks**: Maintains hot/warm/cold lists but each callback now uses the cached congestion score to dynamically adjust eviction aggressiveness. Cold list evicts most aggressively in low-congestion states, while hot list becomes nearly untouchable during high congestion.\n\n4. **Burst-Protected Working Set**: Integrates burst detection (inter-arrival time < 5ms) into tier promotion logic, so burst-phase folios are promoted more eagerly and protected longer during subsequent eviction.\n\n5. **Simplified Data Flow**: Separates concerns\u2014congestion analysis, tier promotion, and eviction\u2014into distinct phases with clear state transitions, making the logic easier to reason about and optimize.\n\nThis approach directly extends the prior best program's adaptive windowing to the promotion logic itself, enabling faster identification and protection of the working set when network conditions make cache misses most costly.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:04:19.215091",
+  "llm_cost": 0.058344999999999994,
+  "llm_model": null
+}

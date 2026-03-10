@@ -25,14 +25,16 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
+import yaml as pyyaml
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-# ─────────────────── Configuration ──────────────────────────────────
+# -- Configuration -------------------------------------------------------------
 # Adjust these paths to match your environment
 CACHE_EXT_DIR = "/mydata/cache_ext"
 POLICIES_DIR = os.path.join(CACHE_EXT_DIR, "policies")
@@ -41,9 +43,24 @@ SERVER_BINARY = os.path.join(CACHE_EXT_DIR, "net_leveldb_server")
 BENCH_BINARY_DIR = os.path.join(CACHE_EXT_DIR, "My-YCSB", "build")
 LEVELDB_DB = "/mydata/leveldb"
 LEVELDB_TEMP_DB = "/mydata/leveldb_temp"
-BENCH_CONFIG = os.path.join(
-    CACHE_EXT_DIR, "My-YCSB", "net_leveldb", "config", "ycsb_c.yaml"
-)
+TRACES_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo", "traces")
+PROXY_SCRIPT = os.path.join(CACHE_EXT_DIR, "eviction_evo", "tcp_delay_proxy.py")
+# Ordered list of trace configs to run for each evaluation.
+# Each trace is (short_name, yaml_filename).
+TRACE_CONFIGS = [
+    # # Single-client traces (commented out — dual-client only mode)
+    # ("ycsb_a", "ycsb_a.yaml"),           # 50% read, 50% update (zipfian)
+    # ("ycsb_b", "ycsb_b.yaml"),           # 95% read, 5% update (zipfian)
+    # ("ycsb_c", "ycsb_c.yaml"),           # 100% read (zipfian)
+    # ("ycsb_d", "ycsb_d.yaml"),           # 95% read, 5% insert (latest)
+    # ("ycsb_e", "ycsb_e.yaml"),           # 95% scan, 5% insert (zipfian)
+    # ("ycsb_f", "ycsb_f.yaml"),           # 50% read, 50% RMW (zipfian)
+    # ("uniform", "uniform.yaml"),          # 100% read (uniform)
+    # ("uniform_rw", "uniform_read_write.yaml"),  # 50% read, 50% insert (uniform)
+    # Dual-client traces: two simultaneous clients with network throttling
+    ("dual_small_vs_large", "dual_small_vs_large.yaml"),  # fast reader + slow large writer
+    ("dual_congested", "dual_congested.yaml"),             # both clients WAN-delayed
+]
 SERVER_PORT = 9100
 CGROUP_NAME = "cache_ext_test"
 CGROUP_PATH = f"/sys/fs/cgroup/{CGROUP_NAME}"
@@ -52,8 +69,8 @@ CGROUP_SIZE_BYTES = 512 * (2**20)  # 512 MiB — hot working set ~600 MiB so thi
 # Benchmark timing
 WARMUP_SECONDS = 30
 RUNTIME_SECONDS = 120
-# Maximum time to wait for the full evaluation (compile + bench), seconds
-EVAL_TIMEOUT_SECONDS = 1200
+# Maximum time to wait for the full evaluation (compile + 8 trace benchmarks), seconds
+EVAL_TIMEOUT_SECONDS = 3600
 
 # Compiler settings (same as policies/Makefile)
 CLANG = "clang-14"
@@ -95,7 +112,7 @@ def save_results(results_dir, metrics, correct, error_msg):
         json.dump({"correct": correct, "error": error_msg}, f, indent=2)
 
 
-# ─────────────────── Compilation ────────────────────────────────────
+# -- Compilation -------------------------------------------------------------
 
 
 def compile_bpf_policy(evolved_c_path: str, build_dir: str):
@@ -179,7 +196,7 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
     return loader_out
 
 
-# ─────────────────── Cgroup Management ──────────────────────────────
+# -- Cgroup Management ---------------------------------------------------------
 
 
 def delete_cgroup():
@@ -234,7 +251,7 @@ def enable_mglru():
         log.warning("MGLRU sysfs path not found: %s", MGLRU_ENABLED_PATH)
 
 
-# ─────────────────── Server Management ──────────────────────────────
+# -- Server Management ---------------------------------------------------------
 
 
 def wait_for_port(host, port, timeout=120):
@@ -289,7 +306,7 @@ def stop_process(proc, name="process"):
             pass
 
 
-# ─────────────────── Policy Management ──────────────────────────────
+# -- Policy Management ---------------------------------------------------------
 
 
 def start_policy(loader_path, watch_dir):
@@ -328,7 +345,7 @@ def stop_policy(proc):
         pass
 
 
-# ─────────────────── Benchmark ──────────────────────────────────────
+# -- Benchmark -----------------------------------------------------------------
 
 
 def reset_database():
@@ -347,32 +364,25 @@ def reset_database():
     log.info("Database reset: %s → %s", LEVELDB_DB, LEVELDB_TEMP_DB)
 
 
-def run_benchmark():
+def run_benchmark(trace_config_path):
     """
-    Run My-YCSB benchmark. Returns parsed throughput/latency results dict.
+    Run My-YCSB benchmark with a specific trace config.
+    Returns parsed throughput/latency results dict.
     Raises on failure.
     """
     bench_binary = os.path.join(BENCH_BINARY_DIR, "run_net_leveldb")
     if not os.path.exists(bench_binary):
         raise FileNotFoundError(f"run_net_leveldb not found: {bench_binary}")
 
-    # Create a temporary copy of bench config with our timing settings
-    import yaml as pyyaml
-
-    with open(BENCH_CONFIG, "r") as f:
-        config = pyyaml.safe_load(f)
-
-    config["workload"]["runtime_seconds"] = RUNTIME_SECONDS
-    config["workload"]["warmup_runtime_seconds"] = WARMUP_SECONDS
-    config["net_leveldb"]["port"] = SERVER_PORT
-
-    tmp_config = os.path.join(BUILD_DIR, "bench_config.yaml")
-    with open(tmp_config, "w") as f:
-        pyyaml.dump(config, f)
-
-    cmd = [bench_binary, tmp_config]
+    cmd = [bench_binary, trace_config_path]
     log.info("Running benchmark: %s", " ".join(cmd))
-    result = run_cmd(cmd, timeout=WARMUP_SECONDS + RUNTIME_SECONDS + 120)
+    # Read timing from the config to set an appropriate timeout
+    import yaml as pyyaml
+    with open(trace_config_path, "r") as f:
+        config = pyyaml.safe_load(f)
+    warmup = config.get("workload", {}).get("warmup_runtime_seconds", WARMUP_SECONDS)
+    runtime = config.get("workload", {}).get("runtime_seconds", RUNTIME_SECONDS)
+    result = run_cmd(cmd, timeout=warmup + runtime + 120)
     stdout = result.stdout
     log.info("Benchmark stdout:\n%s", stdout[:2000])
 
@@ -423,7 +433,119 @@ def parse_benchmark_results(stdout: str) -> dict:
     return results
 
 
-# ─────────────────── Main Evaluation ────────────────────────────────
+# -- Dual-Client Benchmark ----------------------------------------------------
+
+
+def start_proxy(listen_port, delay_ms, bandwidth_kbps):
+    """Start a tcp_delay_proxy subprocess. Returns Popen."""
+    cmd = [
+        sys.executable, PROXY_SCRIPT,
+        "--listen-port", str(listen_port),
+        "--target-port", str(SERVER_PORT),
+        "--delay-ms", str(delay_ms),
+        "--bandwidth-kbps", str(bandwidth_kbps),
+    ]
+    log.info("Starting proxy: %s", " ".join(cmd))
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    if not wait_for_port("127.0.0.1", listen_port, timeout=10):
+        if proc.poll() is not None:
+            raise RuntimeError(f"Proxy on port {listen_port} exited immediately")
+        raise RuntimeError(f"Proxy on port {listen_port} not ready after 10s")
+    log.info("Proxy ready on port %d", listen_port)
+    return proc
+
+
+def run_dual_client_benchmark(trace_config_dict):
+    """
+    Run a dual-client benchmark: two My-YCSB clients in parallel against
+    the same server, optionally through delay proxies.
+    Returns results dict with total_throughput (sum of both clients).
+    """
+    clients = trace_config_dict["clients"]
+    proxy_procs = []
+    temp_files = []
+    bench_binary = os.path.join(BENCH_BINARY_DIR, "run_net_leveldb")
+
+    try:
+        # Start proxies for clients that need them
+        for client in clients:
+            proxy_port = client.get("proxy_port", 0)
+            delay_ms = client.get("proxy_delay_ms", 0)
+            bw_kbps = client.get("proxy_bandwidth_kbps", 0)
+            if proxy_port > 0 and (delay_ms > 0 or bw_kbps > 0):
+                proc = start_proxy(proxy_port, delay_ms, bw_kbps)
+                proxy_procs.append(proc)
+
+        # Write temp config files and launch clients
+        client_procs = []
+        for client in clients:
+            config = client["config"]
+            fd, path = tempfile.mkstemp(suffix=".yaml",
+                                        prefix=f"dual_{client['name']}_")
+            with os.fdopen(fd, 'w') as f:
+                pyyaml.dump(config, f)
+            temp_files.append(path)
+
+            cmd = [bench_binary, path]
+            log.info("Starting client %s: %s", client["name"], " ".join(cmd))
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True)
+            client_procs.append((client["name"], proc))
+
+        # Wait for all clients to finish
+        max_timeout = max(
+            c["config"]["workload"].get("warmup_runtime_seconds", WARMUP_SECONDS) +
+            c["config"]["workload"].get("runtime_seconds", RUNTIME_SECONDS)
+            for c in clients
+        ) + 120
+
+        results_per_client = {}
+        for name, proc in client_procs:
+            try:
+                stdout, stderr = proc.communicate(timeout=max_timeout)
+                if proc.returncode != 0:
+                    log.error("Client %s failed (rc=%d): %s",
+                              name, proc.returncode, stderr[:500])
+                    results_per_client[name] = {"total_throughput": 0.0}
+                else:
+                    results_per_client[name] = parse_benchmark_results(stdout)
+                    log.info("Client %s: throughput=%.2f", name,
+                             results_per_client[name].get("total_throughput", 0))
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                log.error("Client %s timed out", name)
+                results_per_client[name] = {"total_throughput": 0.0}
+
+        # Combine: sum throughputs from all clients
+        total_tp = sum(r.get("total_throughput", 0.0)
+                       for r in results_per_client.values())
+        combined = {"total_throughput": total_tp}
+
+        # Aggregate p99: worst (max) across clients
+        p99s = [r.get("read_latency_p99_ns", 0)
+                for r in results_per_client.values() if "read_latency_p99_ns" in r]
+        if p99s:
+            combined["read_latency_p99_ns"] = max(p99s)
+
+        log.info("Dual-client combined throughput: %.2f ops/sec", total_tp)
+        return combined
+
+    finally:
+        for proc in proxy_procs:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        for path in temp_files:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+
+
+# -- Main Evaluation -----------------------------------------------------------
 
 
 # Serialization lock — only one evaluate() may run at a time regardless of
@@ -477,38 +599,77 @@ def evaluate(program_path: str, results_dir: str):
         log.info("=== Step 5: Start server ===")
         server_proc = start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)
 
-        # 6. Run benchmark
-        log.info("=== Step 6: Run benchmark ===")
-        bench_results = run_benchmark()
+        # 6. Run all trace benchmarks
+        log.info("=== Step 6: Run %d trace benchmarks ===", len(TRACE_CONFIGS))
+        all_trace_results = {}
+        public_metrics = {}
 
-        # 7. Compute metrics
-        total_tp = bench_results.get("total_throughput", 0.0)
-        read_tp = bench_results.get("read_throughput", 0.0)
-        read_lat_avg = bench_results.get("read_latency_avg_ns", float("inf"))
-        read_lat_p99 = bench_results.get("read_latency_p99_ns", float("inf"))
+        for trace_idx, (trace_name, trace_file) in enumerate(TRACE_CONFIGS):
+            trace_path = os.path.join(TRACES_DIR, trace_file)
+            log.info("--- Trace %d/%d: %s ---", trace_idx + 1, len(TRACE_CONFIGS), trace_name)
 
-        # Combined score: higher is better.
-        # Primary metric is throughput. We also reward lower latency.
-        # Normalize latency contribution: latency_bonus = 1M / p99_latency
-        # (caps at 1.0 for p99 >= 1ms, gives bonus for sub-ms p99)
-        latency_bonus = min(1.0, 1_000_000.0 / max(read_lat_p99, 1.0))
-        combined_score = total_tp + total_tp * 0.1 * latency_bonus
+            # Drop page cache between traces to ensure each starts cold
+            if trace_idx > 0:
+                drop_page_cache()
+                time.sleep(2)
+
+            try:
+                # Detect dual-client traces and dispatch accordingly
+                with open(trace_path, 'r') as _tf:
+                    trace_yaml = pyyaml.safe_load(_tf)
+                if trace_yaml.get("type") == "dual_client":
+                    trace_results = run_dual_client_benchmark(trace_yaml)
+                else:
+                    trace_results = run_benchmark(trace_path)
+                all_trace_results[trace_name] = trace_results
+
+                tp = trace_results.get("total_throughput", 0.0)
+                public_metrics[f"{trace_name}_throughput"] = tp
+                public_metrics[f"{trace_name}_read_p99_ns"] = trace_results.get(
+                    "read_latency_p99_ns", float("inf"))
+
+                log.info("Trace %s: throughput=%.2f ops/sec", trace_name, tp)
+            except Exception as te:
+                log.error("Trace %s failed: %s", trace_name, te)
+                all_trace_results[trace_name] = {"total_throughput": 0.0, "error": str(te)}
+                public_metrics[f"{trace_name}_throughput"] = 0.0
+                public_metrics[f"{trace_name}_error"] = str(te)
+
+        # 7. Compute combined score (harmonic mean of throughputs)
+        throughputs = []
+        for trace_name, _ in TRACE_CONFIGS:
+            tp = all_trace_results.get(trace_name, {}).get("total_throughput", 0.0)
+            throughputs.append(tp)
+
+        # Harmonic mean: penalizes policies that score 0 on any trace
+        nonzero_tps = [t for t in throughputs if t > 0]
+        if len(nonzero_tps) == len(throughputs) and len(throughputs) > 0:
+            harmonic_mean = len(throughputs) / sum(1.0 / t for t in throughputs)
+        elif len(nonzero_tps) > 0:
+            # Some traces failed: scale harmonic mean of successes by success ratio
+            hm_partial = len(nonzero_tps) / sum(1.0 / t for t in nonzero_tps)
+            harmonic_mean = hm_partial * (len(nonzero_tps) / len(throughputs))
+        else:
+            harmonic_mean = 0.0
+
+        combined_score = harmonic_mean
+        public_metrics["combined_score_harmonic_mean"] = harmonic_mean
+        public_metrics["traces_passed"] = len(nonzero_tps)
+        public_metrics["traces_total"] = len(throughputs)
 
         metrics = {
             "combined_score": combined_score,
-            "public": {
-                "total_throughput_ops_sec": total_tp,
-                "read_throughput_ops_sec": read_tp,
-                "read_latency_avg_ns": read_lat_avg,
-                "read_latency_p99_ns": read_lat_p99,
-            },
-            "private": bench_results,
+            "public": public_metrics,
+            "private": all_trace_results,
         }
 
         save_results(results_dir, metrics, correct=True, error_msg=None)
         log.info("=== Evaluation complete ===")
-        log.info("Combined score: %.2f  (throughput: %.0f ops/sec, p99: %.0f ns)",
-                 combined_score, total_tp, read_lat_p99)
+        log.info("Combined score (harmonic mean): %.2f  (%d/%d traces passed)",
+                 combined_score, len(nonzero_tps), len(throughputs))
+        for trace_name, _ in TRACE_CONFIGS:
+            tp = all_trace_results.get(trace_name, {}).get("total_throughput", 0.0)
+            log.info("  %s: %.2f ops/sec", trace_name, tp)
 
     except Exception as e:
         stderr_detail = ""

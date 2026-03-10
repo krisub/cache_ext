@@ -1,0 +1,161 @@
+<NAME>
+frequency_decay_with_age_penalty
+</NAME>
+
+<DESCRIPTION>
+The current program tracks `access_count` but never decays it, causing folios that were frequently accessed in the past but are now cold to remain artificially protected indefinitely. This is particularly problematic during workload phase transitions (e.g., when dual_small_vs_large shifts from small reads to large writes, or when dual_congested experiences network condition changes).
+
+The recommendation is to implement frequency decay: when a folio hasn't been accessed for longer than a tier-specific decay window, reduce its `access_count` by 1 (minimum 1). This decay should be applied during `folio_accessed()` when we update the metadata, ensuring that stale high-frequency folios gradually lose their protection and make room for newly-active working sets.
+
+This complements the existing burst-detection and congestion-adaptive logic by enabling responsive adaptation to sustained workload changes. The decay windows should be tier-aware (hot folios decay slower than cold) and congestion-aware (high congestion slows decay to preserve the working set).
+
+Expected impact:
+- Reduce p99 latencies (currently 229-246ms on dual_small_vs_large) by preventing stale hot folios from blocking eviction of newly-active pages
+- Maintain or improve throughput on dual_congested by being more responsive to workload shifts
+- Improve harmonic mean by balancing both traces better
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Base time window for "recently used"
+#define BASE_RECENT_ACCESS_NS    50000000ULL    // 50 ms
+// Base time window for working set
+#define BASE_WORKING_SET_NS      800000000ULL   // 800 ms
+// Network idle timeout
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Access count threshold for hot
+#define HOT_ACCESS_THRESHOLD     4
+// Burst detection: inter-arrival time threshold (usec)
+#define BURST_THRESHOLD_US       5000ULL        // 5 ms
+=======
+// -- Tunable constants --------------------------------------------------------
+// Base time window for "recently used"
+#define BASE_RECENT_ACCESS_NS    50000000ULL    // 50 ms
+// Base time window for working set
+#define BASE_WORKING_SET_NS      800000000ULL   // 800 ms
+// Network idle timeout
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+// Access count threshold for hot
+#define HOT_ACCESS_THRESHOLD     4
+// Burst detection: inter-arrival time threshold (usec)
+#define BURST_THRESHOLD_US       5000ULL        // 5 ms
+
+// -- Frequency decay constants ------------------------------------------------
+// Base decay window: if a folio hasn't been accessed for this long, decay its access_count
+#define BASE_DECAY_WINDOW_NS     500000000ULL   // 500 ms
+
+// Tier-specific decay sensitivity (higher = slower decay)
+#define DECAY_SENSITIVITY_COLD   1000ULL        // cold tier: fast decay
+#define DECAY_SENSITIVITY_WARM   1500ULL        // warm tier: moderate decay
+#define DECAY_SENSITIVITY_HOT    2000ULL        // hot tier: slow decay
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Helper: Compute burst detection score ---
+// Returns true if we're in a burst (packets arriving quickly)
+static __always_inline bool is_burst(u64 now) {
+    if (net_prev_packet_ts == 0)
+        return false;
+
+    u64 inter_arrival_ns = (now > net_prev_packet_ts) ?
+        (now - net_prev_packet_ts) : 0;
+
+    // Consider it a burst if packets arrive within 5ms of each other
+    return (inter_arrival_ns < 5000000ULL);
+}
+=======
+// -- Helper: Compute burst detection score ---
+// Returns true if we're in a burst (packets arriving quickly)
+static __always_inline bool is_burst(u64 now) {
+    if (net_prev_packet_ts == 0)
+        return false;
+
+    u64 inter_arrival_ns = (now > net_prev_packet_ts) ?
+        (now - net_prev_packet_ts) : 0;
+
+    // Consider it a burst if packets arrive within 5ms of each other
+    return (inter_arrival_ns < 5000000ULL);
+}
+
+// -- Helper: Compute adaptive decay window based on congestion --
+// Higher congestion → slower decay (wider window)
+static __always_inline u64 get_adaptive_decay_window(u32 congestion) {
+    // Base 500ms, scale to 1.5s at max congestion
+    u64 base = BASE_DECAY_WINDOW_NS;
+    u64 window = base + (1000000000ULL * congestion) / 1000;  // add 0-1s
+    return (window > 1500000000ULL) ? 1500000000ULL : window;
+}
+
+// -- Helper: Apply access count decay based on folio age and tier --
+// Decays access_count if folio hasn't been accessed recently
+// Returns the decayed access_count
+static __always_inline u32 apply_access_count_decay(struct net_folio_metadata *meta,
+                                                     u64 now, u32 congestion) {
+    if (!meta || meta->access_count <= 1)
+        return meta ? meta->access_count : 1;
+
+    u64 age_ns = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    u64 decay_window = get_adaptive_decay_window(congestion);
+
+    // Tier-specific decay sensitivity
+    u64 tier_sensitivity = DECAY_SENSITIVITY_WARM;  // default
+    if (meta->access_tier == 0)
+        tier_sensitivity = DECAY_SENSITIVITY_COLD;
+    else if (meta->access_tier == 2)
+        tier_sensitivity = DECAY_SENSITIVITY_HOT;
+
+    // Scale decay window by tier sensitivity
+    u64 tier_decay_window = (decay_window * tier_sensitivity) / 1500ULL;
+
+    // If age exceeds tier-specific decay window, decay access_count by 1
+    if (age_ns > tier_decay_window) {
+        u32 decayed_count = meta->access_count - 1;
+        if (decayed_count < 1)
+            decayed_count = 1;
+        return decayed_count;
+    }
+
+    return meta->access_count;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count += 1;
+
+    // Determine new tier based on access count
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+=======
+    // Apply decay to access_count based on current congestion and age
+    u32 congestion = compute_congestion_score();
+    u32 decayed_count = apply_access_count_decay(meta, now, congestion);
+
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count = decayed_count + 1;  // increment after decay
+
+    // Determine new tier based on access count (after decay + increment)
+    u32 old_tier = meta->access_tier;
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+>>>>>>> REPLACE
+
+</DIFF>

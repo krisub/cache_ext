@@ -1,0 +1,14 @@
+{
+  "generation": 25,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "steeper_frequency_bonus_with_cap",
+  "patch_description": "The current frequency bonus curve (1\u219250, 2\u2192100, 3\u2192150, 4+\u2192300) over-protects folios with access_count >= 4, especially when they've aged beyond the recent window. This causes poor eviction decisions during workload transitions and when the working set changes.\n\nThe recommendation to implement a steeper logarithmic curve with diminishing returns above access_count=3 directly addresses this. By capping the bonus at 280 points instead of 300, and adding finer discrimination at access_count=5+, we enable faster eviction of genuinely stale high-frequency folios while still protecting recently-accessed ones.\n\nThis change specifically targets the dual_small_vs_large trace regression (from 314.32\u2192303.20), where the writer (4KB values, uniform access) dominates after the reader phase, and stale reader pages with high access_count should be evicted faster.\n\nThe modification keeps the multi-factor scoring architecture intact (recency, frequency, burst protection, congestion) while refining the frequency component's sensitivity curve.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T23:41:34.621265",
+  "llm_cost": 0.063448,
+  "llm_model": null
+}

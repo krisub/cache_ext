@@ -1,2 +1,0 @@
-timestamp	combined_score	throughput_ops_sec	read_throughput	read_avg_ms	read_p99_ms
-20260304_124957	168.3272	168.27	168.27	47.5	293.9

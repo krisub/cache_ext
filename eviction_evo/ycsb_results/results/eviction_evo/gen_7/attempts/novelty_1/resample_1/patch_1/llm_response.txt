@@ -1,0 +1,480 @@
+<NAME>
+multi_tier_adaptive_eviction
+</NAME>
+
+<DESCRIPTION>
+This algorithm takes a fundamentally different approach by implementing a **multi-tier segregated list strategy** combined with **predictive network-aware admission control**. Instead of a single monolithic list with complex per-folio decay calculations, we:
+
+1. **Segregate folios into 3 independent lists** (hot, warm, cold) based on access patterns and network state, enabling targeted eviction strategies per tier.
+
+2. **Use a scoring function** that combines recency, frequency, and network metrics into a single comparable score, avoiding complex conditional logic in the eviction callback.
+
+3. **Implement predictive burst detection** by tracking request rate trends (not just inter-arrival), allowing us to proactively expand the working set before bursts arrive.
+
+4. **Adaptive tier promotion/demotion** that moves folios between lists based on network conditions, ensuring hot pages stay protected during congestion while cold pages are aggressively evicted during scans.
+
+5. **Simplified decay model** using a linear age-based penalty instead of exponential half-life, reducing CPU overhead in the eviction path.
+
+6. **Network-aware list iteration strategy**: sample cold list more aggressively during congestion, iterate hot list only when necessary.
+
+This approach should perform better because:
+- **Reduced eviction callback complexity** → faster per-folio decisions
+- **Better scan workload handling** → cold list can be evicted in bulk
+- **Predictive burst protection** → expands working set before demand spikes
+- **Cleaner separation of concerns** → each tier has clear eviction criteria
+- **Lower metadata overhead** → fewer map lookups per access
+</DESCRIPTION>
+
+<CODE>
+```c
+// BPF page cache eviction policy with multi-tier segregation and predictive network awareness.
+
+#include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
+#include "cache_ext_lib.bpf.h"
+#include "dir_watcher.bpf.h"
+
+char _license[] SEC("license") = "GPL";
+
+// ── Per-folio metadata ──────────────────────────────────────────────
+struct net_folio_metadata {
+    u64 last_access_ts;
+    u32 access_count;        // number of times this folio was accessed
+    u32 access_tier;         // tier classification (0=cold, 1=warm, 2=hot)
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, u64);          // (u64)folio pointer
+    __type(value, struct net_folio_metadata);
+    __uint(max_entries, 1000000);
+} folio_metadata_map SEC(".maps");
+
+// -- Debug counters -----------------------------------------------------------
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, u32);
+    __type(value, u64);
+} debug_counters SEC(".maps");
+
+// -- Network state (updated by kprobe below) ----------------------------------
+u64 last_packet_ts = 0;
+
+// -- Extended network metrics (snapshot from tcp_sock per recv) ---------------
+u64 net_recv_count = 0;        // total tcp_recvmsg calls on monitored port
+u64 net_prev_packet_ts = 0;    // previous packet timestamp (for inter-arrival)
+u32 net_srtt_us = 0;           // smoothed RTT in usec (kernel srtt<<3)
+u32 net_mdev_us = 0;           // RTT mean deviation (jitter) in usec
+u64 net_bytes_received = 0;    // total bytes received on connection
+u64 net_bytes_acked = 0;       // total bytes acked (proxy for sent)
+u32 net_segs_in = 0;           // total segments received
+u32 net_segs_out = 0;          // total segments sent
+u32 net_delivered = 0;         // total delivered segments
+u32 net_snd_cwnd = 0;          // congestion window (segments)
+u32 net_snd_ssthresh = 0;      // slow-start threshold
+u32 net_rcv_wnd = 0;           // receive window (bytes)
+u32 net_packets_out = 0;       // packets currently in flight
+u32 net_total_retrans = 0;     // lifetime retransmissions
+u32 net_retrans_out = 0;       // retransmits currently in flight
+u32 net_lost = 0;              // segments considered lost
+
+// -- Helpers (fixed) ----------------------------------------------------------
+static __always_inline void bump_counter(u32 idx) {
+    u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
+    if (val) __sync_fetch_and_add(val, 1);
+}
+
+static __always_inline bool is_folio_relevant(struct folio *folio) {
+    if (!folio || !folio->mapping || !folio->mapping->host)
+        return false;
+    return inode_in_watchlist(folio->mapping->host->i_ino);
+}
+
+// EVOLVE-BLOCK-START
+// -- Multi-tier list handles + network state tracking -------------------------
+static u64 hot_list;
+static u64 warm_list;
+static u64 cold_list;
+
+// Predictive burst detection state
+static u64 prev_recv_count = 0;
+static u64 prev_recv_ts = 0;
+static u32 smoothed_request_rate = 0;  // requests per second (scaled by 1000)
+
+// =============================================================================
+// EVICTION POLICY — Multi-tier segregated strategy
+// =============================================================================
+
+// -- Tunable constants --------------------------------------------------------
+#define RECENT_ACCESS_NS_BASE    80000000ULL    // 80 ms
+#define NET_IDLE_TIMEOUT_NS      5000000000ULL  // 5 s
+#define WORKING_SET_NS_BASE      800000000ULL   // 800 ms
+#define HOT_ACCESS_THRESHOLD     3
+#define WARM_ACCESS_THRESHOLD    2
+#define HIGH_RTT_THRESHOLD_US    50000ULL       // 50 ms
+#define BURST_RATE_THRESHOLD     5000ULL        // 5 req/s (scaled)
+#define AGE_PENALTY_NS           100000000ULL   // 100 ms age penalty per unit
+#define COLD_EVICT_RATIO         100            // sample 1 in 100 cold folios aggressively
+
+// -- Helper: compute request rate trend for predictive burst detection --------
+static __always_inline void update_request_rate(void)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 recv_delta = net_recv_count - prev_recv_count;
+    u64 time_delta_ns = (now > prev_recv_ts) ? (now - prev_recv_ts) : 1;
+
+    // Avoid division by zero
+    if (time_delta_ns == 0)
+        time_delta_ns = 1;
+
+    // Compute current rate: requests per second * 1000 (scaled)
+    u32 current_rate = (u32)((recv_delta * 1000000000000ULL) / time_delta_ns);
+
+    // Exponential smoothing: smooth_new = 0.875 * smooth_old + 0.125 * current
+    smoothed_request_rate = (smoothed_request_rate * 7) / 8 + (current_rate * 1) / 8;
+
+    prev_recv_count = net_recv_count;
+    prev_recv_ts = now;
+}
+
+// -- Helper: compute folio score for eviction priority -------------------------
+// Higher score = more valuable, should be kept. Lower score = evict first.
+static __always_inline i64 compute_folio_score(struct net_folio_metadata *meta, u64 now)
+{
+    if (!meta)
+        return -1000000;  // Unknown folios get very low score
+
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+
+    // Base score from access count (frequency)
+    i64 score = (i64)meta->access_count * 1000;
+
+    // Recency bonus: recently accessed folios get higher score
+    if (age < RECENT_ACCESS_NS_BASE) {
+        score += (i64)(RECENT_ACCESS_NS_BASE - age) / 1000000;  // up to +80
+    }
+
+    // Age penalty: older folios lose points
+    i64 age_penalty = (i64)(age / AGE_PENALTY_NS) * 100;
+    score -= age_penalty;
+
+    // Network-aware adjustments
+    bool is_congested = (net_lost > 0) || (net_retrans_out > 0);
+    bool high_rtt = (net_srtt_us > HIGH_RTT_THRESHOLD_US);
+
+    // During congestion, boost score for hot pages (they're more valuable)
+    if (is_congested && meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        score += 500;
+    }
+
+    // High RTT: protect working set more aggressively
+    if (high_rtt && age < WORKING_SET_NS_BASE) {
+        score += 300;
+    }
+
+    return score;
+}
+
+// -- Helper: predict if we're entering a burst --------------------------------
+static __always_inline bool predict_burst_incoming(void)
+{
+    // If smoothed request rate is above threshold, we're in or entering a burst
+    return smoothed_request_rate > BURST_RATE_THRESHOLD;
+}
+
+// -- Helper: get adaptive working set window ----------------------------------
+static __always_inline u64 get_adaptive_working_set_ns(void)
+{
+    u64 threshold = WORKING_SET_NS_BASE;
+
+    // Expand working set during predicted bursts
+    if (predict_burst_incoming()) {
+        threshold = threshold * 3 / 2;  // 1.2 s during bursts
+    }
+
+    return threshold;
+}
+
+// -- Eviction callback for hot list (most selective) --------------------------
+static int bpf_evict_hot_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Hot list: only evict if access count has decayed significantly
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+
+    // Keep hot folios unless they're very old and access count is low
+    if (age < WORKING_SET_NS_BASE * 2)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Very old hot folio with low effective count → evict
+    if (meta->access_count < 2)
+        return CACHE_EXT_EVICT_NODE;
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+
+// -- Eviction callback for warm list (moderate selectivity) -------------------
+static int bpf_evict_warm_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+
+    // Keep warm folios if recently accessed and session is active
+    if (age < RECENT_ACCESS_NS_BASE && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Keep if in working set during active session
+    if (age < get_adaptive_working_set_ns() && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Otherwise, evict
+    return CACHE_EXT_EVICT_NODE;
+}
+
+// -- Eviction callback for cold list (aggressive) ----------------------------
+static int bpf_evict_cold_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u64 age = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+
+    // Cold list: aggressive eviction
+    // Only keep if very recently accessed AND session active
+    if (age < RECENT_ACCESS_NS_BASE / 2 && session_active)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Evict everything else in cold list
+    return CACHE_EXT_EVICT_NODE;
+}
+
+// -- Helper: promote folio to higher tier if warranted -------------------------
+static __always_inline void try_promote_folio(struct folio *folio, struct net_folio_metadata *meta)
+{
+    if (!meta)
+        return;
+
+    // Promotion logic: move to higher tier based on access count
+    if (meta->access_tier == 0 && meta->access_count >= WARM_ACCESS_THRESHOLD) {
+        // Cold → Warm
+        bpf_cache_ext_list_del(folio);
+        bpf_cache_ext_list_add(warm_list, folio);
+        meta->access_tier = 1;
+    } else if (meta->access_tier == 1 && meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        // Warm → Hot
+        bpf_cache_ext_list_del(folio);
+        bpf_cache_ext_list_add(hot_list, folio);
+        meta->access_tier = 2;
+    }
+}
+
+// -- struct_ops: init ---------------------------------------------------------
+s32 BPF_STRUCT_OPS_SLEEPABLE(evolved_init, struct mem_cgroup *memcg)
+{
+    hot_list = bpf_cache_ext_ds_registry_new_list(memcg);
+    if (!hot_list)
+        return -1;
+
+    warm_list = bpf_cache_ext_ds_registry_new_list(memcg);
+    if (!warm_list)
+        return -1;
+
+    cold_list = bpf_cache_ext_ds_registry_new_list(memcg);
+    if (!cold_list)
+        return -1;
+
+    return 0;
+}
+
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Update predictive burst detection
+    update_request_rate();
+
+    // Evict in order: cold (aggressive) → warm (moderate) → hot (conservative)
+    bpf_cache_ext_list_iterate(memcg, cold_list, bpf_evict_cold_cb, eviction_ctx);
+    bpf_cache_ext_list_iterate(memcg, warm_list, bpf_evict_warm_cb, eviction_ctx);
+    bpf_cache_ext_list_iterate(memcg, hot_list, bpf_evict_hot_cb, eviction_ctx);
+}
+
+// -- struct_ops: folio_added --------------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_added, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // New folios start in cold list
+    int ret = bpf_cache_ext_list_add_tail(cold_list, folio);
+    if (ret != 0) {
+        bump_counter(1);
+        return;
+    }
+
+    u64 key = (u64)folio;
+    struct net_folio_metadata new_meta = {
+        .last_access_ts = bpf_ktime_get_ns(),
+        .access_count  = 1,
+        .access_tier   = 0,  // cold
+    };
+    bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+    bump_counter(2);
+}
+
+// -- struct_ops: folio_accessed -----------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    u64 key = (u64)folio;
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    u64 now = bpf_ktime_get_ns();
+
+    if (!meta) {
+        // Folio not tracked yet — add to cold list
+        int ret = bpf_cache_ext_list_add(cold_list, folio);
+        if (ret != 0) {
+            // Already in a list — move to head
+            bpf_cache_ext_list_move(cold_list, folio, false);
+        }
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = now,
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
+        bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
+        bump_counter(3);
+        return;
+    }
+
+    // Update metadata
+    meta->last_access_ts = now;
+    meta->access_count += 1;
+
+    // Move to head of current tier list
+    switch (meta->access_tier) {
+        case 0:  // cold
+            bpf_cache_ext_list_move(cold_list, folio, false);
+            break;
+        case 1:  // warm
+            bpf_cache_ext_list_move(warm_list, folio, false);
+            break;
+        case 2:  // hot
+            bpf_cache_ext_list_move(hot_list, folio, false);
+            break;
+    }
+
+    // Try to promote to higher tier
+    try_promote_folio(folio, meta);
+
+    bump_counter(4);
+}
+
+// -- struct_ops: folio_evicted ------------------------------------------------
+void BPF_STRUCT_OPS(evolved_folio_evicted, struct folio *folio)
+{
+    if (!is_folio_relevant(folio))
+        return;
+
+    // Remove from whichever list it's in
+    bpf_cache_ext_list_del(folio);
+
+    u64 key = (u64)folio;
+    bpf_map_delete_elem(&folio_metadata_map, &key);
+    bump_counter(5);
+}
+
+// EVOLVE-BLOCK-END
+
+// =============================================================================
+// NETWORK MONITORING (fixed — not evolved)
+// =============================================================================
+
+SEC("kprobe/tcp_recvmsg")
+int trace_tcp_recvmsg(struct pt_regs *ctx)
+{
+    struct sock *sk = (struct sock *)PT_REGS_PARM1(ctx);
+    if (!sk) return 0;
+
+    u16 sport = BPF_CORE_READ(sk, __sk_common.skc_num);
+
+    if (sport == 9100 || sport == 9001 || sport == 9002) {
+        net_prev_packet_ts = last_packet_ts;
+        last_packet_ts = bpf_ktime_get_ns();
+        net_recv_count += 1;
+
+        struct tcp_sock *tp = (struct tcp_sock *)sk;
+
+        net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+        net_mdev_us        = BPF_CORE_READ(tp, mdev_us);
+        net_bytes_received = BPF_CORE_READ(tp, bytes_received);
+        net_bytes_acked    = BPF_CORE_READ(tp, bytes_acked);
+        net_segs_in        = BPF_CORE_READ(tp, segs_in);
+        net_segs_out       = BPF_CORE_READ(tp, segs_out);
+        net_delivered      = BPF_CORE_READ(tp, delivered);
+        net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
+        net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
+        net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
+        net_packets_out    = BPF_CORE_READ(tp, packets_out);
+        net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
+        net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
+        net_lost           = BPF_CORE_READ(tp, lost);
+    }
+    return 0;
+}
+
+// -- struct_ops registration --------------------------------------------------
+SEC(".struct_ops.link")
+struct cache_ext_ops evolved_ops = {
+    .init           = (void *)evolved_init,
+    .evict_folios   = (void *)evolved_evict_folios,
+    .folio_added    = (void *)evolved_folio_added,
+    .folio_evicted  = (void *)evolved_folio_evicted,
+    .folio_accessed = (void *)evolved_folio_accessed,
+    .admit_folio    = (void *)0,
+};
+```
+</CODE>

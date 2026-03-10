@@ -1,4 +1,0 @@
-{
-  "correct": false,
-  "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:148:47: error: use of undeclared identifier 'FREQ_DECAY_NS'\n    bool should_decay   = time_since_access > FREQ_DECAY_NS;\n                                              ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:250:29: error: use of undeclared identifier 'FREQ_DECAY_NS'\n    if (time_since_access > FREQ_DECAY_NS && meta->access_count > 0) {\n                            ^\n2 errors generated.\n"
-}

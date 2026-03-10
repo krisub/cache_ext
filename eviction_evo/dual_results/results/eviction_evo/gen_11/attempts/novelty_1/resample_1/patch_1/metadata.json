@@ -1,0 +1,14 @@
+{
+  "generation": 11,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "frequency_decay_on_stale_access",
+  "patch_description": "The current program's `access_count` only increases monotonically, causing folios that were frequently accessed in the past but are now cold to remain protected indefinitely. This is problematic during workload phase transitions (e.g., when the dual_small_vs_large trace switches from one client's working set to another's).\n\nThe recommendation suggests implementing frequency-decay scoring to penalize stale high-access-count folios. I'll implement this by:\n\n1. Adding a decay mechanism in the eviction callbacks that reduces the effective access_count based on age\n2. The decay will be tier-specific: cold tier decays faster, hot tier decays slower\n3. During scoring, we'll compute an \"effective access count\" that decays exponentially with age\n4. This complements the existing burst-detection logic by enabling responsive adaptation to sustained workload changes\n\nThe key insight is that `access_count` should represent recent frequency, not lifetime frequency. By decaying it based on time since last access, we allow the eviction policy to adapt when the working set changes, while still protecting truly hot pages that are accessed frequently.\n\nImplementation approach:\n- In each eviction callback, compute an effective_access_count = access_count * decay_factor(age)\n- Use this effective count in the frequency bonus calculation instead of raw access_count\n- The decay factor will use the same half-life approach as the recency decay, but applied to frequency\n\nThis should improve p99 latencies (currently 234ms for dual_small_vs_large) by preventing stale high-frequency folios from blocking eviction of newly-active working sets during workload transitions.",
+  "error_msg": null,
+  "timestamp": "2026-03-09T22:31:11.037629",
+  "llm_cost": 0.194679,
+  "llm_model": null
+}
