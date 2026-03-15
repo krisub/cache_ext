@@ -144,6 +144,7 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
     # Symlink required headers into build dir
     for header in [
         "cache_ext_lib.bpf.h",
+        "vulcan_bpf.h",
         "dir_watcher.bpf.h",
         "dir_watcher.h",
         "vmlinux.h",

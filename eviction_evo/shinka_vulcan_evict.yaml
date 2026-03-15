@@ -1,0 +1,259 @@
+# ── ShinkaEvolve config for cache_ext vulcan-style eviction policy ────
+# Evolves a BPF page-cache eviction policy that uses kernel-libvulcan
+# listener abstractions (MinMax, EWMA, RollingWindow, Average) and
+# score-based sampling instead of boolean iterate callbacks.
+#
+# Run: python run_evo.py --config_path shinka_vulcan_evict.yaml
+
+max_evaluation_jobs: 1
+max_proposal_jobs: 2
+max_db_workers: 2
+
+db_config:
+  num_islands: 1
+  archive_size: 30
+  elite_selection_ratio: 0.3
+  num_archive_inspirations: 3
+  num_top_k_inspirations: 2
+  migration_interval: 10
+  migration_rate: 0.1
+  island_elitism: true
+  enforce_island_separation: true
+  parent_selection_strategy: weighted
+  parent_selection_lambda: 10
+  archive_selection_strategy: crowding
+  island_selection_strategy: equal
+  archive_criteria:
+    combined_score: 1.0
+    loc: -0.1
+
+  enable_dynamic_islands: false
+  stagnation_threshold: 15
+  island_spawn_strategy: best
+  island_spawn_subtree_size: 2
+
+evo_config:
+  patch_types:
+    - diff
+  patch_type_probs:
+    - 1.0
+
+  num_generations: 50
+  max_api_costs: 5.0
+  max_patch_resamples: 5
+  max_patch_attempts: 5
+  max_novelty_attempts: 2
+  job_type: local
+
+  language: c
+  init_program_path: initial_vulcan.c
+
+  llm_models:
+    - "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  llm_kwargs:
+    temperatures:
+      - 0
+      - 0.2
+    reasoning_efforts:
+      - low
+      - medium
+      - high
+    max_tokens: 32768
+
+  meta_rec_interval: 5
+  meta_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  meta_llm_kwargs:
+    temperatures:
+      - 0
+    max_tokens: 16384
+
+  embedding_model: null
+  code_embed_sim_threshold: 1.0
+
+  novelty_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  novelty_llm_kwargs:
+    temperatures:
+      - 0
+
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+    cost_aware_coef: 0.7
+
+  results_dir: results/vulcan_evo
+
+  evolve_prompts: true
+  prompt_evolution_interval: 5
+  prompt_patch_types: ["diff"]
+  prompt_patch_type_probs: [1.0]
+  prompt_archive_size: 8
+  prompt_percentile_recompute_interval: 1
+  prompt_ucb_exploration_constant: 2.0
+  prompt_epsilon: 0.25
+
+  # ── Task system message ──────────────────────────────────────────────
+  task_sys_msg: |
+    You are an expert systems programmer optimizing a Linux eBPF page-cache
+    eviction policy. Your goal is to MAXIMIZE throughput (ops/sec) across
+    MULTIPLE workloads on a networked LevelDB database that relies entirely
+    on the OS page cache.
+
+    ## Architecture
+    - A LevelDB TCP server (net_leveldb_server) runs inside a memory-limited
+      cgroup (512 MiB). With block_cache=NULL, every read goes through the
+      OS page cache.
+    - A YCSB client sends GET/PUT/SCAN/RMW requests over TCP from outside
+      the cgroup.
+    - Your eviction policy (eBPF struct_ops for cache_ext) controls which
+      pages stay in the constrained page cache and which get evicted.
+
+    ## Kernel-LibVulcan Design
+    This template uses a *score-based* eviction model instead of boolean
+    evict/keep callbacks. You write a SCORING FUNCTION that assigns an s64
+    value to each folio candidate. The kernel samples candidates and evicts
+    those with the LOWEST scores.
+
+    The infrastructure provides **listener abstractions** that maintain
+    running statistics over global network metrics and per-folio features.
+    You do NOT need to manually track min/max, averages, or histories — use
+    the accessor functions described below.
+
+    ### What you evolve
+    1. **Configuration constants** (VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE,
+       VULCAN_FOLIO_EWMA_ALPHA, SAMPLE_SIZE)
+    2. **The scoring function** `bpf_score_fn(node) → s64`
+       - HIGHER score = more valuable, keep longer
+       - LOWER score  = less valuable, evict first
+       - Return S64_MAX for unevictable folios (dirty/writeback)
+    3. **Struct_ops callbacks** (init, evict_folios, folio_added,
+       folio_accessed, folio_evicted) — sensible defaults are provided;
+       customize only if needed.
+
+    ## Multi-Workload Evaluation
+    Your policy is tested against 2 dual-client workload traces in sequence.
+    The combined score is the HARMONIC MEAN of throughputs across all traces.
+    Scoring 0 on ANY trace severely penalizes your total score.
+
+    Each trace runs TWO My-YCSB clients simultaneously against the SAME
+    LevelDB server in the SAME cgroup.
+
+    The 2 traces are:
+    1. **dual_small_vs_large**: fast reader (200B, zipfian, direct) + slow
+       writer (4KB, uniform, 1ms delay, 500Mbps limit)
+    2. **dual_congested**: both clients behind delay proxies (2ms/5ms delay,
+       100/50 Mbps)
+
+    ## Global Feature Accessor API
+    Use these inside bpf_score_fn to query listener state for any global
+    feature. All return s64.
+
+      vulcan_get_min(GF_xxx)           — minimum observed value
+      vulcan_get_max(GF_xxx)           — maximum observed value
+      vulcan_get_ewma(GF_xxx)          — EWMA (smoothed by VULCAN_EWMA_ALPHA)
+      vulcan_get_avg(GF_xxx)           — running arithmetic average
+      vulcan_get_latest(GF_xxx)        — most recent value in rolling window
+      vulcan_get_kth_recent(GF_xxx, k) — k-th most recent (0 = latest)
+      vulcan_get_window_avg(GF_xxx)    — rolling-window average
+      vulcan_get_window_count(GF_xxx)  — number of entries in window
+
+    ### Global Feature IDs
+      GF_SRTT_US        — smoothed RTT in usec (kernel stores srtt<<3)
+      GF_MDEV_US        — RTT mean deviation / jitter (usec)
+      GF_SND_CWND       — congestion window (segments)
+      GF_SND_SSTHRESH   — slow-start threshold (segments)
+      GF_RCV_WND        — advertised receive window (bytes)
+      GF_PACKETS_OUT    — packets currently in flight
+      GF_TOTAL_RETRANS  — lifetime retransmissions
+      GF_RETRANS_OUT    — retransmits currently in flight
+      GF_LOST           — segments considered lost
+      GF_SEGS_IN        — total TCP segments received
+      GF_SEGS_OUT       — total TCP segments sent
+      GF_DELIVERED      — total packets delivered
+      GF_BYTES_RECEIVED — total bytes received
+      GF_BYTES_ACKED    — total bytes acknowledged
+      GF_INTER_ARRIVAL  — inter-packet arrival time (ns)
+      GF_RECV_COUNT     — total tcp_recvmsg calls
+
+    Raw globals are also available directly: net_srtt_us, net_mdev_us, etc.
+
+    ## Per-Folio Metadata
+    Stored in folio_metadata_map, keyed by (u64)folio pointer.
+    struct vulcan_folio_metadata fields:
+      access_count            — number of accesses (u32)
+      last_access_ts          — timestamp of last access (u64 ns)
+      prev_access_ts          — timestamp of prior access (u64 ns)
+      interval_minmax.min_val — minimum inter-access interval (s64 ns)
+      interval_minmax.max_val — maximum inter-access interval (s64 ns)
+      interval_ewma.value     — EWMA of inter-access intervals (s64 ns)
+
+    Per-folio helper (call from folio hooks):
+      vulcan_folio_on_access(meta, now, VULCAN_FOLIO_EWMA_ALPHA)
+        — updates all per-folio listener state in one call
+
+    ## Configuration Constants
+      VULCAN_EWMA_ALPHA       — [0..1000] EWMA alpha for global features
+                                 (100=slow/smooth, 500=fast/reactive)
+      VULCAN_RW_SIZE          — [1..16] rolling window size for globals
+      VULCAN_FOLIO_EWMA_ALPHA — [0..1000] EWMA alpha for per-folio intervals
+      SAMPLE_SIZE             — candidates sampled per eviction slot (e.g. 20)
+
+    ## Available BPF APIs
+    - bpf_cache_ext_list_add(list, folio) / _add_tail
+    - bpf_cache_ext_list_del(folio)
+    - bpf_cache_ext_list_move(list, folio, tail)
+    - bpf_cache_ext_list_sample(memcg, list, score_fn, &opts, ctx)
+    - bpf_cache_ext_list_iterate(memcg, list, cb, ctx)
+    - bpf_cache_ext_ds_registry_new_list(memcg)
+    - folio_test_dirty/writeback/unevictable/uptodate/lru(folio)
+    - folio_nr_pages(folio), folio_index(folio)
+    - bpf_ktime_get_ns()
+
+    ## How to use network metrics for scoring
+    The listener accessors give you processed views of real-time metrics:
+    - **Smoothed RTT**: `vulcan_get_ewma(GF_SRTT_US)` is more stable than
+      raw `net_srtt_us`. When elevated, each cache miss is expensive — boost
+      scores of frequently accessed folios.
+    - **RTT trend**: compare `vulcan_get_latest(GF_SRTT_US)` vs
+      `vulcan_get_kth_recent(GF_SRTT_US, 3)` to detect improving/degrading
+      network conditions.
+    - **Loss detection**: `vulcan_get_max(GF_LOST)` > 0 or
+      `vulcan_get_ewma(GF_RETRANS_OUT)` > 0 indicates network degradation.
+    - **Congestion pressure**: `vulcan_get_ewma(GF_PACKETS_OUT)` vs
+      `vulcan_get_ewma(GF_SND_CWND)` — if in-flight > cwnd, protect
+      working set more aggressively.
+    - **Burst detection**: `vulcan_get_latest(GF_INTER_ARRIVAL)` drops
+      during bursts — protect working set during bursts.
+    - **Per-folio heat**: combine `meta->access_count` with
+      `meta->interval_ewma.value` — low interval EWMA = hot (frequent).
+
+    ## Constraints
+    - No floating point in BPF. Use integer arithmetic only.
+    - bpf_score_fn receives `struct cache_ext_list_node *node` where
+      `node->folio` is the folio pointer. Look up metadata via
+      `bpf_map_lookup_elem(&folio_metadata_map, &key)`.
+    - BPF verifier limits loop iterations and stack size (512 bytes).
+    - Do not use UINT64_MAX. Use S64_MAX or (~0ULL) instead.
+    - Output ONLY valid C code for the EVOLVE-BLOCK. Never emit conflict
+      markers or search/replace markers.
+    - You MUST keep the four #define constants (VULCAN_EWMA_ALPHA,
+      VULCAN_RW_SIZE, VULCAN_FOLIO_EWMA_ALPHA, SAMPLE_SIZE) defined,
+      because the kprobe (outside EVOLVE-BLOCK) references them.
+
+    ## Scoring strategies to explore
+    - **LFU-weighted**: score ∝ access_count — evict least frequently used
+    - **Recency + frequency**: score = access_count * weight - age_ns / divisor
+    - **Network-adaptive**: boost scores when RTT/loss is high to protect
+      the working set more aggressively under congestion
+    - **Burst-aware**: detect request bursts via inter-arrival time and
+      temporarily raise protection of working-set folios
+    - **Per-folio heat map**: use interval EWMA (lower = hotter) to
+      distinguish genuinely hot folios from one-shot accesses
+    - **Congestion penalty**: when cwnd is small relative to packets_out,
+      reduce eviction aggressiveness (each miss is costly)
+    - **Adaptive smoothing**: try different VULCAN_EWMA_ALPHA values to
+      trade off responsiveness vs stability
+    - **Multi-list + scoring**: allocate separate lists, score differently,
+      sample from the cold list first
