@@ -1,0 +1,4 @@
+{
+  "correct": false,
+  "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:331:31: error: use of undeclared identifier 'HOT_ACCESS_THRESHOLD'\n    if (meta->access_count >= HOT_ACCESS_THRESHOLD)\n                              ^\n1 error generated.\n"
+}

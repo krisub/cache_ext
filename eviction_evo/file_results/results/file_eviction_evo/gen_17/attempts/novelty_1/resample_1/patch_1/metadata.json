@@ -1,0 +1,14 @@
+{
+  "generation": 17,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_demotion_under_contention",
+  "patch_description": "The recommendation suggests implementing adaptive demotion thresholds that tighten under CPU contention to reclaim high-priority slots faster during peak load. Currently, the program lacks a demotion mechanism entirely, and the file_niceness trace (which tests priority adaptation) shows slightly lower throughput than file_priority.\n\nThe key insight is that single-access folios on the high-priority list that have aged beyond the working set consume valuable high-prio cache slots that should be available for truly hot high-priority pages. Under high CPU contention (when many tasks are runnable), we should demote these cold single-access pages more aggressively to free slots for active high-priority working set.\n\nChanges:\n1. Add a HIGH_CONTENTION_THRESHOLD constant (6 runnable tasks = high load)\n2. Add a DEMOTION_AGE_BASE constant for the baseline demotion threshold (2x working set = 600ms)\n3. Implement demotion logic in `bpf_evict_high_prio_cb` that:\n   - Demotes single-access folios that are older than DEMOTION_AGE_BASE\n   - Under contention, tightens this to 1.5x working set (450ms) to reclaim slots faster\n4. Track demotions via bump_counter(7) for observability\n\nThis should improve file_niceness throughput during priority transitions while maintaining file_priority performance, improving the harmonic mean.",
+  "error_msg": null,
+  "timestamp": "2026-03-10T23:59:43.205419",
+  "llm_cost": 0.056413,
+  "llm_model": null
+}

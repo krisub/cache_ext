@@ -1,0 +1,14 @@
+{
+  "generation": 27,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_jitter_threshold_rtt_scaling",
+  "patch_description": "The current program uses a fixed 2ms jitter threshold to detect network instability, but jitter interpretation is RTT-dependent. A 2ms jitter on a 10ms RTT connection indicates severe instability (20% variation), while the same 2ms on a 100ms RTT is relatively minor (2% variation).\n\nThis change implements adaptive jitter threshold scaling based on RTT percentile as recommended. The threshold scales from a 2ms baseline by the ratio (true_RTT / 100ms), clamped to [0.5x-2.0x] (1ms-4ms range). This provides:\n\n1. **Lower false positives on high-latency connections**: At 200ms RTT, the threshold becomes 4ms instead of 2ms, preventing the policy from incorrectly flagging normal variation as congestion\n2. **Higher sensitivity on low-latency connections**: At 10ms RTT, the threshold becomes 1ms (clamped from 0.2ms), maintaining tight jitter control for fast connections\n3. **Context-aware pressure detection**: The scaling automatically adapts to the connection characteristics, improving eviction decisions across diverse network conditions\n\nThis should improve the combined score by 0.5-1.5% by maintaining more appropriate eviction behavior during genuinely stable high-latency periods (like the dual_congested trace with 2ms/5ms delays), while still detecting real congestion on fast connections.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T14:13:52.945650",
+  "llm_cost": 0.17829899999999999,
+  "llm_model": null
+}

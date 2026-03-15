@@ -1,0 +1,173 @@
+<NAME>
+sustained_burst_velocity_detection
+</NAME>
+
+<DESCRIPTION>
+The current program scores 1978.09, which is lower than a previous best of 2162.27. The regression appears to be from losing granular burst detection that could better distinguish between transient request spikes and sustained high-frequency load.
+
+The recommendation suggests adding packet count velocity detection: instead of relying only on inter-arrival time (which the current code removed), track how many TCP packets arrive per unit time over a 100ms window. If the packet velocity exceeds a threshold (indicating sustained, not transient, load), apply aggressive 0.4x protection multiplier to recently-accessed folios, complementing the existing time-window-based thresholds.
+
+This should:
+- Better protect the working set during sustained high-frequency phases (dual_congested scenario)
+- Distinguish between brief spikes (which shouldn't trigger aggressive caching) and sustained bursts (which should)
+- Improve dual_small_vs_large where we have one fast reader maintaining steady request rate
+- Potentially recover some of the lost performance vs the 2162.27 baseline
+
+Implementation: Track net_recv_count snapshots at eviction time, compute packet velocity over 100ms windows, and apply conditional 0.4x multiplier to protect recently-used folios when velocity indicates sustained load.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      30000000ULL    // 30 ms baseline (more aggressive)
+#define BASE_WORKING_SET_NS 300000000ULL   // 300 ms baseline (more aggressive)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+=======
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      30000000ULL    // 30 ms baseline (more aggressive)
+#define BASE_WORKING_SET_NS 300000000ULL   // 300 ms baseline (more aggressive)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+// Sustained burst detection: velocity threshold for packet arrivals
+#define SUSTAINED_BURST_VELOCITY_THRESHOLD 10  // packets per 100ms = sustained burst
+#define VELOCITY_WINDOW_NS 100000000ULL        // 100ms window for velocity calculation
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// EVOLVE-BLOCK-START
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+
+// =============================================================================
+// EVICTION POLICY — everything below is evolved by ShinkaEvolve
+// =============================================================================
+=======
+// EVOLVE-BLOCK-START
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+// -- Packet velocity tracking for sustained burst detection ------------------
+// Snapshot of net_recv_count and timestamp from the previous eviction scan
+static u64 last_recv_count_snapshot = 0;
+static u64 last_recv_count_ts = 0;
+
+
+// =============================================================================
+// EVICTION POLICY — everything below is evolved by ShinkaEvolve
+// =============================================================================
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+=======
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // -- Sustained burst detection via packet velocity -------------------------
+    // Compute packet velocity: how many packets arrived per 100ms window
+    u64 time_since_last_snapshot = (now > last_recv_count_ts) ? 
+                                   (now - last_recv_count_ts) : 0;
+    bool is_sustained_burst = false;
+    
+    if (time_since_last_snapshot > 0 && time_since_last_snapshot <= VELOCITY_WINDOW_NS * 2) {
+        // Only compute velocity if we have a reasonable time delta
+        u64 packet_delta = (net_recv_count > last_recv_count_snapshot) ?
+                           (net_recv_count - last_recv_count_snapshot) : 0;
+        // Normalize to packets per 100ms
+        u64 normalized_velocity = (packet_delta * VELOCITY_WINDOW_NS) / (time_since_last_snapshot + 1);
+        is_sustained_burst = (normalized_velocity >= SUSTAINED_BURST_VELOCITY_THRESHOLD);
+    }
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During sustained bursts, apply extra protection to folios accessed within 200ms
+    if (is_sustained_burst && session_active && (now - meta->last_access_ts) < 200000000ULL) {
+        return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    
+    // Update packet velocity snapshot before eviction scan
+    u64 now = bpf_ktime_get_ns();
+    last_recv_count_snapshot = net_recv_count;
+    last_recv_count_ts = now;
+    
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+>>>>>>> REPLACE
+
+</DIFF>

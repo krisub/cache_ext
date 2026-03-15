@@ -1,0 +1,14 @@
+{
+  "generation": 15,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "sustained_burst_detection",
+  "patch_description": "The current burst detection relies solely on inter-arrival time (< 10ms) to identify request bursts. However, this can miss sustained high-frequency workloads where requests don't have consistent sub-10ms spacing but maintain steady high packet rates.\n\nThis change adds a secondary burst signal based on packet count velocity: if net_recv_count increases by more than 15 packets within a sliding 100ms window, we classify it as a \"sustained burst\". During sustained bursts, we apply stronger protection to the working set by increasing the eviction threshold by an additional 15 points (in addition to the base threshold adjustments).\n\nThis complements the existing inter-arrival based burst detection and helps distinguish between transient spikes (handled by inter-arrival detection) and sustained load (handled by packet velocity detection), improving throughput during congested scenarios while maintaining good performance on asymmetric workloads.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: '// -- Extended network metrics (snapshot from tcp_sock per recv) ---------------'\nAt position: 4628\n\nContext around found text:\n     Line  98: // -- Network state (updated by kprobe below) ----------------------------------\n     Line  99: u64 last_packet_ts = 0;\n     Line 100: \n >>> Line 101: // -- Extended network metrics (snapshot from tcp_sock per recv) ---------------\n     Line 102: // Request counting / timing:\n     Line 103: u64 net_recv_count = 0;        // total tcp_recvmsg calls on monitored port\n     Line 104: u64 net_prev_packet_ts = 0;    // previous packet timestamp (for inter-arrival)\n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 6351-17745):\n    // -- List handles + eviction policy constants (evolved) -----------------------\n    static u64 main_list;\n    \n    ... (298 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-11T12:57:03.135611",
+  "llm_cost": 0.064633,
+  "llm_model": null
+}

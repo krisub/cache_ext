@@ -1,0 +1,14 @@
+{
+  "generation": 29,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 5,
+  "patch_name": "adaptive_jitter_threshold_scaling",
+  "patch_description": "The current program uses a fixed 2ms jitter threshold regardless of RTT, which can cause false positives on high-latency connections. \n\nThe analysis of prior programs shows the best performance (2182.27) was achieved without the working set stability tracking that's currently hurting performance (2087.32 vs 2182.27).\n\nThe recommended improvement is to implement adaptive jitter threshold scaling based on RTT:\n- At low RTT (e.g., 1ms), a 2ms jitter is severe \u2192 trigger pressure detection\n- At high RTT (e.g., 100ms+), a 2ms jitter is negligible \u2192 don't trigger pressure detection\n\nFormula: threshold = 2ms * (RTT / 100ms), clamped to [1ms, 4ms]\n\nThis makes congestion detection context-aware, reducing false positives during high-latency periods and preventing unnecessary eviction protection that can hurt cache efficiency.\n\nAdditionally, remove the working set stability tracking which is adding complexity without benefit (current 2087.32 is worse than previous 2182.27).",
+  "error_msg": null,
+  "timestamp": "2026-03-11T14:26:04.966359",
+  "llm_cost": 0.055762,
+  "llm_model": null
+}

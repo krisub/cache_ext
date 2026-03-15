@@ -1,0 +1,14 @@
+{
+  "generation": 22,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_jitter_threshold_rtt_scaling",
+  "patch_description": "The current program uses a fixed 2ms jitter threshold to detect network instability, but jitter significance is RTT-dependent. A 2ms jitter on a 10ms RTT connection represents 20% variability (severe), while on a 100ms RTT it's only 2% (negligible). This change implements adaptive jitter threshold scaling based on RTT percentile: scale the 2ms baseline by (RTT/100ms) ratio, clamped to [0.5x-2.0x] range (1ms-4ms absolute). This context-aware pressure detection should reduce false positives during high-latency connections while maintaining sensitivity for low-latency ones, potentially improving combined score by maintaining more aggressive eviction during genuinely stable high-latency periods while protecting the working set during actual congestion.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T13:41:30.115165",
+  "llm_cost": 0.167874,
+  "llm_model": null
+}

@@ -1,0 +1,1198 @@
+2026-03-11 11:36:24 - shinka.core.runner - INFO - ================================================================================
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Evolution run started at 2026-03-11 11:36:24
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Results directory: results/eviction_evo
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Log file: results/eviction_evo/evolution_run.log
+2026-03-11 11:36:24 - shinka.core.runner - INFO - ================================================================================
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Experiment configuration saved to results/eviction_evo/experiment_config.yaml
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Starting evolution with 2 parallel jobs, target: 50 generations
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Evolution will stop when total API costs exceed $5.00
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Running generation 0 sequentially to initialize database...
+2026-03-11 11:36:24 - shinka.core.runner - INFO - Copying initial program from initial.c
+2026-03-11 11:36:24 - shinka.launch.local - INFO - Submitted local process with PID: 22522
+2026-03-11 11:36:24 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_0/main.c --results_dir results/eviction_evo/gen_0/results
+2026-03-11 11:42:44 - shinka.database.dbase - INFO - Program 844e9292-3931-4e59-ae34-1277896e7410 added to DB - score: 1907.1796358648742.
+2026-03-11 11:42:44 - shinka.database.dbase - INFO - New best program: 844e9292-3931-4e59-ae34-1277896e7410 (gen: 0, score: 1907.1796, initialized island: 0).
+2026-03-11 11:42:44 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 11:42:44 - shinka.database.dbase - INFO - Creating copies of initial program 844e9292-3931-4e59-ae34-1277896e7410 for all islands
+2026-03-11 11:42:44 - shinka.database.dbase - INFO - Database state committed. Last iteration: 0. Best: 844e9292-3931-4e59-ae34-1277896e7410
+2026-03-11 11:42:44 - shinka.core.runner - INFO - New best program found: gen 0, id 844e92... Copied to results/eviction_evo/best
+2026-03-11 11:42:44 - shinka.core.summarizer - INFO - Added program 844e9292-3931-4e59-ae34-1277896e7410 to meta memory tracking (correct=True, total: 1)
+2026-03-11 11:42:44 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 1 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2026-03-11 11:42:44 - shinka.core.runner - INFO - Completed generation 0, total: 1/50 (cost: $0.0000, 0.0%)
+2026-03-11 11:42:44 - shinka.core.runner - INFO - Starting parallel execution for remaining generations...
+2026-03-11 11:42:44 - shinka.database.parents - INFO - Island 0 => Probabilities: [1.0]
+2026-03-11 11:42:44 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742]
+2026-03-11 11:42:44 - shinka.database.parents - INFO - Sampled parent 844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Children: 0, Island: 0)
+2026-03-11 11:42:44 - shinka.core.runner - INFO - Edit Cycle 1 -> 2, Max Patch Attempts: 5
+2026-03-11 11:42:44 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: False
+2026-03-11 11:42:44 - shinka.core.summarizer - INFO - No meta recommendations available to sample from
+2026-03-11 11:42:44 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 11:42:44 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 11:43:24 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 11:43:25 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0342
+2026-03-11 11:43:25 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_1/main.c, Patches Applied: 2.
+2026-03-11 11:43:25 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 11:43:25 - shinka.launch.local - INFO - Submitted local process with PID: 23592
+2026-03-11 11:43:25 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_1/main.c --results_dir results/eviction_evo/gen_1/results
+2026-03-11 11:43:25 - shinka.core.runner - INFO - Submitted job for generation 1, queue size: 1 (cost: $0.0000, 0.0%)
+2026-03-11 11:43:27 - shinka.database.parents - INFO - Island 0 => Probabilities: [1.0]
+2026-03-11 11:43:27 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742]
+2026-03-11 11:43:27 - shinka.database.parents - INFO - Sampled parent 844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Children: 0, Island: 0)
+2026-03-11 11:43:27 - shinka.core.runner - INFO - Edit Cycle 2 -> 3, Max Patch Attempts: 5
+2026-03-11 11:43:27 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: False
+2026-03-11 11:43:27 - shinka.core.summarizer - INFO - No meta recommendations available to sample from
+2026-03-11 11:43:27 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   1.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   0.0000
+2026-03-11 11:43:27 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 11:44:11 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 11:44:11 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0730
+2026-03-11 11:44:11 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_2/main.c, Patches Applied: 2.
+2026-03-11 11:44:11 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 11:44:11 - shinka.launch.local - INFO - Submitted local process with PID: 23746
+2026-03-11 11:44:11 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_2/main.c --results_dir results/eviction_evo/gen_2/results
+2026-03-11 11:44:11 - shinka.core.runner - INFO - Submitted job for generation 2, queue size: 2 (cost: $0.0000, 0.0%)
+2026-03-11 11:49:49 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 23592) completed!
+2026-03-11 11:49:49 - shinka.launch.local - INFO - Monitoring local process with PID: 23592...
+2026-03-11 11:49:49 - shinka.launch.local - INFO - Process 23592 completed with return code: 0
+2026-03-11 11:49:49 - shinka.database.dbase - INFO - Program b999184c-f2aa-4d91-a8eb-548e21b96cc8 added to DB - score: 1932.4039631764674.
+2026-03-11 11:49:49 - shinka.database.dbase - INFO - New best program: b999184c-f2aa-4d91-a8eb-548e21b96cc8 (gen: 0 → 1, score: 1907.1796 → 1932.4040, island: 0 → 0)
+2026-03-11 11:49:49 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 11:49:49 - shinka.core.summarizer - INFO - Added program b999184c-f2aa-4d91-a8eb-548e21b96cc8 to meta memory tracking (correct=True, total: 2)
+2026-03-11 11:49:49 - shinka.database.dbase - INFO - Database state committed. Last iteration: 1. Best: b999184c-f2aa-4d91-a8eb-548e21b96cc8
+2026-03-11 11:49:49 - shinka.core.runner - INFO - New best program found: gen 1, id b99918... Copied to results/eviction_evo/best
+2026-03-11 11:49:49 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 2 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2026-03-11 11:49:49 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 2/50 (cost: $0.0342, 0.7%)
+2026-03-11 11:49:49 - shinka.database.parents - INFO - Island 0 => Probabilities: [2.2699449604533576e-05, 0.9999773005503955]
+2026-03-11 11:49:49 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674]
+2026-03-11 11:49:49 - shinka.database.parents - INFO - Sampled parent b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Children: 0, Island: 0)
+2026-03-11 11:49:49 - shinka.database.inspirations - INFO - Sampled 1 archive inspirations: ['844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)']
+2026-03-11 11:49:49 - shinka.core.runner - INFO - Edit Cycle 3 -> 4, Max Patch Attempts: 5
+2026-03-11 11:49:49 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: False
+2026-03-11 11:49:49 - shinka.core.summarizer - INFO - No meta recommendations available to sample from
+2026-03-11 11:49:49 - shinka.database.inspirations - INFO - Built context: 1 programs (ascending, scores: ['1907.1796'])
+2026-03-11 11:49:49 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   1.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   0.0000
+2026-03-11 11:49:49 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 11:50:49 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 11:50:49 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.1067
+2026-03-11 11:50:49 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_3/main.c, Patches Applied: 2.
+2026-03-11 11:50:49 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 11:50:49 - shinka.launch.local - INFO - Submitted local process with PID: 24603
+2026-03-11 11:50:49 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_3/main.c --results_dir results/eviction_evo/gen_3/results
+2026-03-11 11:50:49 - shinka.core.runner - INFO - Submitted job for generation 3, queue size: 2 (cost: $0.0342, 0.7%)
+2026-03-11 11:50:51 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 23746) completed!
+2026-03-11 11:50:51 - shinka.launch.local - INFO - Monitoring local process with PID: 23746...
+2026-03-11 11:50:51 - shinka.launch.local - INFO - Process 23746 completed with return code: 0
+2026-03-11 11:50:51 - shinka.database.dbase - INFO - Program 223fdd65-4a0b-42b4-a547-42e85ad794fb added to DB - score: 0.0.
+2026-03-11 11:50:51 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 11:50:51 - shinka.core.summarizer - INFO - Added program 223fdd65-4a0b-42b4-a547-42e85ad794fb to meta memory tracking (correct=False, total: 3)
+2026-03-11 11:50:51 - shinka.database.dbase - INFO - Database state committed. Last iteration: 2. Best: b999184c-f2aa-4d91-a8eb-548e21b96cc8
+2026-03-11 11:50:51 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 3 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2026-03-11 11:50:51 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 3/50 (cost: $0.1072, 2.1%)
+2026-03-11 11:50:51 - shinka.database.parents - INFO - Island 0 => Probabilities: [1.5133080907224856e-05, 0.9999848669190928]
+2026-03-11 11:50:51 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674]
+2026-03-11 11:50:51 - shinka.database.parents - INFO - Sampled parent b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Children: 0, Island: 0)
+2026-03-11 11:50:51 - shinka.database.inspirations - INFO - Sampled 1 archive inspirations: ['844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)']
+2026-03-11 11:50:51 - shinka.core.runner - INFO - Edit Cycle 4 -> 5, Max Patch Attempts: 5
+2026-03-11 11:50:51 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: False
+2026-03-11 11:50:51 - shinka.core.summarizer - INFO - No meta recommendations available to sample from
+2026-03-11 11:50:51 - shinka.database.inspirations - INFO - Built context: 1 programs (ascending, scores: ['1907.1796'])
+2026-03-11 11:50:51 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 11:50:51 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 11:51:20 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 11:51:20 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0316
+2026-03-11 11:51:20 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_4/main.c, Patches Applied: 3.
+2026-03-11 11:51:20 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 11:51:20 - shinka.launch.local - INFO - Submitted local process with PID: 24724
+2026-03-11 11:51:20 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_4/main.c --results_dir results/eviction_evo/gen_4/results
+2026-03-11 11:51:20 - shinka.core.runner - INFO - Submitted job for generation 4, queue size: 2 (cost: $0.1072, 2.1%)
+2026-03-11 11:57:09 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 24603) completed!
+2026-03-11 11:57:09 - shinka.launch.local - INFO - Monitoring local process with PID: 24603...
+2026-03-11 11:57:09 - shinka.launch.local - INFO - Process 24603 completed with return code: 0
+2026-03-11 11:57:09 - shinka.database.dbase - INFO - Program db6e0807-5b53-4178-b5d3-c849f40fefc8 added to DB - score: 2162.273418415946.
+2026-03-11 11:57:09 - shinka.database.dbase - INFO - New best program: db6e0807-5b53-4178-b5d3-c849f40fefc8 (gen: 1 → 3, score: 1932.4040 → 2162.2734, island: 0 → 0)
+2026-03-11 11:57:09 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 11:57:09 - shinka.core.summarizer - INFO - Added program db6e0807-5b53-4178-b5d3-c849f40fefc8 to meta memory tracking (correct=True, total: 4)
+2026-03-11 11:57:09 - shinka.database.dbase - INFO - Database state committed. Last iteration: 3. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 11:57:09 - shinka.core.runner - INFO - New best program found: gen 3, id db6e08... Copied to results/eviction_evo/best
+2026-03-11 11:57:09 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 4 unprocessed programs, summary: No, scratchpad: No, recommendations: No, history: 0 items
+2026-03-11 11:57:09 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 4/50 (cost: $0.2139, 4.3%)
+2026-03-11 11:57:09 - shinka.database.parents - INFO - Island 0 => Probabilities: [1.2105951764806841e-05, 0.19999757880964705, 0.7999903152385882]
+2026-03-11 11:57:09 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946]
+2026-03-11 11:57:09 - shinka.database.parents - INFO - Sampled parent db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Children: 0, Island: 0)
+2026-03-11 11:57:09 - shinka.database.inspirations - INFO - Sampled 2 archive inspirations: ['b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)']
+2026-03-11 11:57:09 - shinka.core.runner - INFO - Edit Cycle 5 -> 6, Max Patch Attempts: 5
+2026-03-11 11:57:09 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: False
+2026-03-11 11:57:09 - shinka.core.summarizer - INFO - No meta recommendations available to sample from
+2026-03-11 11:57:09 - shinka.database.inspirations - INFO - Built context: 2 programs (ascending, scores: ['1907.1796', '1932.4040'])
+2026-03-11 11:57:09 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 11:57:09 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 11:58:00 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 11:58:00 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0315
+2026-03-11 11:58:00 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_5/main.c, Patches Applied: 2.
+2026-03-11 11:58:00 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 11:58:00 - shinka.launch.local - INFO - Submitted local process with PID: 25563
+2026-03-11 11:58:00 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_5/main.c --results_dir results/eviction_evo/gen_5/results
+2026-03-11 11:58:00 - shinka.core.runner - INFO - Submitted job for generation 5, queue size: 2 (cost: $0.2139, 4.3%)
+2026-03-11 12:03:27 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 24724) completed!
+2026-03-11 12:03:27 - shinka.launch.local - INFO - Monitoring local process with PID: 24724...
+2026-03-11 12:03:27 - shinka.launch.local - INFO - Process 24724 completed with return code: 0
+2026-03-11 12:03:27 - shinka.database.dbase - INFO - Program 5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 added to DB - score: 1978.0871191537085.
+2026-03-11 12:03:27 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:03:27 - shinka.core.summarizer - INFO - Added program 5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 to meta memory tracking (correct=True, total: 5)
+2026-03-11 12:03:27 - shinka.core.runner - INFO - Updating meta memory after processing 5 programs...
+2026-03-11 12:03:27 - shinka.core.summarizer - INFO - ==> Step 1 - Processing 5 programs with batch query
+2026-03-11 12:03:27 - shinka.llm.llm - INFO - ==> SAMPLING 5 SAMPLES:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:03:27 - shinka.llm.llm - INFO - ==> SAMPLING: 2/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:03:27 - shinka.llm.llm - INFO - ==> SAMPLING: 1/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:03:27 - shinka.llm.llm - INFO - ==> SAMPLING: 3/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:03:27 - shinka.llm.llm - INFO - ==> SAMPLING: 4/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:03:27 - shinka.llm.llm - INFO - ==> SAMPLING: 5/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:03:32 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:03:32 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:03:33 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:03:33 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:03:33 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:03:33 - shinka.llm.llm - INFO - ==> SAMPLING: Individual API costs: ['0.0067', '0.0075', '0.0075', '0.0077', '0.0072']
+2026-03-11 12:03:33 - shinka.llm.llm - INFO - ==> SAMPLING: Total API costs: $0.0366
+2026-03-11 12:03:33 - shinka.core.summarizer - INFO - ==> Step 1 - 5/5 individual summaries generated (cost: $0.0366)
+2026-03-11 12:03:33 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:03:33 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:03:56 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:03:56 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0192
+2026-03-11 12:03:56 - shinka.core.summarizer - INFO - ==> Step 2 - Global insights generated (cost: $0.0192)
+2026-03-11 12:03:56 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:03:56 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:04:06 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:04:06 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0124
+2026-03-11 12:04:06 - shinka.core.summarizer - INFO - ==> Step 3 - Recommendations generated (cost: $0.0124)
+2026-03-11 12:04:06 - shinka.core.summarizer - INFO - ==> Meta-analysis completed successfully with 3-step process (total cost: $0.0682)
+2026-03-11 12:04:06 - shinka.core.summarizer - INFO - Processed and cleared 5 programs from meta memory (total processed: 5)
+2026-03-11 12:04:06 - shinka.core.summarizer - INFO - Wrote meta output to results/eviction_evo/meta/meta_5.txt
+2026-03-11 12:04:06 - shinka.core.runner - INFO - Meta recommendation generation cost: $0.0682
+2026-03-11 12:04:06 - shinka.database.dbase - INFO - Database state committed. Last iteration: 4. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:04:06 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 0 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 1 items
+2026-03-11 12:04:06 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 5/50 (cost: $0.3137, 6.3%)
+2026-03-11 12:04:06 - shinka.database.parents - INFO - Island 0 => Probabilities: [2.158702010356635e-07, 0.0002650842109484011, 0.500264976275848, 0.49946972364300274]
+2026-03-11 12:04:06 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085]
+2026-03-11 12:04:06 - shinka.database.parents - INFO - Sampled parent db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Children: 0, Island: 0)
+2026-03-11 12:04:06 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)', 'b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)']
+2026-03-11 12:04:06 - shinka.core.runner - INFO - Edit Cycle 6 -> 7, Max Patch Attempts: 5
+2026-03-11 12:04:06 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:04:06 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Introduce a secondary "promotion list" for folios that survive multiple evicti...
+2026-03-11 12:04:06 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Introduce a secondary "promotion list" for folios that survive multiple evicti...
+2026-03-11 12:04:06 - shinka.database.inspirations - INFO - Built context: 3 programs (ascending, scores: ['1907.1796', '1932.4040', '1978.0871'])
+2026-03-11 12:04:06 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:04:06 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 12:04:29 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:04:29 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0428
+2026-03-11 12:04:29 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 FAILURE. Error: 'Attempted to edit outside EVOLVE-BLOCK regions
+
+Found text: '// -- Per-folio metadata -------------------------------------------------------'
+At position: 3787
+
+Context around found text:
+     Line  73: 
+     Line  74: char _license[] SEC("license") = "GPL";
+     Line  75: 
+ >>> Line  76: // -- Per-folio metadata -------------------------------------------------------
+     Line  77: struct net_folio_metadata {
+     Line  78:     u64 last_access_ts;
+     Line  79:     u32 access_count;        // number of times this folio was accessed
+
+This text was found in an immutable (non-editable) region.
+
+Available editable regions (EVOLVE-BLOCK content):
+  Region 1 (chars 6351-15989):
+    // -- List handles + eviction policy constants (evolved) -----------------------
+    static u64 main_list;
+    
+    ... (260 more lines)
+
+Suggestions:
+1. Move your edit to within an EVOLVE-BLOCK region
+2. Check if similar code exists in the editable regions above
+3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers', Patches Applied: 0.
+2026-03-11 12:04:29 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 12:04:49 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:04:49 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0402
+2026-03-11 12:04:49 - shinka.core.runner - INFO -   PATCH ATTEMPT 2/5 SUCCESS. Output: results/eviction_evo/gen_6/main.c, Patches Applied: 5.
+2026-03-11 12:04:49 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:04:49 - shinka.launch.local - INFO - Submitted local process with PID: 26383
+2026-03-11 12:04:49 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_6/main.c --results_dir results/eviction_evo/gen_6/results
+2026-03-11 12:04:49 - shinka.core.runner - INFO - Submitted job for generation 6, queue size: 2 (cost: $0.3137, 6.3%)
+2026-03-11 12:04:51 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 25563) completed!
+2026-03-11 12:04:51 - shinka.launch.local - INFO - Monitoring local process with PID: 25563...
+2026-03-11 12:04:51 - shinka.launch.local - INFO - Process 25563 completed with return code: 0
+2026-03-11 12:04:51 - shinka.database.dbase - INFO - Program 0267c00b-169d-4f5a-bd6d-d80af0b8ccd9 added to DB - score: 0.0.
+2026-03-11 12:04:51 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:04:51 - shinka.core.summarizer - INFO - Added program 0267c00b-169d-4f5a-bd6d-d80af0b8ccd9 to meta memory tracking (correct=False, total: 1)
+2026-03-11 12:04:51 - shinka.database.dbase - INFO - Database state committed. Last iteration: 5. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:04:51 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 1 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 1 items
+2026-03-11 12:04:51 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 6/50 (cost: $0.3453, 6.9%)
+2026-03-11 12:04:51 - shinka.database.parents - INFO - Island 0 => Probabilities: [2.878777885704278e-07, 0.0003535080620977193, 0.33356890941546896, 0.6660772946446447]
+2026-03-11 12:04:51 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085]
+2026-03-11 12:04:51 - shinka.database.parents - INFO - Sampled parent 5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Children: 0, Island: 0)
+2026-03-11 12:04:51 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)', 'b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Island: 0)']
+2026-03-11 12:04:51 - shinka.core.runner - INFO - Edit Cycle 7 -> 8, Max Patch Attempts: 5
+2026-03-11 12:04:51 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:04:51 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Extend network pressure detection to include receive window (rcv_wnd) saturati...
+2026-03-11 12:04:51 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Extend network pressure detection to include receive window (rcv_wnd) saturati...
+2026-03-11 12:04:51 - shinka.database.inspirations - INFO - Built context: 3 programs (ascending, scores: ['1907.1796', '1932.4040', '2162.2734'])
+2026-03-11 12:04:51 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:04:51 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 12:05:03 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:05:03 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0305
+2026-03-11 12:05:03 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_7/main.c, Patches Applied: 1.
+2026-03-11 12:05:03 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:05:03 - shinka.launch.local - INFO - Submitted local process with PID: 26443
+2026-03-11 12:05:03 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_7/main.c --results_dir results/eviction_evo/gen_7/results
+2026-03-11 12:05:03 - shinka.core.runner - INFO - Submitted job for generation 7, queue size: 2 (cost: $0.3453, 6.9%)
+2026-03-11 12:11:13 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 26383) completed!
+2026-03-11 12:11:13 - shinka.launch.local - INFO - Monitoring local process with PID: 26383...
+2026-03-11 12:11:13 - shinka.launch.local - INFO - Process 26383 completed with return code: 0
+2026-03-11 12:11:13 - shinka.database.dbase - INFO - Program d754d943-95b2-451c-82b0-c2753d435ad8 added to DB - score: 1988.2791949597322.
+2026-03-11 12:11:13 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:11:13 - shinka.core.summarizer - INFO - Added program d754d943-95b2-451c-82b0-c2753d435ad8 to meta memory tracking (correct=True, total: 2)
+2026-03-11 12:11:13 - shinka.database.dbase - INFO - Database state committed. Last iteration: 6. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:11:13 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 2 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 1 items
+2026-03-11 12:11:13 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 7/50 (cost: $0.4283, 8.6%)
+2026-03-11 12:11:13 - shinka.database.parents - INFO - Island 0 => Probabilities: [3.48581228546141e-08, 8.715188310643838e-06, 0.19197351240800647, 0.28796026861200974, 0.5200574689335502]
+2026-03-11 12:11:13 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322]
+2026-03-11 12:11:13 - shinka.database.parents - INFO - Sampled parent d754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Children: 0, Island: 0)
+2026-03-11 12:11:13 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)', 'b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Island: 0)']
+2026-03-11 12:11:13 - shinka.database.inspirations - INFO - Selected 1 top-k inspirations from archive on island 0: ['5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 12:11:13 - shinka.core.runner - INFO - Edit Cycle 8 -> 9, Max Patch Attempts: 5
+2026-03-11 12:11:13 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:11:13 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement score decay based on folio size to favor small-folio retention**
+   ...
+2026-03-11 12:11:13 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement score decay based on folio size to favor small-folio retention**
+   ...
+2026-03-11 12:11:13 - shinka.database.inspirations - INFO - Built context: 4 programs (ascending, scores: ['1907.1796', '1932.4040', '1978.0871', '2162.2734'])
+2026-03-11 12:11:13 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:11:13 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 12:11:49 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:11:49 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0549
+2026-03-11 12:11:49 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_8/main.c, Patches Applied: 1.
+2026-03-11 12:11:49 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:11:49 - shinka.launch.local - INFO - Submitted local process with PID: 27260
+2026-03-11 12:11:49 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_8/main.c --results_dir results/eviction_evo/gen_8/results
+2026-03-11 12:11:49 - shinka.core.runner - INFO - Submitted job for generation 8, queue size: 2 (cost: $0.4283, 8.6%)
+2026-03-11 12:17:31 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 26443) completed!
+2026-03-11 12:17:31 - shinka.launch.local - INFO - Monitoring local process with PID: 26443...
+2026-03-11 12:17:31 - shinka.launch.local - INFO - Process 26443 completed with return code: 0
+2026-03-11 12:17:31 - shinka.database.dbase - INFO - Program 2b26ddf7-0f15-43eb-81a0-b980149e1db6 added to DB - score: 2103.442201258269.
+2026-03-11 12:17:31 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:17:31 - shinka.core.summarizer - INFO - Added program 2b26ddf7-0f15-43eb-81a0-b980149e1db6 to meta memory tracking (correct=True, total: 3)
+2026-03-11 12:17:31 - shinka.database.dbase - INFO - Database state committed. Last iteration: 7. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:17:31 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 3 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 1 items
+2026-03-11 12:17:31 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 8/50 (cost: $0.4588, 9.2%)
+2026-03-11 12:17:31 - shinka.database.parents - INFO - Island 0 => Probabilities: [9.498257682024971e-07, 5.077177110431661e-05, 0.15298588910079092, 0.0709529426554997, 0.3170517819916201, 0.4589576646552169]
+2026-03-11 12:17:31 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269]
+2026-03-11 12:17:31 - shinka.database.parents - INFO - Sampled parent 2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Children: 0, Island: 0)
+2026-03-11 12:17:31 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', 'b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)']
+2026-03-11 12:17:31 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['d754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 12:17:31 - shinka.core.runner - INFO - Edit Cycle 9 -> 10, Max Patch Attempts: 5
+2026-03-11 12:17:31 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:17:31 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement score decay based on folio size to favor small-folio retention**
+   ...
+2026-03-11 12:17:31 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement score decay based on folio size to favor small-folio retention**
+   ...
+2026-03-11 12:17:31 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1907.1796', '1932.4040', '1978.0871', '1988.2792', '2162.2734'])
+2026-03-11 12:17:31 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:17:31 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 12:17:52 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:17:52 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0494
+2026-03-11 12:17:52 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_9/main.c, Patches Applied: 1.
+2026-03-11 12:17:52 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:17:52 - shinka.launch.local - INFO - Submitted local process with PID: 28001
+2026-03-11 12:17:52 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_9/main.c --results_dir results/eviction_evo/gen_9/results
+2026-03-11 12:17:52 - shinka.core.runner - INFO - Submitted job for generation 9, queue size: 2 (cost: $0.4588, 9.2%)
+2026-03-11 12:24:17 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 27260) completed!
+2026-03-11 12:24:17 - shinka.launch.local - INFO - Monitoring local process with PID: 27260...
+2026-03-11 12:24:17 - shinka.launch.local - INFO - Process 27260 completed with return code: 0
+2026-03-11 12:24:17 - shinka.database.dbase - INFO - Program acb7c9db-47df-4c6b-83fe-ffda703487c9 added to DB - score: 1474.1888664643054.
+2026-03-11 12:24:17 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:24:17 - shinka.core.summarizer - INFO - Added program acb7c9db-47df-4c6b-83fe-ffda703487c9 to meta memory tracking (correct=True, total: 4)
+2026-03-11 12:24:17 - shinka.database.dbase - INFO - Database state committed. Last iteration: 8. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:24:17 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 4 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 1 items
+2026-03-11 12:24:17 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 9/50 (cost: $0.5137, 10.3%)
+2026-03-11 12:24:17 - shinka.database.parents - INFO - Island 0 => Probabilities: [7.612357188742693e-06, 0.00026655615208441715, 0.16768093759200284, 0.12576070319466054, 0.20324138848997295, 0.5030428022140905, 6.899560710706412e-32]
+2026-03-11 12:24:17 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054]
+2026-03-11 12:24:17 - shinka.database.parents - INFO - Sampled parent 5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Children: 1, Island: 0)
+2026-03-11 12:24:17 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', 'acb7c9db-47df-4c6b-83fe-ffda703487c9 (Gen: 8, Score: 1474.1889, Island: 0)', 'b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Island: 0)']
+2026-03-11 12:24:17 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)', 'd754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)']
+2026-03-11 12:24:17 - shinka.core.runner - INFO - Edit Cycle 10 -> 11, Max Patch Attempts: 5
+2026-03-11 12:24:17 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:24:17 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Refine burst detection to use packet count velocity rather than just inter-arr...
+2026-03-11 12:24:17 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Refine burst detection to use packet count velocity rather than just inter-arr...
+2026-03-11 12:24:17 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1474.1889', '1932.4040', '1988.2792', '2103.4422', '2162.2734'])
+2026-03-11 12:24:17 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:24:17 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 12:24:41 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:24:41 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0547
+2026-03-11 12:24:41 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_10/main.c, Patches Applied: 4.
+2026-03-11 12:24:41 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:24:41 - shinka.launch.local - INFO - Submitted local process with PID: 28902
+2026-03-11 12:24:41 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_10/main.c --results_dir results/eviction_evo/gen_10/results
+2026-03-11 12:24:41 - shinka.core.runner - INFO - Submitted job for generation 10, queue size: 2 (cost: $0.5137, 10.3%)
+2026-03-11 12:30:47 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 28001) completed!
+2026-03-11 12:30:47 - shinka.launch.local - INFO - Monitoring local process with PID: 28001...
+2026-03-11 12:30:47 - shinka.launch.local - INFO - Process 28001 completed with return code: 0
+2026-03-11 12:30:48 - shinka.database.dbase - INFO - Program f03bab4c-8087-4524-89fc-d26616529404 added to DB - score: 1450.7114787213304.
+2026-03-11 12:30:48 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:30:48 - shinka.core.summarizer - INFO - Added program f03bab4c-8087-4524-89fc-d26616529404 to meta memory tracking (correct=True, total: 5)
+2026-03-11 12:30:48 - shinka.core.runner - INFO - Updating meta memory after processing 5 programs...
+2026-03-11 12:30:48 - shinka.core.summarizer - INFO - ==> Step 1 - Processing 5 programs with batch query
+2026-03-11 12:30:48 - shinka.llm.llm - INFO - ==> SAMPLING 5 SAMPLES:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:30:48 - shinka.llm.llm - INFO - ==> SAMPLING: 1/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:30:48 - shinka.llm.llm - INFO - ==> SAMPLING: 3/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:30:48 - shinka.llm.llm - INFO - ==> SAMPLING: 4/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:30:48 - shinka.llm.llm - INFO - ==> SAMPLING: 5/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:30:48 - shinka.llm.llm - INFO - ==> SAMPLING: 2/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:30:52 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:30:52 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:30:53 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:30:53 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:30:53 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:30:53 - shinka.llm.llm - INFO - ==> SAMPLING: Individual API costs: ['0.0081', '0.0084', '0.0072', '0.0087', '0.0076']
+2026-03-11 12:30:53 - shinka.llm.llm - INFO - ==> SAMPLING: Total API costs: $0.0400
+2026-03-11 12:30:53 - shinka.core.summarizer - INFO - ==> Step 1 - 5/5 individual summaries generated (cost: $0.0400)
+2026-03-11 12:30:53 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:30:53 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:31:27 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:31:27 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0291
+2026-03-11 12:31:27 - shinka.core.summarizer - INFO - ==> Step 2 - Global insights generated (cost: $0.0291)
+2026-03-11 12:31:27 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:31:27 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 12:31:39 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:31:39 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0154
+2026-03-11 12:31:39 - shinka.core.summarizer - INFO - ==> Step 3 - Recommendations generated (cost: $0.0154)
+2026-03-11 12:31:39 - shinka.core.summarizer - INFO - ==> Meta-analysis completed successfully with 3-step process (total cost: $0.0845)
+2026-03-11 12:31:39 - shinka.core.summarizer - INFO - Processed and cleared 5 programs from meta memory (total processed: 10)
+2026-03-11 12:31:39 - shinka.core.summarizer - INFO - Wrote meta output to results/eviction_evo/meta/meta_10.txt
+2026-03-11 12:31:39 - shinka.core.runner - INFO - Meta recommendation generation cost: $0.0845
+2026-03-11 12:31:39 - shinka.database.dbase - INFO - Database state committed. Last iteration: 9. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:31:39 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 0 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 2 items
+2026-03-11 12:31:39 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 10/50 (cost: $0.6476, 13.0%)
+2026-03-11 12:31:39 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.0013680822805265818, 0.016415950715929124, 0.18474295782403014, 0.252490510852844, 0.2678681379590653, 0.2771143603676049, 2.8432540571081744e-22, 2.5988978247363316e-23]
+2026-03-11 12:31:39 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304]
+2026-03-11 12:31:39 - shinka.database.parents - INFO - Sampled parent 2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Children: 1, Island: 0)
+2026-03-11 12:31:39 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)', 'f03bab4c-8087-4524-89fc-d26616529404 (Gen: 9, Score: 1450.7115, Island: 0)']
+2026-03-11 12:31:39 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['d754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 12:31:39 - shinka.core.runner - INFO - Edit Cycle 11 -> 12, Max Patch Attempts: 5
+2026-03-11 12:31:39 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:31:39 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Refine burst detection to use packet count velocity in addition to inter-arriv...
+2026-03-11 12:31:39 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Refine burst detection to use packet count velocity in addition to inter-arriv...
+2026-03-11 12:31:39 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1450.7115', '1907.1796', '1978.0871', '1988.2792', '2162.2734'])
+2026-03-11 12:31:39 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:31:39 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 12:32:06 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:32:06 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0563
+2026-03-11 12:32:06 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 FAILURE. Error: 'Attempted to edit outside EVOLVE-BLOCK regions
+
+Found text: '// -- Network state (updated by kprobe below) ----------------------------------'
+At position: 4522
+
+Context around found text:
+     Line  95:     __type(value, u64);
+     Line  96: } debug_counters SEC(".maps");
+     Line  97: 
+ >>> Line  98: // -- Network state (updated by kprobe below) ----------------------------------
+     Line  99: u64 last_packet_ts = 0;
+     Line 100: 
+     Line 101: // -- Extended network metrics (snapshot from tcp_sock per recv) ---------------
+
+This text was found in an immutable (non-editable) region.
+
+Available editable regions (EVOLVE-BLOCK content):
+  Region 1 (chars 6351-14139):
+    // -- List handles + eviction policy constants (evolved) -----------------------
+    static u64 main_list;
+    
+    ... (200 more lines)
+
+Suggestions:
+1. Move your edit to within an EVOLVE-BLOCK region
+2. Check if similar code exists in the editable regions above
+3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers', Patches Applied: 0.
+2026-03-11 12:32:06 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 12:32:29 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:32:29 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0571
+2026-03-11 12:32:29 - shinka.core.runner - INFO -   PATCH ATTEMPT 2/5 SUCCESS. Output: results/eviction_evo/gen_11/main.c, Patches Applied: 3.
+2026-03-11 12:32:29 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:32:29 - shinka.launch.local - INFO - Submitted local process with PID: 29963
+2026-03-11 12:32:29 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_11/main.c --results_dir results/eviction_evo/gen_11/results
+2026-03-11 12:32:29 - shinka.core.runner - INFO - Submitted job for generation 11, queue size: 2 (cost: $0.6476, 13.0%)
+2026-03-11 12:37:23 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 28902) completed!
+2026-03-11 12:37:24 - shinka.launch.local - INFO - Monitoring local process with PID: 28902...
+2026-03-11 12:37:24 - shinka.launch.local - INFO - Process 28902 completed with return code: 0
+2026-03-11 12:37:25 - shinka.database.dbase - INFO - Program 557e7b4a-2df6-41e7-9d00-5fe40644ec81 added to DB - score: 1332.1307188005094.
+2026-03-11 12:37:25 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:37:25 - shinka.database.dbase - INFO - Running scheduled migration operation
+2026-03-11 12:37:25 - shinka.core.summarizer - INFO - Added program 557e7b4a-2df6-41e7-9d00-5fe40644ec81 to meta memory tracking (correct=True, total: 1)
+2026-03-11 12:37:25 - shinka.database.dbase - INFO - Database state committed. Last iteration: 10. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:37:25 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 1 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 2 items
+2026-03-11 12:37:25 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 11/50 (cost: $0.7023, 14.0%)
+2026-03-11 12:37:25 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.033454184945793025, 0.08982551504221958, 0.17965076846983366, 0.16802571882792341, 0.2595795012468192, 0.2694643114658447, 1.249421404220315e-12, 3.1664970680638216e-13, 3.0875694171959117e-16]
+2026-03-11 12:37:25 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094]
+2026-03-11 12:37:25 - shinka.database.parents - INFO - Sampled parent 2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Children: 1, Island: 0)
+2026-03-11 12:37:25 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)', 'acb7c9db-47df-4c6b-83fe-ffda703487c9 (Gen: 8, Score: 1474.1889, Island: 0)']
+2026-03-11 12:37:25 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['d754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 12:37:25 - shinka.core.runner - INFO - Edit Cycle 12 -> 13, Max Patch Attempts: 5
+2026-03-11 12:37:25 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:37:25 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement adaptive eviction threshold scaling based on folio age distribution ...
+2026-03-11 12:37:25 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement adaptive eviction threshold scaling based on folio age distribution ...
+2026-03-11 12:37:25 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1474.1889', '1907.1796', '1978.0871', '1988.2792', '2162.2734'])
+2026-03-11 12:37:25 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   1.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   0.0000
+2026-03-11 12:37:25 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 12:38:31 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:38:31 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.1805
+2026-03-11 12:38:31 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_12/main.c, Patches Applied: 1.
+2026-03-11 12:38:31 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:38:31 - shinka.launch.local - INFO - Submitted local process with PID: 30770
+2026-03-11 12:38:31 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_12/main.c --results_dir results/eviction_evo/gen_12/results
+2026-03-11 12:38:31 - shinka.core.runner - INFO - Submitted job for generation 12, queue size: 2 (cost: $0.7023, 14.0%)
+2026-03-11 12:43:44 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 29963) completed!
+2026-03-11 12:43:44 - shinka.launch.local - INFO - Monitoring local process with PID: 29963...
+2026-03-11 12:43:44 - shinka.launch.local - INFO - Process 29963 completed with return code: 0
+2026-03-11 12:43:45 - shinka.database.dbase - INFO - Program 9a73cbaf-ecdf-4931-9e68-b5ca3c5e490e added to DB - score: 1189.336493786366.
+2026-03-11 12:43:45 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:43:45 - shinka.core.summarizer - INFO - Added program 9a73cbaf-ecdf-4931-9e68-b5ca3c5e490e to meta memory tracking (correct=True, total: 2)
+2026-03-11 12:43:45 - shinka.database.dbase - INFO - Database state committed. Last iteration: 11. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:43:45 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 2 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 2 items
+2026-03-11 12:43:45 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 12/50 (cost: $0.8157, 16.3%)
+2026-03-11 12:43:45 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.06619431004806911, 0.11964528679749023, 0.18583747552001467, 0.17452550155563273, 0.26799137890119573, 0.18580604656314073, 4.607787105688013e-10, 1.5309132108503499e-10, 5.860135073740751e-13, 7.199781433051154e-16]
+2026-03-11 12:43:45 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366]
+2026-03-11 12:43:45 - shinka.database.parents - INFO - Sampled parent d754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Children: 1, Island: 0)
+2026-03-11 12:43:45 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', 'acb7c9db-47df-4c6b-83fe-ffda703487c9 (Gen: 8, Score: 1474.1889, Island: 0)', '557e7b4a-2df6-41e7-9d00-5fe40644ec81 (Gen: 10, Score: 1332.1307, Island: 0)']
+2026-03-11 12:43:45 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 12:43:45 - shinka.core.runner - INFO - Edit Cycle 13 -> 14, Max Patch Attempts: 5
+2026-03-11 12:43:45 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:43:45 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Add receive-window saturation as a fifth network pressure signal with conserva...
+2026-03-11 12:43:45 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Add receive-window saturation as a fifth network pressure signal with conserva...
+2026-03-11 12:43:45 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1332.1307', '1474.1889', '1978.0871', '2103.4422', '2162.2734'])
+2026-03-11 12:43:45 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:43:45 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 12:44:00 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:44:00 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0473
+2026-03-11 12:44:00 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_13/main.c, Patches Applied: 1.
+2026-03-11 12:44:00 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:44:00 - shinka.launch.local - INFO - Submitted local process with PID: 31480
+2026-03-11 12:44:00 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_13/main.c --results_dir results/eviction_evo/gen_13/results
+2026-03-11 12:44:00 - shinka.core.runner - INFO - Submitted job for generation 13, queue size: 2 (cost: $0.8157, 16.3%)
+2026-03-11 12:50:03 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 30770) completed!
+2026-03-11 12:50:03 - shinka.launch.local - INFO - Monitoring local process with PID: 30770...
+2026-03-11 12:50:03 - shinka.launch.local - INFO - Process 30770 completed with return code: 0
+2026-03-11 12:50:04 - shinka.database.dbase - INFO - Program 61cff6ef-0034-439d-8328-38a8dcae515c added to DB - score: 1570.189536362509.
+2026-03-11 12:50:04 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:50:04 - shinka.core.summarizer - INFO - Added program 61cff6ef-0034-439d-8328-38a8dcae515c to meta memory tracking (correct=True, total: 3)
+2026-03-11 12:50:04 - shinka.database.dbase - INFO - Database state committed. Last iteration: 12. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:50:04 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 3 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 2 items
+2026-03-11 12:50:04 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 13/50 (cost: $0.9962, 19.9%)
+2026-03-11 12:50:04 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.09328170578461288, 0.1359778436415468, 0.18655494198796269, 0.1756619375701758, 0.26866368345753233, 0.13985882919998963, 2.378621832781139e-08, 9.476006605933716e-09, 9.07403386795572e-11, 3.3631306047310974e-13, 1.0250048782572234e-06]
+2026-03-11 12:50:04 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509]
+2026-03-11 12:50:04 - shinka.database.parents - INFO - Sampled parent 2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Children: 3, Island: 0)
+2026-03-11 12:50:04 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '9a73cbaf-ecdf-4931-9e68-b5ca3c5e490e (Gen: 11, Score: 1189.3365, Island: 0)', '61cff6ef-0034-439d-8328-38a8dcae515c (Gen: 12, Score: 1570.1895, Island: 0)']
+2026-03-11 12:50:04 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['d754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 12:50:04 - shinka.core.runner - INFO - Edit Cycle 14 -> 15, Max Patch Attempts: 5
+2026-03-11 12:50:04 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:50:04 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement dynamic access count thresholds that adapt to network pressure condi...
+2026-03-11 12:50:04 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement dynamic access count thresholds that adapt to network pressure condi...
+2026-03-11 12:50:04 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1189.3365', '1570.1895', '1978.0871', '1988.2792', '2162.2734'])
+2026-03-11 12:50:04 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:50:04 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 12:50:27 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:50:27 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0555
+2026-03-11 12:50:27 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_14/main.c, Patches Applied: 4.
+2026-03-11 12:50:27 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:50:27 - shinka.launch.local - INFO - Submitted local process with PID: 32361
+2026-03-11 12:50:27 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_14/main.c --results_dir results/eviction_evo/gen_14/results
+2026-03-11 12:50:27 - shinka.core.runner - INFO - Submitted job for generation 14, queue size: 2 (cost: $0.9962, 19.9%)
+2026-03-11 12:56:23 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 31480) completed!
+2026-03-11 12:56:23 - shinka.launch.local - INFO - Monitoring local process with PID: 31480...
+2026-03-11 12:56:23 - shinka.launch.local - INFO - Process 31480 completed with return code: 0
+2026-03-11 12:56:23 - shinka.database.dbase - INFO - Program 5845f829-c112-484b-ba13-49c0f812da40 added to DB - score: 2113.206727544399.
+2026-03-11 12:56:23 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 12:56:23 - shinka.core.summarizer - INFO - Added program 5845f829-c112-484b-ba13-49c0f812da40 to meta memory tracking (correct=True, total: 4)
+2026-03-11 12:56:23 - shinka.database.dbase - INFO - Database state committed. Last iteration: 13. Best: db6e0807-5b53-4178-b5d3-c849f40fefc8
+2026-03-11 12:56:23 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 4 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 2 items
+2026-03-11 12:56:23 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 14/50 (cost: $1.0435, 20.9%)
+2026-03-11 12:56:23 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.04699886032959809, 0.08383078287802166, 0.13082771616465944, 0.12239362516317541, 0.1254142110261485, 0.09810074599845238, 5.182311741606578e-10, 1.7648245005527208e-10, 7.652490550446933e-13, 1.092482851350297e-15, 4.241116449506455e-08, 0.3924340153333]
+2026-03-11 12:56:23 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399]
+2026-03-11 12:56:23 - shinka.database.parents - INFO - Sampled parent 5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Children: 0, Island: 0)
+2026-03-11 12:56:23 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)', 'd754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)']
+2026-03-11 12:56:23 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 12:56:23 - shinka.core.runner - INFO - Edit Cycle 15 -> 16, Max Patch Attempts: 5
+2026-03-11 12:56:23 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 12:56:23 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Refine burst detection to use packet count velocity in addition to inter-arriv...
+2026-03-11 12:56:23 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Refine burst detection to use packet count velocity in addition to inter-arriv...
+2026-03-11 12:56:23 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1907.1796', '1978.0871', '1988.2792', '2103.4422', '2162.2734'])
+2026-03-11 12:56:23 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 12:56:23 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 12:57:03 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:57:03 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0646
+2026-03-11 12:57:03 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 FAILURE. Error: 'Attempted to edit outside EVOLVE-BLOCK regions
+
+Found text: '// -- Extended network metrics (snapshot from tcp_sock per recv) ---------------'
+At position: 4628
+
+Context around found text:
+     Line  98: // -- Network state (updated by kprobe below) ----------------------------------
+     Line  99: u64 last_packet_ts = 0;
+     Line 100: 
+ >>> Line 101: // -- Extended network metrics (snapshot from tcp_sock per recv) ---------------
+     Line 102: // Request counting / timing:
+     Line 103: u64 net_recv_count = 0;        // total tcp_recvmsg calls on monitored port
+     Line 104: u64 net_prev_packet_ts = 0;    // previous packet timestamp (for inter-arrival)
+
+This text was found in an immutable (non-editable) region.
+
+Available editable regions (EVOLVE-BLOCK content):
+  Region 1 (chars 6351-17745):
+    // -- List handles + eviction policy constants (evolved) -----------------------
+    static u64 main_list;
+    
+    ... (298 more lines)
+
+Suggestions:
+1. Move your edit to within an EVOLVE-BLOCK region
+2. Check if similar code exists in the editable regions above
+3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers', Patches Applied: 0.
+2026-03-11 12:57:03 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 12:57:24 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:57:24 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0570
+2026-03-11 12:57:26 - shinka.core.runner - INFO -   PATCH ATTEMPT 2/5 FAILURE. Error: 'SEARCH text not found in editable regions
+
+Looking for 30-line block starting with: '// -- Dynamic eviction threshold -------------------------------------------'
+
+Full search pattern:
+```
+// -- Dynamic eviction threshold -------------------------------------------
+
+    u32 evict_threshold = 60;  // Base threshold
+
+    // Adjust threshold based on network conditions
+    if (net_under_pressure) {
+        evict_threshold = 70;  // Higher threshold = more protective (evict only high-score folios)
+    } else if (!session_active) {
+        evict_threshold = 40;  // Lower threshold = more aggressive when session idle
+    }
+
+    // During bursts, increase threshold slightly (protect working set)
+    if (is_burst && session_active) {
+        evict_threshold += 10;
+    }
+
+    // For sustained bursts, apply stronger protection
+    if (current_sustained_burst && session_active) {
+        evict_threshold += 15;  // Additional protection for sustained high-frequency load
+    }
+
+    // -- Final decision -------------------------------------------------------
+
+    // Evict if score exceeds threshold
+    if (score >= evict_threshold) {
+        return CACHE_EXT_EVICT_NODE;
+    }
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+```
+
+Found similar code block at line 348 (✓ editable):
+
+Differences between search pattern and actual code:
+```diff
+-  // -- Dynamic eviction threshold -------------------------------------------
++          u32 new_survival = current_survival + 1;
++          bpf_map_update_elem(&folio_survival_map, &key, &new_survival, BPF_ANY);
++      }
++  
++      // -- Dynamic eviction threshold -------------------------------------------
+-      // For sustained bursts, apply stronger protection
+-      if (current_sustained_burst && session_active) {
+-          evict_threshold += 15;  // Additional protection for sustained high-frequency load
+-      }
+-  
++  
+```
+
+Editable regions where you can make changes:
+  Region 1 (lines 136-486):
+    // -- List handles + eviction policy constants (evolved) -----------------------
+    static u64 main_list;
+    
+    ... (342 more lines)
+        bpf_map_delete_elem(&folio_survival_map, &key);
+        bump_counter(5);
+    }
+
+Quick fixes:
+• Check indentation - search text must match exactly including spaces/tabs
+• Look for typos in the search text
+• Try searching for just the first line instead of the full block', Patches Applied: 0.
+2026-03-11 12:57:26 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 12:57:47 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 12:57:47 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0592
+2026-03-11 12:57:47 - shinka.core.runner - INFO -   PATCH ATTEMPT 3/5 SUCCESS. Output: results/eviction_evo/gen_15/main.c, Patches Applied: 6.
+2026-03-11 12:57:47 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 12:57:47 - shinka.launch.local - INFO - Submitted local process with PID: 33323
+2026-03-11 12:57:47 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_15/main.c --results_dir results/eviction_evo/gen_15/results
+2026-03-11 12:57:47 - shinka.core.runner - INFO - Submitted job for generation 15, queue size: 2 (cost: $1.0435, 20.9%)
+2026-03-11 13:02:40 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 32361) completed!
+2026-03-11 13:02:40 - shinka.launch.local - INFO - Monitoring local process with PID: 32361...
+2026-03-11 13:02:40 - shinka.launch.local - INFO - Process 32361 completed with return code: 0
+2026-03-11 13:02:41 - shinka.database.dbase - INFO - Program 10394c60-414c-4f23-bff0-cf4d49304b85 added to DB - score: 2182.267924804025.
+2026-03-11 13:02:41 - shinka.database.dbase - INFO - New best program: 10394c60-414c-4f23-bff0-cf4d49304b85 (gen: 3 → 14, score: 2162.2734 → 2182.2679, island: 0 → 0)
+2026-03-11 13:02:41 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:02:41 - shinka.core.summarizer - INFO - Added program 10394c60-414c-4f23-bff0-cf4d49304b85 to meta memory tracking (correct=True, total: 5)
+2026-03-11 13:02:41 - shinka.core.runner - INFO - Updating meta memory after processing 5 programs...
+2026-03-11 13:02:41 - shinka.core.summarizer - INFO - ==> Step 1 - Processing 5 programs with batch query
+2026-03-11 13:02:41 - shinka.llm.llm - INFO - ==> SAMPLING 5 SAMPLES:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:02:41 - shinka.llm.llm - INFO - ==> SAMPLING: 1/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:02:41 - shinka.llm.llm - INFO - ==> SAMPLING: 5/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:02:41 - shinka.llm.llm - INFO - ==> SAMPLING: 2/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:02:41 - shinka.llm.llm - INFO - ==> SAMPLING: 3/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:02:41 - shinka.llm.llm - INFO - ==> SAMPLING: 4/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:02:45 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:02:45 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:02:45 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:02:46 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:02:46 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:02:46 - shinka.llm.llm - INFO - ==> SAMPLING: Individual API costs: ['0.0076', '0.0083', '0.0076', '0.0082', '0.0074']
+2026-03-11 13:02:46 - shinka.llm.llm - INFO - ==> SAMPLING: Total API costs: $0.0391
+2026-03-11 13:02:47 - shinka.core.summarizer - INFO - ==> Step 1 - 5/5 individual summaries generated (cost: $0.0391)
+2026-03-11 13:02:47 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:02:47 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:03:26 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:03:26 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0343
+2026-03-11 13:03:26 - shinka.core.summarizer - INFO - ==> Step 2 - Global insights generated (cost: $0.0343)
+2026-03-11 13:03:26 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:03:26 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:03:38 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:03:38 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0168
+2026-03-11 13:03:38 - shinka.core.summarizer - INFO - ==> Step 3 - Recommendations generated (cost: $0.0168)
+2026-03-11 13:03:38 - shinka.core.summarizer - INFO - ==> Meta-analysis completed successfully with 3-step process (total cost: $0.0902)
+2026-03-11 13:03:38 - shinka.core.summarizer - INFO - Processed and cleared 5 programs from meta memory (total processed: 15)
+2026-03-11 13:03:38 - shinka.core.summarizer - INFO - Wrote meta output to results/eviction_evo/meta/meta_15.txt
+2026-03-11 13:03:38 - shinka.core.runner - INFO - Meta recommendation generation cost: $0.0902
+2026-03-11 13:03:38 - shinka.database.dbase - INFO - Database state committed. Last iteration: 14. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:03:38 - shinka.core.runner - INFO - New best program found: gen 14, id 10394c... Copied to results/eviction_evo/best
+2026-03-11 13:03:38 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 0 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 3 items
+2026-03-11 13:03:38 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 15/50 (cost: $1.1891, 23.8%)
+2026-03-11 13:03:38 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.024660894546097607, 0.04927448616764169, 0.09854449842197655, 0.08667014802728003, 0.0905804369788939, 0.05909470114565558, 6.511383423427467e-10, 2.3448378629714096e-10, 1.3482039167028236e-12, 2.703529552068754e-15, 4.24055518085416e-08, 0.2955334986330426, 0.2956412927868872]
+2026-03-11 13:03:38 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025]
+2026-03-11 13:03:38 - shinka.database.parents - INFO - Sampled parent db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Children: 2, Island: 0)
+2026-03-11 13:03:38 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 13:03:38 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 13:03:38 - shinka.core.runner - INFO - Edit Cycle 16 -> 17, Max Patch Attempts: 5
+2026-03-11 13:03:38 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:03:38 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement a "working set stability score" that tracks whether folios in the pr...
+2026-03-11 13:03:38 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement a "working set stability score" that tracks whether folios in the pr...
+2026-03-11 13:03:38 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1907.1796', '1978.0871', '2103.4422', '2113.2067', '2182.2679'])
+2026-03-11 13:03:38 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:03:38 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 13:04:11 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:04:11 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0580
+2026-03-11 13:04:11 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_16/main.c, Patches Applied: 5.
+2026-03-11 13:04:11 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:04:11 - shinka.launch.local - INFO - Submitted local process with PID: 34161
+2026-03-11 13:04:11 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_16/main.c --results_dir results/eviction_evo/gen_16/results
+2026-03-11 13:04:11 - shinka.core.runner - INFO - Submitted job for generation 16, queue size: 2 (cost: $1.1891, 23.8%)
+2026-03-11 13:09:04 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 33323) completed!
+2026-03-11 13:09:04 - shinka.launch.local - INFO - Monitoring local process with PID: 33323...
+2026-03-11 13:09:04 - shinka.launch.local - INFO - Process 33323 completed with return code: 0
+2026-03-11 13:09:04 - shinka.database.dbase - INFO - Program 7b0af6d2-05ce-4e8a-8358-50e91c1ddf86 added to DB - score: 2005.0949344772616.
+2026-03-11 13:09:04 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:09:04 - shinka.core.summarizer - INFO - Added program 7b0af6d2-05ce-4e8a-8358-50e91c1ddf86 to meta memory tracking (correct=True, total: 1)
+2026-03-11 13:09:04 - shinka.database.dbase - INFO - Database state committed. Last iteration: 15. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:09:04 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 1 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 3 items
+2026-03-11 13:09:04 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 16/50 (cost: $1.3700, 27.4%)
+2026-03-11 13:09:04 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.006178728884907729, 0.020513540445765845, 0.09222860079932847, 0.07171615200582414, 0.07925999058785788, 0.05532136578768744, 9.861967351092042e-13, 2.7243092944122274e-13, 4.1049749003852385e-16, 1.641120705929748e-19, 1.899135332662427e-10, 0.13832045193530307, 0.2766879824248806, 0.2597731869372724]
+2026-03-11 13:09:04 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616]
+2026-03-11 13:09:04 - shinka.database.parents - INFO - Sampled parent 7b0af6d2-05ce-4e8a-8358-50e91c1ddf86 (Gen: 15, Score: 2005.0949, Children: 0, Island: 0)
+2026-03-11 13:09:04 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', 'db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', 'd754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)']
+2026-03-11 13:09:04 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 13:09:04 - shinka.core.runner - INFO - Edit Cycle 17 -> 18, Max Patch Attempts: 5
+2026-03-11 13:09:04 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:09:04 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement a "working set stability score" that tracks whether folios in the pr...
+2026-03-11 13:09:04 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement a "working set stability score" that tracks whether folios in the pr...
+2026-03-11 13:09:04 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1988.2792', '2103.4422', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 13:09:04 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:09:04 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 13:09:50 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:09:50 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0753
+2026-03-11 13:09:50 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_17/main.c, Patches Applied: 6.
+2026-03-11 13:09:50 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:09:50 - shinka.launch.local - INFO - Submitted local process with PID: 34919
+2026-03-11 13:09:50 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_17/main.c --results_dir results/eviction_evo/gen_17/results
+2026-03-11 13:09:50 - shinka.core.runner - INFO - Submitted job for generation 17, queue size: 2 (cost: $1.3700, 27.4%)
+2026-03-11 13:15:25 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 34161) completed!
+2026-03-11 13:15:25 - shinka.launch.local - INFO - Monitoring local process with PID: 34161...
+2026-03-11 13:15:25 - shinka.launch.local - INFO - Process 34161 completed with return code: 0
+2026-03-11 13:15:25 - shinka.database.dbase - INFO - Program 7e0c3e79-219c-4d71-b994-0b045bca0f7c added to DB - score: 2087.3221667533894.
+2026-03-11 13:15:25 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:15:25 - shinka.core.summarizer - INFO - Added program 7e0c3e79-219c-4d71-b994-0b045bca0f7c to meta memory tracking (correct=True, total: 2)
+2026-03-11 13:15:25 - shinka.database.dbase - INFO - Database state committed. Last iteration: 16. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:15:25 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 2 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 3 items
+2026-03-11 13:15:25 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 17/50 (cost: $1.4280, 28.6%)
+2026-03-11 13:15:25 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.00041165331866139555, 0.0025883919794372134, 0.05901226024051708, 0.039341554123606765, 0.05351356099903385, 0.04720545032455445, 1.5030201686362423e-17, 2.6446409025770862e-18, 4.0832412091001813e-22, 1.0504772328265904e-26, 1.8304963458547926e-14, 0.11801930430269433, 0.23604926012737495, 0.20788199977185998, 0.23597656481224175]
+2026-03-11 13:15:25 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894]
+2026-03-11 13:15:25 - shinka.database.parents - INFO - Sampled parent 5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Children: 2, Island: 0)
+2026-03-11 13:15:25 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', 'db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '557e7b4a-2df6-41e7-9d00-5fe40644ec81 (Gen: 10, Score: 1332.1307, Island: 0)']
+2026-03-11 13:15:25 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 13:15:25 - shinka.core.runner - INFO - Edit Cycle 18 -> 19, Max Patch Attempts: 5
+2026-03-11 13:15:25 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:15:25 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:15:25 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:15:25 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1332.1307', '2103.4422', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 13:15:25 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:15:25 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 13:15:56 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:15:56 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0619
+2026-03-11 13:15:56 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_18/main.c, Patches Applied: 5.
+2026-03-11 13:15:56 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:15:56 - shinka.launch.local - INFO - Submitted local process with PID: 35717
+2026-03-11 13:15:56 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_18/main.c --results_dir results/eviction_evo/gen_18/results
+2026-03-11 13:15:56 - shinka.core.runner - INFO - Submitted job for generation 18, queue size: 2 (cost: $1.4280, 28.6%)
+2026-03-11 13:21:47 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 34919) completed!
+2026-03-11 13:21:47 - shinka.launch.local - INFO - Monitoring local process with PID: 34919...
+2026-03-11 13:21:47 - shinka.launch.local - INFO - Process 34919 completed with return code: 0
+2026-03-11 13:21:47 - shinka.database.dbase - INFO - Program c832de2e-46e2-4766-90d2-0b2524252694 added to DB - score: 2048.1498159395087.
+2026-03-11 13:21:47 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:21:47 - shinka.core.summarizer - INFO - Added program c832de2e-46e2-4766-90d2-0b2524252694 to meta memory tracking (correct=True, total: 3)
+2026-03-11 13:21:47 - shinka.database.dbase - INFO - Database state committed. Last iteration: 17. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:21:47 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 3 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 3 items
+2026-03-11 13:21:47 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 18/50 (cost: $1.5033, 30.1%)
+2026-03-11 13:21:47 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.00016263275812076813, 0.0012026980357367802, 0.05307857023292157, 0.028278740599798038, 0.04249272949467595, 0.04246003450786109, 4.599125928468931e-19, 7.04544397636639e-20, 5.4030990386862936e-24, 5.985018351998339e-29, 9.869926459141097e-16, 0.1061539426031436, 0.21231438410903083, 0.09045381546961102, 0.21226279246396573, 0.21113965972513363]
+2026-03-11 13:21:47 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087]
+2026-03-11 13:21:47 - shinka.database.parents - INFO - Sampled parent 10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Children: 0, Island: 0)
+2026-03-11 13:21:47 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)', '557e7b4a-2df6-41e7-9d00-5fe40644ec81 (Gen: 10, Score: 1332.1307, Island: 0)', '5592f4c5-2a22-45b1-a4f7-95dfbaf0e3e1 (Gen: 4, Score: 1978.0871, Island: 0)']
+2026-03-11 13:21:47 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 13:21:47 - shinka.core.runner - INFO - Edit Cycle 19 -> 20, Max Patch Attempts: 5
+2026-03-11 13:21:47 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:21:47 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 13:21:47 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 13:21:47 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1332.1307', '1978.0871', '2103.4422', '2113.2067', '2162.2734'])
+2026-03-11 13:21:47 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:21:47 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 13:22:12 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:22:12 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0544
+2026-03-11 13:22:12 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_19/main.c, Patches Applied: 1.
+2026-03-11 13:22:12 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:22:12 - shinka.launch.local - INFO - Submitted local process with PID: 36555
+2026-03-11 13:22:12 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_19/main.c --results_dir results/eviction_evo/gen_19/results
+2026-03-11 13:22:12 - shinka.core.runner - INFO - Submitted job for generation 19, queue size: 2 (cost: $1.5033, 30.1%)
+2026-03-11 13:28:06 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 35717) completed!
+2026-03-11 13:28:06 - shinka.launch.local - INFO - Monitoring local process with PID: 35717...
+2026-03-11 13:28:06 - shinka.launch.local - INFO - Process 35717 completed with return code: 0
+2026-03-11 13:28:06 - shinka.database.dbase - INFO - Program b951d617-c3f8-45c9-9a5f-409880c17c08 added to DB - score: 1301.7660770772848.
+2026-03-11 13:28:06 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:28:06 - shinka.core.summarizer - INFO - Added program b951d617-c3f8-45c9-9a5f-409880c17c08 to meta memory tracking (correct=True, total: 4)
+2026-03-11 13:28:06 - shinka.database.dbase - INFO - Database state committed. Last iteration: 18. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:28:06 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 4 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 3 items
+2026-03-11 13:28:06 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 19/50 (cost: $1.5652, 31.3%)
+2026-03-11 13:28:06 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.00036723324649321767, 0.002309087639319146, 0.05264445330235116, 0.026322258295914273, 0.047739099495157256, 0.0421116750163252, 1.340834510621505e-17, 2.3592669375781108e-18, 3.642632908459953e-22, 9.371239027844078e-27, 1.6329738770675612e-14, 0.10528425328595281, 0.21057800872534832, 0.09272508953889515, 0.21051315770782703, 0.20940568374640017, 3.849911452861563e-23]
+2026-03-11 13:28:06 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848]
+2026-03-11 13:28:06 - shinka.database.parents - INFO - Sampled parent 7b0af6d2-05ce-4e8a-8358-50e91c1ddf86 (Gen: 15, Score: 2005.0949, Children: 1, Island: 0)
+2026-03-11 13:28:06 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', 'acb7c9db-47df-4c6b-83fe-ffda703487c9 (Gen: 8, Score: 1474.1889, Island: 0)', 'c832de2e-46e2-4766-90d2-0b2524252694 (Gen: 17, Score: 2048.1498, Island: 0)']
+2026-03-11 13:28:06 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 13:28:06 - shinka.core.runner - INFO - Edit Cycle 20 -> 21, Max Patch Attempts: 5
+2026-03-11 13:28:06 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:28:06 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:28:06 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:28:06 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1474.1889', '2048.1498', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 13:28:06 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:28:06 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 13:29:03 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:29:03 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0833
+2026-03-11 13:29:03 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_20/main.c, Patches Applied: 6.
+2026-03-11 13:29:03 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:29:03 - shinka.launch.local - INFO - Submitted local process with PID: 37017
+2026-03-11 13:29:03 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_20/main.c --results_dir results/eviction_evo/gen_20/results
+2026-03-11 13:29:03 - shinka.core.runner - INFO - Submitted job for generation 20, queue size: 2 (cost: $1.5652, 31.3%)
+2026-03-11 13:34:28 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 36555) completed!
+2026-03-11 13:34:28 - shinka.launch.local - INFO - Monitoring local process with PID: 36555...
+2026-03-11 13:34:28 - shinka.launch.local - INFO - Process 36555 completed with return code: 0
+2026-03-11 13:34:29 - shinka.database.dbase - INFO - Program 90a8aea4-8d51-4ff0-bb6e-c13acf76251f added to DB - score: 1721.4756512687513.
+2026-03-11 13:34:29 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:34:29 - shinka.core.summarizer - INFO - Added program 90a8aea4-8d51-4ff0-bb6e-c13acf76251f to meta memory tracking (correct=True, total: 5)
+2026-03-11 13:34:29 - shinka.core.runner - INFO - Updating meta memory after processing 5 programs...
+2026-03-11 13:34:29 - shinka.core.summarizer - INFO - ==> Step 1 - Processing 5 programs with batch query
+2026-03-11 13:34:29 - shinka.llm.llm - INFO - ==> SAMPLING 5 SAMPLES:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:34:29 - shinka.llm.llm - INFO - ==> SAMPLING: 5/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:34:29 - shinka.llm.llm - INFO - ==> SAMPLING: 3/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:34:29 - shinka.llm.llm - INFO - ==> SAMPLING: 4/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:34:29 - shinka.llm.llm - INFO - ==> SAMPLING: 1/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:34:29 - shinka.llm.llm - INFO - ==> SAMPLING: 2/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:34:33 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:34:33 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:34:33 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:34:34 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:34:34 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:34:34 - shinka.llm.llm - INFO - ==> SAMPLING: Individual API costs: ['0.0096', '0.0084', '0.0082', '0.0080', '0.0078']
+2026-03-11 13:34:34 - shinka.llm.llm - INFO - ==> SAMPLING: Total API costs: $0.0421
+2026-03-11 13:34:34 - shinka.core.summarizer - INFO - ==> Step 1 - 5/5 individual summaries generated (cost: $0.0421)
+2026-03-11 13:34:34 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:34:34 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:35:26 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:35:26 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0429
+2026-03-11 13:35:26 - shinka.core.summarizer - INFO - ==> Step 2 - Global insights generated (cost: $0.0429)
+2026-03-11 13:35:26 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:35:26 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 13:35:38 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:35:38 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0183
+2026-03-11 13:35:38 - shinka.core.summarizer - INFO - ==> Step 3 - Recommendations generated (cost: $0.0183)
+2026-03-11 13:35:38 - shinka.core.summarizer - INFO - ==> Meta-analysis completed successfully with 3-step process (total cost: $0.1033)
+2026-03-11 13:35:38 - shinka.core.summarizer - INFO - Processed and cleared 5 programs from meta memory (total processed: 20)
+2026-03-11 13:35:38 - shinka.core.summarizer - INFO - Wrote meta output to results/eviction_evo/meta/meta_20.txt
+2026-03-11 13:35:38 - shinka.core.runner - INFO - Meta recommendation generation cost: $0.1033
+2026-03-11 13:35:39 - shinka.database.dbase - INFO - Database state committed. Last iteration: 19. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:35:39 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 0 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 4 items
+2026-03-11 13:35:39 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 20/50 (cost: $1.7229, 34.5%)
+2026-03-11 13:35:39 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.0049737359788373904, 0.01651293268711939, 0.05568144175988164, 0.04329740131094118, 0.06380248659753725, 0.044532439040777555, 7.938659026787622e-13, 2.193006912505362e-13, 3.3044112688196376e-16, 1.3210647776819713e-19, 1.528760673706998e-10, 0.11134481237396754, 0.11136376095575419, 0.10455574846172085, 0.2225683195473421, 0.22136631216279312, 6.258731809617299e-17, 6.089694381369898e-07]
+2026-03-11 13:35:39 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513]
+2026-03-11 13:35:39 - shinka.database.parents - INFO - Sampled parent 7b0af6d2-05ce-4e8a-8358-50e91c1ddf86 (Gen: 15, Score: 2005.0949, Children: 1, Island: 0)
+2026-03-11 13:35:39 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', 'acb7c9db-47df-4c6b-83fe-ffda703487c9 (Gen: 8, Score: 1474.1889, Island: 0)', 'c832de2e-46e2-4766-90d2-0b2524252694 (Gen: 17, Score: 2048.1498, Island: 0)']
+2026-03-11 13:35:39 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 13:35:39 - shinka.core.runner - INFO - Edit Cycle 21 -> 22, Max Patch Attempts: 5
+2026-03-11 13:35:39 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:35:39 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:35:39 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:35:39 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1474.1889', '2048.1498', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 13:35:39 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:35:39 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 13:36:35 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:36:35 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0792
+2026-03-11 13:36:35 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_21/main.c, Patches Applied: 7.
+2026-03-11 13:36:35 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:36:35 - shinka.launch.local - INFO - Submitted local process with PID: 37262
+2026-03-11 13:36:35 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_21/main.c --results_dir results/eviction_evo/gen_21/results
+2026-03-11 13:36:35 - shinka.core.runner - INFO - Submitted job for generation 21, queue size: 2 (cost: $1.7229, 34.5%)
+2026-03-11 13:40:52 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 37017) completed!
+2026-03-11 13:40:52 - shinka.launch.local - INFO - Monitoring local process with PID: 37017...
+2026-03-11 13:40:52 - shinka.launch.local - INFO - Process 37017 completed with return code: 0
+2026-03-11 13:40:52 - shinka.database.dbase - INFO - Program f601ec87-4e48-487d-844d-0cf111e06cf2 added to DB - score: 1946.1993765666803.
+2026-03-11 13:40:52 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:40:52 - shinka.database.dbase - INFO - Running scheduled migration operation
+2026-03-11 13:40:52 - shinka.core.summarizer - INFO - Added program f601ec87-4e48-487d-844d-0cf111e06cf2 to meta memory tracking (correct=True, total: 1)
+2026-03-11 13:40:52 - shinka.database.dbase - INFO - Database state committed. Last iteration: 20. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:40:52 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 1 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 4 items
+2026-03-11 13:40:52 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 21/50 (cost: $1.8061, 36.1%)
+2026-03-11 13:40:52 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.005962130887015185, 0.020593621084498474, 0.05072577705881089, 0.044179590497224364, 0.06259624294668799, 0.040577413556336636, 1.0786643566619708e-13, 2.6446505504264817e-14, 2.181390359489808e-17, 4.221230989606918e-21, 3.383272590974558e-11, 0.10144719240460567, 0.10145172440946225, 0.06570242537765947, 0.20286020841854374, 0.202451584516425, 3.540916380783997e-18, 2.9070874781163284e-07, 0.10145179810001544]
+2026-03-11 13:40:52 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803]
+2026-03-11 13:40:52 - shinka.database.parents - INFO - Sampled parent 10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Children: 1, Island: 0)
+2026-03-11 13:40:52 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['f03bab4c-8087-4524-89fc-d26616529404 (Gen: 9, Score: 1450.7115, Island: 0)', 'f601ec87-4e48-487d-844d-0cf111e06cf2 (Gen: 20, Score: 1946.1994, Island: 0)', '557e7b4a-2df6-41e7-9d00-5fe40644ec81 (Gen: 10, Score: 1332.1307, Island: 0)']
+2026-03-11 13:40:52 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 13:40:52 - shinka.core.runner - INFO - Edit Cycle 22 -> 23, Max Patch Attempts: 5
+2026-03-11 13:40:52 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:40:52 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 13:40:52 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 13:40:52 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1332.1307', '1450.7115', '1946.1994', '2113.2067', '2162.2734'])
+2026-03-11 13:40:52 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   1.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   0.0000
+2026-03-11 13:40:52 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 13:41:30 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:41:30 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.1679
+2026-03-11 13:41:30 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_22/main.c, Patches Applied: 1.
+2026-03-11 13:41:30 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:41:30 - shinka.launch.local - INFO - Submitted local process with PID: 37430
+2026-03-11 13:41:30 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_22/main.c --results_dir results/eviction_evo/gen_22/results
+2026-03-11 13:41:30 - shinka.core.runner - INFO - Submitted job for generation 22, queue size: 2 (cost: $1.8061, 36.1%)
+2026-03-11 13:47:10 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 37262) completed!
+2026-03-11 13:47:10 - shinka.launch.local - INFO - Monitoring local process with PID: 37262...
+2026-03-11 13:47:10 - shinka.launch.local - INFO - Process 37262 completed with return code: 0
+2026-03-11 13:47:10 - shinka.database.dbase - INFO - Program 548d28ba-890d-4b22-91cf-22eab0fee121 added to DB - score: 2004.4424094559915.
+2026-03-11 13:47:10 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:47:10 - shinka.core.summarizer - INFO - Added program 548d28ba-890d-4b22-91cf-22eab0fee121 to meta memory tracking (correct=True, total: 2)
+2026-03-11 13:47:10 - shinka.database.dbase - INFO - Database state committed. Last iteration: 21. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:47:10 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 2 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 4 items
+2026-03-11 13:47:10 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 22/50 (cost: $1.8854, 37.7%)
+2026-03-11 13:47:10 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.0014040255438398002, 0.00713509383532053, 0.04627685655102456, 0.034638823796874024, 0.05285880337353418, 0.037019180094680935, 5.896992037606088e-16, 1.1834046498307573e-16, 3.5495990776954836e-20, 2.031700583864615e-24, 4.1951292588692585e-13, 0.0925508092207318, 0.09255379126681111, 0.043949419851737816, 0.18507228829520142, 0.18459356892141243, 4.4469924007717194e-21, 1.3102470900028659e-08, 0.04655234076187508, 0.17539498538406517]
+2026-03-11 13:47:10 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803, 2004.4424094559915]
+2026-03-11 13:47:10 - shinka.database.parents - INFO - Sampled parent c832de2e-46e2-4766-90d2-0b2524252694 (Gen: 17, Score: 2048.1498, Children: 0, Island: 0)
+2026-03-11 13:47:10 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', '9a73cbaf-ecdf-4931-9e68-b5ca3c5e490e (Gen: 11, Score: 1189.3365, Island: 0)', 'f03bab4c-8087-4524-89fc-d26616529404 (Gen: 9, Score: 1450.7115, Island: 0)']
+2026-03-11 13:47:10 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 13:47:11 - shinka.core.runner - INFO - Edit Cycle 23 -> 24, Max Patch Attempts: 5
+2026-03-11 13:47:11 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:47:11 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Add a "folio recency boost" mechanism that temporarily lowers the hot threshol...
+2026-03-11 13:47:11 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Add a "folio recency boost" mechanism that temporarily lowers the hot threshol...
+2026-03-11 13:47:11 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1189.3365', '1450.7115', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 13:47:11 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 13:47:11 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 13:47:26 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:47:27 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0490
+2026-03-11 13:47:27 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_23/main.c, Patches Applied: 2.
+2026-03-11 13:47:27 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:47:27 - shinka.launch.local - INFO - Submitted local process with PID: 37589
+2026-03-11 13:47:27 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_23/main.c --results_dir results/eviction_evo/gen_23/results
+2026-03-11 13:47:27 - shinka.core.runner - INFO - Submitted job for generation 23, queue size: 2 (cost: $1.8854, 37.7%)
+2026-03-11 13:53:30 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 37430) completed!
+2026-03-11 13:53:30 - shinka.launch.local - INFO - Monitoring local process with PID: 37430...
+2026-03-11 13:53:30 - shinka.launch.local - INFO - Process 37430 completed with return code: 0
+2026-03-11 13:53:31 - shinka.database.dbase - INFO - Program a1344078-2a7b-419d-a2fe-9f96b3575ade added to DB - score: 1654.0812364268545.
+2026-03-11 13:53:31 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 13:53:32 - shinka.core.summarizer - INFO - Added program a1344078-2a7b-419d-a2fe-9f96b3575ade to meta memory tracking (correct=True, total: 3)
+2026-03-11 13:53:32 - shinka.database.dbase - INFO - Database state committed. Last iteration: 22. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 13:53:32 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 3 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 4 items
+2026-03-11 13:53:32 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 23/50 (cost: $2.0533, 41.1%)
+2026-03-11 13:53:32 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.0051996521670599994, 0.017959965745272685, 0.04423861226932784, 0.03852959752510897, 0.054591000508964746, 0.03538809199767878, 9.40717264671736e-14, 2.3064342642309475e-14, 1.9024190050284755e-17, 3.6813906434983865e-21, 2.950596186629935e-11, 0.08847342063180322, 0.058984915368261656, 0.04297495706276016, 0.17691703558721916, 0.17656066934863296, 3.088079393362514e-18, 2.535308934317607e-07, 0.08847743731888576, 0.17170438642650013, 4.482007361142309e-09]
+2026-03-11 13:53:32 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803, 2004.4424094559915, 1654.0812364268545]
+2026-03-11 13:53:32 - shinka.database.parents - INFO - Sampled parent 5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Children: 1, Island: 0)
+2026-03-11 13:53:32 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', '557e7b4a-2df6-41e7-9d00-5fe40644ec81 (Gen: 10, Score: 1332.1307, Island: 0)', 'b951d617-c3f8-45c9-9a5f-409880c17c08 (Gen: 18, Score: 1301.7661, Island: 0)']
+2026-03-11 13:53:32 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 13:53:32 - shinka.core.runner - INFO - Edit Cycle 24 -> 25, Max Patch Attempts: 5
+2026-03-11 13:53:32 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 13:53:32 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:53:32 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Extend the session activity tracking to distinguish between "active burst" (hi...
+2026-03-11 13:53:32 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1301.7661', '1332.1307', '2103.4422', '2162.2734', '2182.2679'])
+2026-03-11 13:53:32 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   1.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   0.0000
+2026-03-11 13:53:32 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 13:54:32 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 13:54:32 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.1780
+2026-03-11 13:54:33 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_24/main.c, Patches Applied: 9.
+2026-03-11 13:54:33 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 13:54:33 - shinka.launch.local - INFO - Submitted local process with PID: 38960
+2026-03-11 13:54:33 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_24/main.c --results_dir results/eviction_evo/gen_24/results
+2026-03-11 13:54:33 - shinka.core.runner - INFO - Submitted job for generation 24, queue size: 2 (cost: $2.0533, 41.1%)
+2026-03-11 14:00:05 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 37589) completed!
+2026-03-11 14:00:05 - shinka.launch.local - INFO - Monitoring local process with PID: 37589...
+2026-03-11 14:00:05 - shinka.launch.local - INFO - Process 37589 completed with return code: 0
+2026-03-11 14:00:06 - shinka.database.dbase - INFO - Program 9e1ffa1f-bb6d-4d4a-809c-8690cf213a1c added to DB - score: 1366.6383511070103.
+2026-03-11 14:00:06 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 14:00:06 - shinka.core.summarizer - INFO - Added program 9e1ffa1f-bb6d-4d4a-809c-8690cf213a1c to meta memory tracking (correct=True, total: 4)
+2026-03-11 14:00:06 - shinka.database.dbase - INFO - Database state committed. Last iteration: 23. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 14:00:06 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 4 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 4 items
+2026-03-11 14:00:06 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 24/50 (cost: $2.1023, 42.0%)
+2026-03-11 14:00:06 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.010228812628125802, 0.025993629338853862, 0.04721969265702454, 0.04149257306177414, 0.058186762107830185, 0.037767521958689626, 9.187525978686641e-12, 2.7709728790292976e-12, 6.5062394317250525e-15, 4.437520690945358e-18, 1.2354647876148483e-09, 0.09442730493897654, 0.06296004842040342, 0.045633709726067236, 0.1887823167416843, 0.09407739406739614, 1.3805495936964979e-15, 2.794506120523979e-06, 0.11090003147984308, 0.18232731758972862, 8.953001302918975e-08, 3.788532231380631e-14]
+2026-03-11 14:00:06 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803, 2004.4424094559915, 1654.0812364268545, 1366.6383511070103]
+2026-03-11 14:00:06 - shinka.database.parents - INFO - Sampled parent 7e0c3e79-219c-4d71-b994-0b045bca0f7c (Gen: 16, Score: 2087.3222, Children: 0, Island: 0)
+2026-03-11 14:00:06 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', '61cff6ef-0034-439d-8328-38a8dcae515c (Gen: 12, Score: 1570.1895, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 14:00:06 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 14:00:06 - shinka.core.runner - INFO - Edit Cycle 25 -> 26, Max Patch Attempts: 5
+2026-03-11 14:00:06 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 14:00:06 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 14:00:06 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 14:00:06 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1570.1895', '2103.4422', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 14:00:06 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   1.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   0.0000
+2026-03-11 14:00:06 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 14:00:35 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:00:35 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.1409
+2026-03-11 14:00:35 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_25/main.c, Patches Applied: 1.
+2026-03-11 14:00:35 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 14:00:35 - shinka.launch.local - INFO - Submitted local process with PID: 39639
+2026-03-11 14:00:35 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_25/main.c --results_dir results/eviction_evo/gen_25/results
+2026-03-11 14:00:35 - shinka.core.runner - INFO - Submitted job for generation 25, queue size: 2 (cost: $2.1023, 42.0%)
+2026-03-11 14:06:36 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 38960) completed!
+2026-03-11 14:06:36 - shinka.launch.local - INFO - Monitoring local process with PID: 38960...
+2026-03-11 14:06:36 - shinka.launch.local - INFO - Process 38960 completed with return code: 0
+2026-03-11 14:06:37 - shinka.database.dbase - INFO - Program 1ca57a24-0410-46ef-8e26-6d32af9d079f added to DB - score: 1375.7279876693906.
+2026-03-11 14:06:37 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 14:06:37 - shinka.core.summarizer - INFO - Added program 1ca57a24-0410-46ef-8e26-6d32af9d079f to meta memory tracking (correct=True, total: 5)
+2026-03-11 14:06:37 - shinka.core.runner - INFO - Updating meta memory after processing 5 programs...
+2026-03-11 14:06:37 - shinka.core.summarizer - INFO - ==> Step 1 - Processing 5 programs with batch query
+2026-03-11 14:06:37 - shinka.llm.llm - INFO - ==> SAMPLING 5 SAMPLES:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 14:06:37 - shinka.llm.llm - INFO - ==> SAMPLING: 1/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 14:06:37 - shinka.llm.llm - INFO - ==> SAMPLING: 4/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 14:06:37 - shinka.llm.llm - INFO - ==> SAMPLING: 5/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 14:06:37 - shinka.llm.llm - INFO - ==> SAMPLING: 3/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 14:06:37 - shinka.llm.llm - INFO - ==> SAMPLING: 2/5 ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 14:06:42 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:06:42 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:06:42 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:06:42 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:06:43 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:06:43 - shinka.llm.llm - INFO - ==> SAMPLING: Individual API costs: ['0.0089', '0.0080', '0.0080', '0.0083', '0.0087']
+2026-03-11 14:06:43 - shinka.llm.llm - INFO - ==> SAMPLING: Total API costs: $0.0419
+2026-03-11 14:06:43 - shinka.core.summarizer - INFO - ==> Step 1 - 5/5 individual summaries generated (cost: $0.0419)
+2026-03-11 14:06:43 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 14:06:43 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 14:07:41 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:07:41 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0484
+2026-03-11 14:07:41 - shinka.core.summarizer - INFO - ==> Step 2 - Global insights generated (cost: $0.0484)
+2026-03-11 14:07:41 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 14:07:41 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '0', '16384']
+2026-03-11 14:07:54 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:07:54 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0195
+2026-03-11 14:07:54 - shinka.core.summarizer - INFO - ==> Step 3 - Recommendations generated (cost: $0.0195)
+2026-03-11 14:07:54 - shinka.core.summarizer - INFO - ==> Meta-analysis completed successfully with 3-step process (total cost: $0.1098)
+2026-03-11 14:07:54 - shinka.core.summarizer - INFO - Processed and cleared 5 programs from meta memory (total processed: 25)
+2026-03-11 14:07:54 - shinka.core.summarizer - INFO - Wrote meta output to results/eviction_evo/meta/meta_25.txt
+2026-03-11 14:07:54 - shinka.core.runner - INFO - Meta recommendation generation cost: $0.1098
+2026-03-11 14:07:55 - shinka.database.dbase - INFO - Database state committed. Last iteration: 24. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 14:07:55 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 0 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 5 items
+2026-03-11 14:07:55 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 25/50 (cost: $2.3900, 47.8%)
+2026-03-11 14:07:55 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.014710098412074145, 0.03167407736782549, 0.04751023733186849, 0.04262399656487759, 0.059164026275438944, 0.03799746054957664, 6.988058684001617e-11, 2.2959626756024408e-11, 8.3066485666141e-14, 9.535413677028964e-17, 6.621842720700779e-09, 0.06333616023801804, 0.06334770067510316, 0.046043917173019464, 0.1899217599351182, 0.09463061425084189, 1.9689188400346907e-14, 8.627613633691742e-06, 0.1250338210425083, 0.18399714244272436, 3.534115030703998e-07, 4.2650750507455877e-13, 6.562651098564185e-13]
+2026-03-11 14:07:55 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803, 2004.4424094559915, 1654.0812364268545, 1366.6383511070103, 1375.7279876693906]
+2026-03-11 14:07:55 - shinka.database.parents - INFO - Sampled parent 7e0c3e79-219c-4d71-b994-0b045bca0f7c (Gen: 16, Score: 2087.3222, Children: 0, Island: 0)
+2026-03-11 14:07:55 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', 'b951d617-c3f8-45c9-9a5f-409880c17c08 (Gen: 18, Score: 1301.7661, Island: 0)', '844e9292-3931-4e59-ae34-1277896e7410 (Gen: 0, Score: 1907.1796, Island: 0)']
+2026-03-11 14:07:56 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 14:07:56 - shinka.core.runner - INFO - Edit Cycle 26 -> 27, Max Patch Attempts: 5
+2026-03-11 14:07:56 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 14:07:56 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Add a "folio recency boost" mechanism that temporarily lowers the hot threshol...
+2026-03-11 14:07:56 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Add a "folio recency boost" mechanism that temporarily lowers the hot threshol...
+2026-03-11 14:07:56 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1301.7661', '1907.1796', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 14:07:56 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 14:07:56 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 14:08:24 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:08:24 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0577
+2026-03-11 14:08:24 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_26/main.c, Patches Applied: 4.
+2026-03-11 14:08:24 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 14:08:24 - shinka.launch.local - INFO - Submitted local process with PID: 40894
+2026-03-11 14:08:24 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_26/main.c --results_dir results/eviction_evo/gen_26/results
+2026-03-11 14:08:24 - shinka.core.runner - INFO - Submitted job for generation 26, queue size: 2 (cost: $2.3900, 47.8%)
+2026-03-11 14:12:59 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 39639) completed!
+2026-03-11 14:12:59 - shinka.launch.local - INFO - Monitoring local process with PID: 39639...
+2026-03-11 14:12:59 - shinka.launch.local - INFO - Process 39639 completed with return code: 0
+2026-03-11 14:13:00 - shinka.database.dbase - INFO - Program d65c4bdf-38ae-4d5c-9ac7-b398c4d1447e added to DB - score: 1048.4192638802247.
+2026-03-11 14:13:00 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 14:13:00 - shinka.core.summarizer - INFO - Added program d65c4bdf-38ae-4d5c-9ac7-b398c4d1447e to meta memory tracking (correct=True, total: 1)
+2026-03-11 14:13:00 - shinka.database.dbase - INFO - Database state committed. Last iteration: 25. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 14:13:00 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 1 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 5 items
+2026-03-11 14:13:00 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 26/50 (cost: $2.5309, 50.6%)
+2026-03-11 14:13:00 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.02408235745322024, 0.0426796465711674, 0.050070668377143586, 0.04675184392674417, 0.06390446736976171, 0.04004756950141085, 3.319521740420234e-10, 1.1440768805666256e-10, 5.270229209999694e-13, 8.092433438504542e-16, 2.586795218044495e-08, 0.0667516945989545, 0.06676155481122434, 0.04904883125478446, 0.1000929761801588, 0.09984784920310869, 1.328912327693099e-13, 2.476229433563112e-05, 0.15385960077401073, 0.1960749876661027, 1.1636965673095614e-06, 2.5223190580395275e-12, 3.809874620376179e-12, 1.3530530590217592e-18]
+2026-03-11 14:13:00 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803, 2004.4424094559915, 1654.0812364268545, 1366.6383511070103, 1375.7279876693906, 1048.4192638802247]
+2026-03-11 14:13:00 - shinka.database.parents - INFO - Sampled parent 5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Children: 2, Island: 0)
+2026-03-11 14:13:00 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', 'f601ec87-4e48-487d-844d-0cf111e06cf2 (Gen: 20, Score: 1946.1994, Island: 0)', 'b999184c-f2aa-4d91-a8eb-548e21b96cc8 (Gen: 1, Score: 1932.4040, Island: 0)']
+2026-03-11 14:13:00 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 14:13:00 - shinka.core.runner - INFO - Edit Cycle 27 -> 28, Max Patch Attempts: 5
+2026-03-11 14:13:00 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 14:13:00 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 14:13:00 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 14:13:00 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1932.4040', '1946.1994', '2103.4422', '2162.2734', '2182.2679'])
+2026-03-11 14:13:00 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   1.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   0.0000
+2026-03-11 14:13:00 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 8192}"]
+2026-03-11 14:13:52 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:13:52 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.1783
+2026-03-11 14:13:52 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_27/main.c, Patches Applied: 1.
+2026-03-11 14:13:52 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 14:13:52 - shinka.launch.local - INFO - Submitted local process with PID: 41926
+2026-03-11 14:13:52 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_27/main.c --results_dir results/eviction_evo/gen_27/results
+2026-03-11 14:13:53 - shinka.core.runner - INFO - Submitted job for generation 27, queue size: 2 (cost: $2.5309, 50.6%)
+2026-03-11 14:19:19 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 40894) completed!
+2026-03-11 14:19:19 - shinka.launch.local - INFO - Monitoring local process with PID: 40894...
+2026-03-11 14:19:19 - shinka.launch.local - INFO - Process 40894 completed with return code: 0
+2026-03-11 14:19:20 - shinka.database.dbase - INFO - Program a859ecff-ba16-433e-9ccc-a48416973540 added to DB - score: 1469.5698297572744.
+2026-03-11 14:19:20 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 14:19:20 - shinka.core.summarizer - INFO - Added program a859ecff-ba16-433e-9ccc-a48416973540 to meta memory tracking (correct=True, total: 2)
+2026-03-11 14:19:20 - shinka.database.dbase - INFO - Database state committed. Last iteration: 26. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 14:19:20 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 2 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 5 items
+2026-03-11 14:19:20 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 27/50 (cost: $2.5886, 51.8%)
+2026-03-11 14:19:20 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.033587964650688217, 0.0490648809901734, 0.050379833132219186, 0.04749813575866219, 0.06455570842957313, 0.040288279854891224, 7.491970215023819e-09, 2.963089912858964e-09, 2.735292725213796e-11, 9.700209767140446e-14, 3.325691660677247e-07, 0.06715634787673488, 0.06717465011587848, 0.049351186814308695, 0.06712150722603767, 0.10038130787243246, 8.240876353312993e-12, 0.0001310799106398689, 0.1660002924522751, 0.19729932642123793, 9.148932055163707e-06, 1.069360847206928e-10, 1.5314203295432487e-10, 3.7048106673222334e-16, 6.242196814717405e-09]
+2026-03-11 14:19:20 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803, 2004.4424094559915, 1654.0812364268545, 1366.6383511070103, 1375.7279876693906, 1048.4192638802247, 1469.5698297572744]
+2026-03-11 14:19:20 - shinka.database.parents - INFO - Sampled parent f601ec87-4e48-487d-844d-0cf111e06cf2 (Gen: 20, Score: 1946.1994, Children: 0, Island: 0)
+2026-03-11 14:19:20 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', 'd754d943-95b2-451c-82b0-c2753d435ad8 (Gen: 6, Score: 1988.2792, Island: 0)', '90a8aea4-8d51-4ff0-bb6e-c13acf76251f (Gen: 19, Score: 1721.4757, Island: 0)']
+2026-03-11 14:19:20 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 14:19:20 - shinka.core.runner - INFO - Edit Cycle 28 -> 29, Max Patch Attempts: 5
+2026-03-11 14:19:20 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 14:19:20 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement a "working set stability score" that samples 50 folios within the ad...
+2026-03-11 14:19:20 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement a "working set stability score" that samples 50 folios within the ad...
+2026-03-11 14:19:20 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1721.4757', '1988.2792', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 14:19:20 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 14:19:20 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 2048}"]
+2026-03-11 14:20:04 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:20:04 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0725
+2026-03-11 14:20:04 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_28/main.c, Patches Applied: 6.
+2026-03-11 14:20:04 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 14:20:04 - shinka.launch.local - INFO - Submitted local process with PID: 42782
+2026-03-11 14:20:04 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_28/main.c --results_dir results/eviction_evo/gen_28/results
+2026-03-11 14:20:04 - shinka.core.runner - INFO - Submitted job for generation 28, queue size: 2 (cost: $2.5886, 51.8%)
+2026-03-11 14:25:39 - shinka.core.runner - INFO - Job ProcessWithLogging(PID: 41926) completed!
+2026-03-11 14:25:39 - shinka.launch.local - INFO - Monitoring local process with PID: 41926...
+2026-03-11 14:25:39 - shinka.launch.local - INFO - Process 41926 completed with return code: 0
+2026-03-11 14:25:40 - shinka.database.dbase - INFO - Program 7e9fb080-edfd-4380-a8a8-0a842e2010fc added to DB - score: 1845.433108748572.
+2026-03-11 14:25:40 - shinka.database.dbase - INFO - Not enough programs with embeddings (0) to perform clustering. Need at least 4.
+2026-03-11 14:25:40 - shinka.core.summarizer - INFO - Added program 7e9fb080-edfd-4380-a8a8-0a842e2010fc to meta memory tracking (correct=True, total: 3)
+2026-03-11 14:25:40 - shinka.database.dbase - INFO - Database state committed. Last iteration: 27. Best: 10394c60-414c-4f23-bff0-cf4d49304b85
+2026-03-11 14:25:40 - shinka.core.summarizer - INFO - Saved meta state to results/eviction_evo/meta_memory.json: 3 unprocessed programs, summary: Yes, scratchpad: Yes, recommendations: Yes, history: 5 items
+2026-03-11 14:25:40 - shinka.core.runner - INFO - Processed 1 jobs. Total completed generations: 28/50 (cost: $2.7669, 55.3%)
+2026-03-11 14:25:40 - shinka.database.parents - INFO - Island 0 => Probabilities: [0.04862402892902582, 0.05644552084101162, 0.04610660537053669, 0.045540244541129045, 0.060986741374891754, 0.03688338133237179, 5.481978011236795e-09, 1.9928953815120672e-09, 1.2019168428807058e-11, 2.5528985029548375e-14, 3.434705584467014e-07, 0.04610511404536038, 0.06147563142438887, 0.04592840775922018, 0.06146884692337547, 0.09215765154991921, 3.2471706195317236e-12, 0.00023288137392161464, 0.17578330901872363, 0.18369335769391912, 1.276897410299508e-05, 5.3185441638396585e-11, 7.869257723449309e-11, 5.879312094207769e-17, 4.492391137489009e-09, 0.03855515326310895]
+2026-03-11 14:25:40 - shinka.database.parents - INFO - Island 0 => Scores: [1907.1796358648742, 1932.4039631764674, 2162.273418415946, 1978.0871191537085, 1988.2791949597322, 2103.442201258269, 1474.1888664643054, 1450.7114787213304, 1332.1307188005094, 1189.336493786366, 1570.189536362509, 2113.206727544399, 2182.267924804025, 2005.0949344772616, 2087.3221667533894, 2048.1498159395087, 1301.7660770772848, 1721.4756512687513, 1946.1993765666803, 2004.4424094559915, 1654.0812364268545, 1366.6383511070103, 1375.7279876693906, 1048.4192638802247, 1469.5698297572744, 1845.433108748572]
+2026-03-11 14:25:40 - shinka.database.parents - INFO - Sampled parent 7e0c3e79-219c-4d71-b994-0b045bca0f7c (Gen: 16, Score: 2087.3222, Children: 2, Island: 0)
+2026-03-11 14:25:40 - shinka.database.inspirations - INFO - Sampled 3 archive inspirations: ['10394c60-414c-4f23-bff0-cf4d49304b85 (Gen: 14, Score: 2182.2679, Island: 0)', '90a8aea4-8d51-4ff0-bb6e-c13acf76251f (Gen: 19, Score: 1721.4757, Island: 0)', '5845f829-c112-484b-ba13-49c0f812da40 (Gen: 13, Score: 2113.2067, Island: 0)']
+2026-03-11 14:25:40 - shinka.database.inspirations - INFO - Selected 2 top-k inspirations from archive on island 0: ['db6e0807-5b53-4178-b5d3-c849f40fefc8 (Gen: 3, Score: 2162.2734, Island: 0)', '2b26ddf7-0f15-43eb-81a0-b980149e1db6 (Gen: 7, Score: 2103.4422, Island: 0)']
+2026-03-11 14:25:40 - shinka.core.runner - INFO - Edit Cycle 29 -> 30, Max Patch Attempts: 5
+2026-03-11 14:25:40 - shinka.core.summarizer - INFO - get_sampled_recommendation called, meta_recommendations exists: True
+2026-03-11 14:25:40 - shinka.core.summarizer - INFO - Sampled 1 recommendation from 5 total: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 14:25:40 - shinka.core.sampler - INFO - Added meta recommendation to system prompt: **Implement adaptive jitter threshold scaling based on RTT percentile (scale 2ms...
+2026-03-11 14:25:40 - shinka.database.inspirations - INFO - Built context: 5 programs (ascending, scores: ['1721.4757', '2103.4422', '2113.2067', '2162.2734', '2182.2679'])
+2026-03-11 14:25:40 - shinka.llm.llm - INFO - ==> SAMPLING:
+  us.anthropic.claude-sonnet-4-5-20250929-v1:0   0.0000
+  us.anthropic.claude-haiku-4-5-20251001-v1:0   1.0000
+2026-03-11 14:25:40 - shinka.llm.llm - INFO - ==> QUERYING: ['us.anthropic.claude-haiku-4-5-20251001-v1:0', '1.0', '32768', "{'type': 'enabled', 'budget_tokens': 4096}"]
+2026-03-11 14:26:04 - httpx - INFO - HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-03-11 14:26:04 - shinka.llm.llm - INFO - ==> QUERY: API cost: $0.0558
+2026-03-11 14:26:04 - shinka.core.runner - INFO -   PATCH ATTEMPT 1/5 SUCCESS. Output: results/eviction_evo/gen_29/main.c, Patches Applied: 5.
+2026-03-11 14:26:04 - shinka.core.novelty_judge - INFO - NOVELTY CHECK: Skipping rejection sampling - no embedding
+2026-03-11 14:26:04 - shinka.launch.local - INFO - Submitted local process with PID: 43560
+2026-03-11 14:26:04 - shinka.launch.local - INFO - Launched local command: python evaluate.py --program_path results/eviction_evo/gen_29/main.c --results_dir results/eviction_evo/gen_29/results
+2026-03-11 14:26:05 - shinka.core.runner - INFO - Submitted job for generation 29, queue size: 2 (cost: $2.7669, 55.3%)

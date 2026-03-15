@@ -1,0 +1,53 @@
+<NAME>
+folio_size_aware_eviction
+</NAME>
+
+<DESCRIPTION>
+The current program regressed from the best prior implementation (2162.27 → 2103.44), particularly on the small_vs_large workload (1645.52 → 1613.83). The recommendation to add size-based score decay aligns with this observation: the dual-client small_vs_large workload has asymmetric value—200B reads are cheaper to evict than 4KB values, yet the current policy treats all folios equally for recency-based protection.
+
+By introducing folio-size awareness to the eviction decision, we can:
+1. **Increase eviction pressure on small folios** (< 4KB / 1 page): reduce their protected time window by ~10-15%, making them more evictable. This frees cache space for larger, more valuable entries.
+2. **Decrease eviction pressure on large folios** (> 64KB / 16+ pages): extend their protected time window by ~10-15%, keeping large working-set entries in cache longer since they're more expensive to reload.
+3. **Maintain stability on the congested workload** by applying size adjustments uniformly across network conditions.
+
+This is orthogonal to the adaptive-window and network-pressure logic already in place, and requires only adding a size lookup and window scaling factor in the eviction callback.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+=======
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+
+    // -- Size-based eviction adjustment ---------------------------------------
+    // Small folios (<4KB, single page) are more evictable; large folios (>64KB) are protected
+    u32 folio_pages = folio_nr_pages(node->folio);
+    if (folio_pages == 1) {
+        // Small folio: reduce protection window by ~13% to favor eviction
+        adapted_recent = (adapted_recent * 7) >> 3;      // 0.875x multiplier
+        adapted_working_set = (adapted_working_set * 7) >> 3;
+    } else if (folio_pages > 16) {
+        // Large folio (>64KB): extend protection window by ~11% to retain longer
+        adapted_recent = (adapted_recent * 9) >> 3;      // 1.125x multiplier
+        adapted_working_set = (adapted_working_set * 9) >> 3;
+    }
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+>>>>>>> REPLACE
+</DIFF>

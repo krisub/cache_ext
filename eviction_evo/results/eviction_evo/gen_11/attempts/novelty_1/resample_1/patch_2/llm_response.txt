@@ -1,0 +1,225 @@
+<NAME>
+packet_velocity_burst_detection
+</NAME>
+
+<DESCRIPTION>
+The current program lacks sustained burst detection, which is a missed opportunity for network-aware adaptation. The best performing program (score 2162.27) used burst detection based on inter-arrival time, but this only captures instantaneous spikes.
+
+The recommendation suggests adding a complementary **packet count velocity** metric within the EVOLVE-BLOCK: tracking how many tcp_recvmsg calls occur within a 100ms sliding window. This distinguishes:
+- **Transient spikes**: high frequency packets in a short window (inter-arrival < 10ms)
+- **Sustained bursts**: consistently high packet rate over 100ms (net_recv_count increasing by 15+ packets)
+
+During sustained bursts, protecting the working set becomes critical for P99 latency. By adding packet velocity detection and applying stronger protection to recently-accessed folios (age < 500ms) during sustained bursts, we can better protect the active working set during congested scenarios while remaining aggressive during idle periods.
+
+This should improve the dual_congested trace (where 2ms network delays cause sustained bursts) while maintaining or improving the dual_small_vs_large trace.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// EVOLVE-BLOCK-START
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+
+// =============================================================================
+// EVICTION POLICY — everything below is evolved by ShinkaEvolve
+// =============================================================================
+
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      30000000ULL    // 30 ms baseline (more aggressive)
+#define BASE_WORKING_SET_NS 300000000ULL   // 300 ms baseline (more aggressive)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+=======
+// EVOLVE-BLOCK-START
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+// -- Packet velocity tracking for sustained burst detection --------------------
+static u64 burst_window_start_ts = 0;     // timestamp of start of 100ms burst window
+static u64 burst_window_recv_count = 0;   // packet count at window start
+
+
+// =============================================================================
+// EVICTION POLICY — everything below is evolved by ShinkaEvolve
+// =============================================================================
+
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      30000000ULL    // 30 ms baseline (more aggressive)
+#define BASE_WORKING_SET_NS 300000000ULL   // 300 ms baseline (more aggressive)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+// Burst detection thresholds
+#define BURST_INTER_ARRIVAL_NS 10000000ULL // 10 ms inter-arrival = transient burst
+#define BURST_VELOCITY_WINDOW_NS 100000000ULL // 100 ms window for velocity detection
+#define BURST_VELOCITY_THRESHOLD 15        // packets per 100ms = sustained burst
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
+{
+    u64 adapted = base_ns;
+
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 20;  // Reduce RTT scaling impact
+
+    // If network is under pressure (loss, retrans, high jitter), increase window modestly
+    if (under_pressure) {
+        adapted = (adapted * 5) >> 2;  // 1.25x multiplier (was 1.5x)
+    }
+
+    return adapted;
+}
+=======
+// -- Helper: detect sustained burst using packet velocity -----
+static __always_inline bool is_sustained_burst(void)
+{
+    u64 now = bpf_ktime_get_ns();
+    
+    // Initialize burst window on first call
+    if (burst_window_start_ts == 0) {
+        burst_window_start_ts = now;
+        burst_window_recv_count = net_recv_count;
+        return false;
+    }
+    
+    // Check if we're still within the 100ms window
+    u64 window_age = (now > burst_window_start_ts) ? 
+                     (now - burst_window_start_ts) : 0;
+    
+    if (window_age > BURST_VELOCITY_WINDOW_NS) {
+        // Window expired; reset and check if we had velocity
+        u64 packets_in_window = (net_recv_count >= burst_window_recv_count) ?
+                                (net_recv_count - burst_window_recv_count) : 0;
+        
+        // Start new window
+        burst_window_start_ts = now;
+        burst_window_recv_count = net_recv_count;
+        
+        // Sustained burst: more than BURST_VELOCITY_THRESHOLD packets in last window
+        return (packets_in_window > BURST_VELOCITY_THRESHOLD);
+    }
+    
+    // Still within window; report if we're already above threshold
+    u64 packets_so_far = (net_recv_count >= burst_window_recv_count) ?
+                         (net_recv_count - burst_window_recv_count) : 0;
+    return (packets_so_far > BURST_VELOCITY_THRESHOLD);
+}
+
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
+{
+    u64 adapted = base_ns;
+
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 20;  // Reduce RTT scaling impact
+
+    // If network is under pressure (loss, retrans, high jitter), increase window modestly
+    if (under_pressure) {
+        adapted = (adapted * 5) >> 2;  // 1.25x multiplier (was 1.5x)
+    }
+
+    return adapted;
+}
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    // Receive window saturation: indicates receiver-side backpressure
+    // 64KB is a typical minimal buffer; below this = receiver can't accept more data
+    bool rcv_wnd_pressure = (net_rcv_wnd > 0) && (net_rcv_wnd < 65536);
+
+    // Network is under pressure if any of: loss, cwnd pressure, high jitter, rcv_wnd saturation
+    bool net_under_pressure = has_loss || cwnd_pressure || high_jitter || rcv_wnd_pressure;
+
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+=======
+    // Receive window saturation: indicates receiver-side backpressure
+    // 64KB is a typical minimal buffer; below this = receiver can't accept more data
+    bool rcv_wnd_pressure = (net_rcv_wnd > 0) && (net_rcv_wnd < 65536);
+
+    // Network is under pressure if any of: loss, cwnd pressure, high jitter, rcv_wnd saturation
+    bool net_under_pressure = has_loss || cwnd_pressure || high_jitter || rcv_wnd_pressure;
+
+    // -- Burst detection (inter-arrival + velocity) ----------------------------
+    u64 inter_arrival = (net_prev_packet_ts > 0 && last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : (~0ULL);
+    bool is_transient_burst = (inter_arrival < BURST_INTER_ARRIVAL_NS);
+    bool is_sustained_burst_active = is_sustained_burst();
+
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+
+    // -- Network-aware heuristics with burst protection ------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Enhanced burst protection: sustained bursts require stronger working set protection
+    // Apply additional protection to folios accessed within 500ms during sustained burst
+    if (is_sustained_burst_active && session_active) {
+        u64 age_for_burst_check = (now > meta->last_access_ts) ? 
+                                  (now - meta->last_access_ts) : 0;
+        u64 burst_protect_window = 500000000ULL;  // 500ms window for burst protection
+        if (age_for_burst_check < burst_protect_window) {
+            return CACHE_EXT_CONTINUE_ITER;
+        }
+    }
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+>>>>>>> REPLACE
+</DIFF>

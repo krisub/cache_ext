@@ -1,0 +1,263 @@
+<NAME>
+sustained_burst_detection
+</NAME>
+
+<DESCRIPTION>
+The current burst detection relies solely on inter-arrival time (< 10ms) to identify request bursts. However, this can miss sustained high-frequency workloads where requests don't have consistent sub-10ms spacing but maintain steady high packet rates.
+
+This change adds a secondary burst signal based on packet count velocity: track the previous net_recv_count value and check if more than 15 packets arrive within a 100ms window. During sustained bursts, we apply stronger protection to folios accessed within the last 500ms by reducing their eviction scores further (0.4x multiplier instead of current implicit protection).
+
+This complements the existing inter-arrival based burst detection and helps distinguish between transient spikes and sustained load, improving throughput during congested scenarios while maintaining good performance on asymmetric workloads.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+// -- Companion map: track survival count for each folio (survivor promotion) ---
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, u64);          // (u64)folio pointer
+    __type(value, u32);        // survival_count: how many scans this folio survived
+    __uint(max_entries, 100000);
+} folio_survival_map SEC(".maps");
+=======
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+// -- Companion map: track survival count for each folio (survivor promotion) ---
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, u64);          // (u64)folio pointer
+    __type(value, u32);        // survival_count: how many scans this folio survived
+    __uint(max_entries, 100000);
+} folio_survival_map SEC(".maps");
+
+// -- Burst velocity tracking: detect sustained high-frequency load ----------
+// Key: always 0 (single entry per eviction context)
+// Value: { prev_net_recv_count, last_check_ts }
+struct burst_velocity_state {
+    u64 prev_net_recv_count;
+    u64 last_check_ts;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, u32);
+    __type(value, struct burst_velocity_state);
+    __uint(max_entries, 1);
+} burst_velocity_map SEC(".maps");
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Survivor tier promotion: folios that survive this many scans are promoted
+#define SURVIVOR_SURVIVAL_THRESHOLD 3
+=======
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Sustained burst detection: packet velocity window and threshold
+#define BURST_VELOCITY_WINDOW_NS 100000000ULL  // 100 ms sliding window
+#define BURST_VELOCITY_THRESHOLD 15        // packets in window to classify as sustained burst
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Survivor tier promotion: folios that survive this many scans are promoted
+#define SURVIVOR_SURVIVAL_THRESHOLD 3
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Burst detection: short inter-arrival time = burst of requests
+    u64 inter_arrival = (net_prev_packet_ts > 0 && last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : (~0ULL);
+    bool is_burst = (inter_arrival < BURST_THRESHOLD_NS);
+
+    // Session activity
+    bool session_active = (now > last_packet_ts) &&
+                         ((now - last_packet_ts) < NET_IDLE_TIMEOUT_NS);
+=======
+    // Burst detection: short inter-arrival time = burst of requests
+    u64 inter_arrival = (net_prev_packet_ts > 0 && last_packet_ts > net_prev_packet_ts) ?
+                        (last_packet_ts - net_prev_packet_ts) : (~0ULL);
+    bool is_burst = (inter_arrival < BURST_THRESHOLD_NS);
+
+    // Sustained burst detection: check packet velocity over sliding window
+    bool is_sustained_burst = false;
+    u32 burst_state_key = 0;
+    struct burst_velocity_state *burst_state = bpf_map_lookup_elem(&burst_velocity_map, &burst_state_key);
+    if (burst_state) {
+        u64 elapsed_since_check = (now > burst_state->last_check_ts) ? 
+                                  (now - burst_state->last_check_ts) : 0;
+        if (elapsed_since_check > BURST_VELOCITY_WINDOW_NS) {
+            // Time to check packet velocity
+            u64 packet_delta = (net_recv_count > burst_state->prev_net_recv_count) ?
+                             (net_recv_count - burst_state->prev_net_recv_count) : 0;
+            is_sustained_burst = (packet_delta > BURST_VELOCITY_THRESHOLD);
+        } else if (elapsed_since_check > 0) {
+            // Within window: re-use previous sustained burst classification
+            // (implicitly: if was marked sustained before, stay sustained until next window)
+            // For now, we recompute on every call to stay conservative
+            u64 packet_delta = (net_recv_count > burst_state->prev_net_recv_count) ?
+                             (net_recv_count - burst_state->prev_net_recv_count) : 0;
+            is_sustained_burst = (packet_delta > BURST_VELOCITY_THRESHOLD);
+        }
+    }
+
+    // Session activity
+    bool session_active = (now > last_packet_ts) &&
+                         ((now - last_packet_ts) < NET_IDLE_TIMEOUT_NS);
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Factor 6: Burst protection
+    // During bursts, further reduce scores for recently accessed folios
+    if (is_burst && session_active && age < 1000000000ULL) {
+        score = score >> 1;  // 0.5x multiplier for folios accessed in last 1s
+    }
+=======
+    // Factor 6: Burst protection
+    // During bursts, further reduce scores for recently accessed folios
+    if (is_burst && session_active && age < 1000000000ULL) {
+        score = score >> 1;  // 0.5x multiplier for folios accessed in last 1s
+    }
+
+    // Factor 7: Sustained burst protection (packet velocity based)
+    // During sustained high-frequency load, protect recently accessed folios more aggressively
+    if (is_sustained_burst && session_active && age < 500000000ULL) {
+        // Apply 0.4x multiplier for folios accessed in last 500ms during sustained bursts
+        score = (score * 2) / 5;  // 0.4x multiplier
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // -- Dynamic eviction threshold -------------------------------------------
+
+    u32 evict_threshold = 60;  // Base threshold
+
+    // Adjust threshold based on network conditions
+    if (net_under_pressure) {
+        evict_threshold = 70;  // Higher threshold = more protective (evict only high-score folios)
+    } else if (!session_active) {
+        evict_threshold = 40;  // Lower threshold = more aggressive when session idle
+    }
+
+    // During bursts, increase threshold slightly (protect working set)
+    if (is_burst && session_active) {
+        evict_threshold += 10;
+    }
+
+    // For sustained bursts, apply stronger protection
+    if (current_sustained_burst && session_active) {
+        evict_threshold += 15;  // Additional protection for sustained high-frequency load
+    }
+
+    // -- Final decision -------------------------------------------------------
+
+    // Evict if score exceeds threshold
+    if (score >= evict_threshold) {
+        return CACHE_EXT_EVICT_NODE;
+    }
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+=======
+    // -- Dynamic eviction threshold -------------------------------------------
+
+    u32 evict_threshold = 60;  // Base threshold
+
+    // Adjust threshold based on network conditions
+    if (net_under_pressure) {
+        evict_threshold = 70;  // Higher threshold = more protective (evict only high-score folios)
+    } else if (!session_active) {
+        evict_threshold = 40;  // Lower threshold = more aggressive when session idle
+    }
+
+    // During bursts, increase threshold slightly (protect working set)
+    if (is_burst && session_active) {
+        evict_threshold += 10;
+    }
+
+    // For sustained bursts, apply stronger protection (higher threshold)
+    if (is_sustained_burst && session_active) {
+        evict_threshold += 15;  // Additional protection for sustained high-frequency load
+    }
+
+    // -- Final decision -------------------------------------------------------
+
+    // Evict if score exceeds threshold
+    if (score >= evict_threshold) {
+        return CACHE_EXT_EVICT_NODE;
+    }
+
+    return CACHE_EXT_CONTINUE_ITER;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    
+    // Update burst velocity tracking state before eviction scan
+    u64 now = bpf_ktime_get_ns();
+    u32 burst_state_key = 0;
+    struct burst_velocity_state *burst_state = bpf_map_lookup_elem(&burst_velocity_map, &burst_state_key);
+    
+    if (!burst_state) {
+        // First initialization
+        struct burst_velocity_state init_state = {
+            .prev_net_recv_count = net_recv_count,
+            .last_check_ts = now,
+        };
+        bpf_map_update_elem(&burst_velocity_map, &burst_state_key, &init_state, BPF_ANY);
+    } else if (now > burst_state->last_check_ts) {
+        u64 elapsed = now - burst_state->last_check_ts;
+        if (elapsed > BURST_VELOCITY_WINDOW_NS) {
+            // Window expired: update velocity baseline
+            struct burst_velocity_state updated_state = {
+                .prev_net_recv_count = net_recv_count,
+                .last_check_ts = now,
+            };
+            bpf_map_update_elem(&burst_velocity_map, &burst_state_key, &updated_state, BPF_ANY);
+        }
+    }
+    
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>

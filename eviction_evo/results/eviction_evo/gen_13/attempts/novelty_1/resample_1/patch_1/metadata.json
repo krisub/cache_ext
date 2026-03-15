@@ -1,0 +1,14 @@
+{
+  "generation": 13,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "rcv_wnd_conservative_pressure",
+  "patch_description": "The prior analysis shows that Generation 4 achieved 2103.44 score with receive-window saturation detection at 65KB threshold, and Generation 5 achieved 2162.27 by simplifying the heuristics. The current program (1988.28) has regressed, particularly due to the folio_survival_map complexity which appears to hurt the dual_small_vs_large trace performance.\n\nThe recommendation suggests adding receiver-side backpressure detection as a fifth network pressure signal, using a more conservative 32KB threshold than Generation 4's 65KB. This targets severe receiver buffer saturation without the false positives that Generation 4's higher threshold (65KB) may have caused on certain traces.\n\nDuring asymmetric workloads like dual_small_vs_large (fast reader + slow writer with network limits), receiver-side buffering pressure is a real phenomenon that increases cache miss cost. The 32KB threshold is aggressive enough to detect only genuine saturation (typical TCP windows are 64KB-1MB), which should help protect the working set during these constrained network conditions while avoiding overly aggressive protection that might degrade idle-session performance.\n\nThe dual_congested trace showed good performance, so this conservative addition should maintain that while improving dual_small_vs_large through better pressure detection.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T12:44:00.651212",
+  "llm_cost": 0.047341999999999995,
+  "llm_model": null
+}

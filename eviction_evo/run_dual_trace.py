@@ -19,6 +19,7 @@ For dual-client traces, starts proxies, runs clients in parallel, combines resul
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,9 @@ CACHE_EXT_DIR = "/mydata/cache_ext"
 BENCH_BINARY = os.path.join(CACHE_EXT_DIR, "My-YCSB", "build", "run_net_leveldb")
 PROXY_SCRIPT = os.path.join(CACHE_EXT_DIR, "eviction_evo", "tcp_delay_proxy.py")
 SERVER_PORT = 9100
+SSH_OPTS = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+           "-i", "/users/krisub/.ssh/id_ed25519"]
+REMOTE_CLIENT_CGROUP = "cache_ext_remote_clients"
 
 
 def parse_benchmark_output(stdout):
@@ -81,17 +85,67 @@ def run_single(config_path):
     return parse_benchmark_output(result.stdout), result.stdout
 
 
+def scp_to_remote(local_path, remote_host, remote_path, timeout=30):
+    """Copy a file to a remote host via scp."""
+    subprocess.run(
+        ["scp"] + SSH_OPTS + [local_path, f"{remote_host}:{remote_path}"],
+        check=True, timeout=timeout, capture_output=True, text=True,
+    )
+
+
+def ssh_rm(remote_host, remote_path):
+    """Remove a file on a remote host."""
+    subprocess.run(
+        ["ssh"] + SSH_OPTS + [remote_host, "rm", "-f", remote_path],
+        check=False, timeout=10, capture_output=True,
+    )
+
+
+def ssh_shell_cmd(remote_host, shell_command):
+    """Build ssh argv that runs a command through remote sh -lc."""
+    return ["ssh"] + SSH_OPTS + [remote_host, f"sh -lc {shlex.quote(shell_command)}"]
+
+
+def ensure_remote_client_cgroup(remote_host):
+    """Best-effort create shared remote cgroup for benchmark client processes."""
+    setup_cmd = (
+        f"sudo -n cgcreate -g memory:{REMOTE_CLIENT_CGROUP} >/dev/null 2>&1 || true"
+    )
+    subprocess.run(
+        ssh_shell_cmd(remote_host, setup_cmd),
+        check=False, timeout=15, capture_output=True, text=True,
+    )
+
+
+def remote_bench_command(remote_path):
+    """Run benchmark in shared remote cgroup when available."""
+    return (
+        f"if command -v cgexec >/dev/null 2>&1; then "
+        f"cgexec -g memory:{REMOTE_CLIENT_CGROUP} "
+        f"{BENCH_BINARY} {remote_path} && exit 0; "
+        f"fi; "
+        f"exec {BENCH_BINARY} {remote_path}"
+    )
+
+
 def run_dual(trace_config):
-    """Run a dual-client benchmark. Returns (combined_results, raw_output)."""
+    """Run a dual-client benchmark. Returns (combined_results, raw_output).
+
+    Clients with a 'host' field are launched on that host via SSH.
+    Clients without 'host' (or with proxy settings) run locally as before.
+    """
     import yaml as pyyaml
 
     clients = trace_config["clients"]
     proxy_procs = []
+    # Each entry: (local_path, remote_host_or_None, remote_path_or_None)
     temp_files = []
 
     try:
-        # Start proxies
+        # Start proxies for local clients that need them
         for client in clients:
+            if client.get("host"):
+                continue
             proxy_port = client.get("proxy_port", 0)
             delay_ms = client.get("proxy_delay_ms", 0)
             bw_kbps = client.get("proxy_bandwidth_kbps", 0)
@@ -110,20 +164,38 @@ def run_dual(trace_config):
                 if not wait_for_port(proxy_port, timeout=10):
                     raise RuntimeError(f"Proxy on port {proxy_port} failed to start")
 
+        # Ensure a shared client cgroup exists on each remote host.
+        for host in {c.get("host") for c in clients if c.get("host")}:
+            ensure_remote_client_cgroup(host)
+
         # Write temp configs and start clients
         client_procs = []
         for client in clients:
             config = client["config"]
-            fd, path = tempfile.mkstemp(suffix=".yaml",
-                                        prefix=f"dual_{client['name']}_")
+            remote_host = client.get("host")
+
+            fd, local_path = tempfile.mkstemp(suffix=".yaml",
+                                              prefix=f"dual_{client['name']}_")
             with os.fdopen(fd, 'w') as f:
                 pyyaml.dump(config, f)
-            temp_files.append(path)
 
-            proc = subprocess.Popen(
-                [BENCH_BINARY, path],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            )
+            if remote_host:
+                remote_path = f"/tmp/{os.path.basename(local_path)}"
+                scp_to_remote(local_path, remote_host, remote_path)
+                temp_files.append((local_path, remote_host, remote_path))
+
+                remote_cmd = remote_bench_command(remote_path)
+                proc = subprocess.Popen(
+                    ssh_shell_cmd(remote_host, remote_cmd),
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+            else:
+                temp_files.append((local_path, None, None))
+                proc = subprocess.Popen(
+                    [BENCH_BINARY, local_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+
             client_procs.append((client["name"], proc))
 
         # Wait for all clients
@@ -171,11 +243,16 @@ def run_dual(trace_config):
                 proc.wait(timeout=5)
             except Exception:
                 pass
-        for path in temp_files:
+        for local_path, remote_host, remote_path in temp_files:
             try:
-                os.unlink(path)
+                os.unlink(local_path)
             except Exception:
                 pass
+            if remote_host and remote_path:
+                try:
+                    ssh_rm(remote_host, remote_path)
+                except Exception:
+                    pass
 
 
 def run_trace(config_path):

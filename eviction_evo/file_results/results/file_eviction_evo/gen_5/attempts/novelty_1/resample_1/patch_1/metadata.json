@@ -1,0 +1,14 @@
+{
+  "generation": 5,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "inter_list_migration_on_priority_change",
+  "patch_description": "When a folio is accessed by a process with a different priority tier than its last accessor, migrate the folio between high_prio_list and low_prio_list. This handles the file_niceness trace correctly where process priorities flip mid-run.\n\nThe key insight: in file_niceness, when process A flips from nice=-15 to nice=15, its previously high-priority pages should move to the low-priority list so they can be evicted sooner. Currently they remain in high_prio_list because we only update accessor_nice but don't move the folio.\n\nThe fix detects tier changes by comparing is_high_prio_folio(meta->accessor_nice) before and after update. If the tier changes, we:\n1. Remove the folio from its current list (bpf_cache_ext_list_del)\n2. Add it to the new list (bpf_cache_ext_list_add)\n\nThis ensures the page will be evaluated by the correct eviction callback on the next eviction cycle, improving adaptation to priority flips.",
+  "error_msg": null,
+  "timestamp": "2026-03-10T23:14:57.525132",
+  "llm_cost": 0.048264,
+  "llm_model": null
+}

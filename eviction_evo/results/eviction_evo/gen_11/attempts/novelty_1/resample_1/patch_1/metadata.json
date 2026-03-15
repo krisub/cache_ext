@@ -1,0 +1,14 @@
+{
+  "generation": 11,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "packet_velocity_burst_detection",
+  "patch_description": "The current program lacks burst detection entirely, which is a missed opportunity for network-aware adaptation. The best performing program (score 2162.27) used burst detection based on inter-arrival time, but this only captures instantaneous spikes.\n\nThe recommendation suggests adding a complementary **packet count velocity** metric: tracking how many tcp_recvmsg calls occur within a 100ms sliding window. This distinguishes:\n- **Transient spikes**: high frequency packets in a short window (inter-arrival < 10ms)\n- **Sustained bursts**: consistently high packet rate over 100ms (net_recv_count increasing by 15+ packets)\n\nDuring sustained bursts, protecting the working set becomes critical for P99 latency. By adding packet velocity detection and applying a 0.4x multiplier (vs 0.5x for inter-arrival bursts) to recently-accessed folios, we can better protect the active working set during congested scenarios while remaining aggressive during idle periods.\n\nThis should improve the dual_congested trace (where 2ms network delays cause sustained bursts) while maintaining or improving the dual_small_vs_large trace.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: '// -- Network state (updated by kprobe below) ----------------------------------'\nAt position: 4522\n\nContext around found text:\n     Line  95:     __type(value, u64);\n     Line  96: } debug_counters SEC(\".maps\");\n     Line  97: \n >>> Line  98: // -- Network state (updated by kprobe below) ----------------------------------\n     Line  99: u64 last_packet_ts = 0;\n     Line 100: \n     Line 101: // -- Extended network metrics (snapshot from tcp_sock per recv) ---------------\n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 6351-14139):\n    // -- List handles + eviction policy constants (evolved) -----------------------\n    static u64 main_list;\n    \n    ... (200 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-11T12:32:06.316849",
+  "llm_cost": 0.056292,
+  "llm_model": null
+}

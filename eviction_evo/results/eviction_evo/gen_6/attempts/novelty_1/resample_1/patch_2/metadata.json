@@ -1,0 +1,14 @@
+{
+  "generation": 6,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 5,
+  "patch_name": "two_tier_survivor_promotion",
+  "patch_description": "The current program uses a single main_list with scoring-based eviction. This recommendation implements a secondary survivor promotion mechanism within the EVOLVE-BLOCK to reduce thrashing during sustained congestion.\n\nThe key insight is that folios which survive multiple consecutive eviction scans are likely part of the core working set and should be protected more aggressively. By tracking survival counts and applying a permanent 0.5x score multiplier to survivor-tier folios, we can:\n\n1. Reduce cache thrashing by protecting proven working-set items\n2. Apply a survivor_tier field (tracked in a companion map) to mark promoted folios\n3. Reduce eviction scores for survivors by 0.5x multiplier\n4. Reset survival count on each access (so only persistent cold folios accumulate survival)\n\nThis builds naturally on the current scoring mechanism without requiring list restructuring.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T12:04:49.357406",
+  "llm_cost": 0.040238,
+  "llm_model": null
+}

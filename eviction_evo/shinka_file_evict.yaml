@@ -1,0 +1,229 @@
+# ── ShinkaEvolve config for cache_ext file workload eviction policy ──────
+# Evolves a BPF page-cache eviction policy using CPU/scheduler features
+# to beat MGLRU baseline on file-reading workloads with priority asymmetry.
+#
+# Prerequisites:
+#   1. Set AWS credentials in /mydata/ShinkaEvolve/.env
+#   2. file_workload binary must be compiled (build_file_workload.sh)
+#   3. Test files must exist at /mydata/file_workload_data (populate_file_workload.sh)
+#
+# Run: sudo PYTHONPATH=/mydata/ShinkaEvolve \
+#      /mydata/ShinkaEvolve/.venv/bin/python run_evo.py --config_path shinka_file_evict.yaml
+
+eval_program_path: file_evaluate.py
+max_evaluation_jobs: 1
+max_proposal_jobs: 2
+max_db_workers: 2
+
+db_config:
+  num_islands: 1
+  archive_size: 30
+  elite_selection_ratio: 0.3
+  num_archive_inspirations: 3
+  num_top_k_inspirations: 2
+  migration_interval: 10
+  migration_rate: 0.1
+  island_elitism: true
+  enforce_island_separation: true
+  parent_selection_strategy: weighted
+  parent_selection_lambda: 10
+  archive_selection_strategy: crowding
+  island_selection_strategy: equal
+  archive_criteria:
+    combined_score: 1.0
+    loc: -0.1
+
+  enable_dynamic_islands: false
+  stagnation_threshold: 15
+  island_spawn_strategy: best
+  island_spawn_subtree_size: 2
+
+evo_config:
+  patch_types:
+    - diff
+    - full
+  patch_type_probs:
+    - 0.7
+    - 0.3
+
+  num_generations: 50
+  max_api_costs: 5.0
+  max_patch_resamples: 3
+  max_patch_attempts: 3
+  max_novelty_attempts: 2
+  job_type: local
+
+  language: c
+  init_program_path: file_initial.c
+
+  llm_models:
+    - "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  llm_kwargs:
+    temperatures:
+      - 0
+      - 0.5
+      - 1.0
+    reasoning_efforts:
+      - low
+      - medium
+      - high
+    max_tokens: 32768
+
+  meta_rec_interval: 5
+  meta_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  meta_llm_kwargs:
+    temperatures:
+      - 0
+    max_tokens: 16384
+
+  embedding_model: null
+  code_embed_sim_threshold: 1.0
+
+  novelty_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  novelty_llm_kwargs:
+    temperatures:
+      - 0
+
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+    cost_aware_coef: 0.7
+
+  results_dir: results/file_eviction_evo
+
+  evolve_prompts: true
+  prompt_evolution_interval: 5
+  prompt_patch_types: ["diff", "full"]
+  prompt_patch_type_probs: [0.5, 0.5]
+  prompt_archive_size: 8
+  prompt_percentile_recompute_interval: 1
+  prompt_ucb_exploration_constant: 2.0
+  prompt_epsilon: 0.25
+
+  task_sys_msg: |
+    You are an expert systems programmer optimizing a Linux eBPF page-cache
+    eviction policy. Your goal is to MAXIMIZE throughput (ops/sec) across
+    MULTIPLE file-reading workloads where processes have different CPU
+    scheduling priorities (nice values).
+
+    ## Architecture
+    - Two file-reading processes run inside a memory-limited cgroup (512 MiB).
+    - Each process opens files, reads their contents, computes CRC32 checksums,
+      and closes them — in a tight multithreaded loop.
+    - The total working set exceeds the cgroup memory limit, forcing eviction.
+    - Your eviction policy (eBPF struct_ops for cache_ext) controls which
+      pages stay in the constrained page cache and which get evicted.
+    - Processes have DIFFERENT nice values (CPU priorities). A lower nice value
+      means higher priority. The BPF kprobe on vfs_read captures the scheduler
+      state of each reading process.
+
+    ## Multi-Workload Evaluation
+    Your policy is tested against 2 file workload traces in sequence.
+    The combined score is the HARMONIC MEAN of throughputs across all traces.
+    Scoring 0 on ANY trace severely penalizes your total score.
+
+    ## Interpreting Performance Metrics
+    You receive per-trace metrics: file_priority_throughput, file_niceness_throughput,
+    file_priority_read_p99_ns, file_niceness_read_p99_ns. Use these to diagnose:
+    - If one trace's throughput is much lower than the other, improving the WEAKER
+      trace has the largest impact on the harmonic mean.
+    - High p99 latency (e.g. >50ms) on a trace suggests cache thrashing or eviction
+      pressure hurting that workload — consider protecting its pages.
+
+    The 2 traces are:
+    1. **file_priority**: Two processes — high-priority reader (nice=-10,
+       zipfian, small 4KB files, 3 threads) vs low-priority reader (nice=10,
+       uniform, large 256KB files, 2 threads). Tests priority-aware caching.
+    2. **file_niceness**: Two processes whose nice values SWAP mid-run
+       (A starts nice=-15, B starts nice=15; at 60s they flip). Tests whether
+       the policy adapts when scheduling priorities change dynamically.
+
+    ## Available BPF APIs
+    - bpf_cache_ext_list_add(list, folio)        — add folio to head
+    - bpf_cache_ext_list_add_tail(list, folio)    — add folio to tail
+    - bpf_cache_ext_list_del(list, folio)         — remove folio from list
+    - bpf_cache_ext_list_move(list, folio, tail)  — move folio (tail=false→head)
+    - bpf_cache_ext_list_iterate(memcg, list, cb, ctx) — eviction scan
+    - bpf_cache_ext_list_iterate_extended(memcg, list, cb, opts, ctx) — with promotion
+    - bpf_cache_ext_list_sample(memcg, list, cb, ratio, ctx) — random sample
+    - bpf_cache_ext_ds_registry_new_list(memcg) — allocate a new list
+    - folio_nr_pages(folio), folio_index(folio)
+    - folio_test_dirty/writeback/unevictable/uptodate/lru(folio)
+    - bpf_ktime_get_ns(), bpf_get_current_pid_tgid(), bpf_get_current_task()
+
+    ## Scheduler/CPU metrics (global variables, updated on every vfs_read of watched files)
+    These are snapshotted from the current task_struct each time a process
+    reads a file in the watched directory. USE THESE to make priority-aware
+    eviction decisions.
+
+    ### Read timing / counting
+    - `sched_last_read_ts`: nanosecond timestamp of the most recent vfs_read
+    - `sched_prev_read_ts`: timestamp of the previous read (for inter-read delta)
+    - `sched_read_count`: total vfs_read calls on watched files (monotonic)
+
+    ### Process priority / niceness
+    - `sched_nice`: nice value of the reader (-20 to 19; lower = higher priority)
+    - `sched_prio`: effective scheduler priority (lower value = higher priority)
+    - `sched_static_prio`: static priority (100-139 for normal tasks; 120 = nice 0)
+
+    ### CPU execution metrics (from sched_entity)
+    - `sched_vruntime`: CFS virtual runtime (ns) — fair-share CPU accounting
+    - `sched_sum_exec_runtime`: total CPU time consumed by this task (ns)
+    - `sched_nr_migrations`: number of CPU migrations for this task
+
+    ### Run queue state (from cfs_rq of current CPU)
+    - `sched_nr_running`: number of runnable tasks on this CPU's CFS queue
+    - `sched_cfs_load`: load weight of the CFS run queue
+
+    ### Process identification
+    - `sched_pid`: PID of the process doing the read
+    - `sched_tgid`: thread group ID (process ID)
+    - `sched_on_cpu`: which CPU the task is running on
+
+    ### Per-folio metadata (in folio_metadata_map, struct sched_folio_metadata)
+    These four fields are FIXED. Do NOT add, remove, or rename any fields.
+    - `last_access_ts` (u64): nanosecond timestamp of last access
+    - `access_count` (u32): number of times this folio was accessed
+    - `accessor_nice` (s32): nice value of the process that last accessed this folio
+    - `accessor_pid` (u32): PID of the last accessor
+
+    ## How to use scheduler metrics for eviction
+    - **Priority-aware protection**: folios accessed by high-priority processes
+      (low nice, e.g., nice=-10) should be protected over folios from low-priority
+      processes (high nice, e.g., nice=10).
+    - **Adaptive priority**: nice values can change over time. Use the latest
+      `sched_nice` snapshot and per-folio `accessor_nice` to adapt.
+    - **CPU pressure**: when `sched_nr_running` is high, the CPU is contended;
+      protect pages from high-priority processes to reduce their I/O wait.
+    - **Execution time**: `sched_sum_exec_runtime` and `sched_vruntime` indicate
+      how much CPU a process has consumed — useful for fairness-aware eviction.
+    - **Process differentiation**: use `accessor_pid` in per-folio metadata to
+      distinguish which process's pages to protect or evict.
+
+    ## Callback return values
+    - CACHE_EXT_EVICT_NODE  — evict this folio
+    - CACHE_EXT_CONTINUE_ITER — keep this folio
+
+    ## Multi-list strategies
+    You can allocate multiple lists with bpf_cache_ext_ds_registry_new_list()
+    and segregate folios by priority level (e.g., high-priority list vs
+    low-priority list), evicting from the low-priority list first.
+
+    ## Constraints
+    - struct sched_folio_metadata is FIXED — only last_access_ts, access_count, accessor_nice, accessor_pid exist. Do not add fields (e.g. tier, hotness).
+    - No floating point in BPF. Use integer arithmetic only.
+    - No sleeping in non-sleepable functions (only init is sleepable).
+    - BPF maps have fixed sizes declared at compile time.
+    - BPF verifier limits loop iterations and stack size.
+    - Keep the code compiling with clang for BPF target.
+
+    ## Strategies to explore
+    - Priority-segregated lists (high-prio pages on one list, low-prio on another)
+    - Nice-weighted aging (folios from low-priority processes age faster)
+    - Adaptive thresholds based on current `sched_nice` and `sched_nr_running`
+    - Tracking per-process page counts and enforcing proportional cache shares
+    - Detecting priority changes via per-folio `accessor_nice` vs global `sched_nice`
+    - LRU/CLOCK variants with priority-based tie-breaking

@@ -42,16 +42,14 @@ evo_config:
   # -- Patch settings ----------------------------------------------------------
   patch_types:
     - diff
-    - full
   patch_type_probs:
-    - 0.7
-    - 0.3
+    - 1.0
 
   # -- Evolution loop ----------------------------------------------------------
   num_generations: 50
   max_api_costs: 5.0        # USD budget
-  max_patch_resamples: 3
-  max_patch_attempts: 3
+  max_patch_resamples: 5
+  max_patch_attempts: 5
   max_novelty_attempts: 2
   job_type: local
 
@@ -68,8 +66,7 @@ evo_config:
   llm_kwargs:
     temperatures:
       - 0
-      - 0.5
-      - 1.0
+      - 0.2
     reasoning_efforts:
       - low
       - medium
@@ -108,8 +105,8 @@ evo_config:
   # -- Prompt evolution --------------------------------------------------------
   evolve_prompts: true
   prompt_evolution_interval: 5
-  prompt_patch_types: ["diff", "full"]
-  prompt_patch_type_probs: [0.5, 0.5]
+  prompt_patch_types: ["diff"]
+  prompt_patch_type_probs: [1.0]
   prompt_archive_size: 8
   prompt_percentile_recompute_interval: 1
   prompt_ucb_exploration_constant: 2.0
@@ -232,6 +229,13 @@ evo_config:
     - BPF maps have fixed sizes declared at compile time.
     - BPF verifier limits loop iterations and stack size.
     - Keep the code compiling with clang for BPF target.
+    - Output ONLY valid C code for the EVOLVE-BLOCK. Never emit conflict markers
+      or search/replace markers such as <<<<<<<, =======, >>>>>>>, SEARCH, REPLACE.
+    - Do not call helper functions unless they are already defined in the file or
+      added in the same patch. Avoid introducing undefined symbols.
+    - Do not use UINT64_MAX. Use (~0ULL) when you need a max u64 sentinel.
+    - Any map/list/array index used for memory access must be explicitly bounded
+      before pointer arithmetic, so the BPF verifier can prove safety.
 
     ## Strategies to explore
     - LRU / CLOCK / FIFO hybrids

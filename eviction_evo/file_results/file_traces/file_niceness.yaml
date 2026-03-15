@@ -1,0 +1,39 @@
+# File workload trace: niceness values swap mid-run
+# Process A starts nice=-15, Process B starts nice=15.
+# 2 threads each to avoid cache_ext list spinlock contention (soft lockup)
+# After 60 seconds, priorities flip: A→nice=15, B→nice=-15.
+# Tests whether the eviction policy adapts when scheduler priorities change.
+# The nice_schedule field lists (time_offset_seconds, new_nice) pairs.
+type: file_workload
+data_directory: /mydata/file_workload_data
+
+processes:
+  - name: reader_alpha
+    nice_schedule:
+      - [0, -15]
+      - [60, 15]
+    config:
+      directory: /mydata/file_workload_data/small
+      file_prefix: "data_"
+      num_files: 20000
+      num_threads: 2
+      warmup_seconds: 10
+      runtime_seconds: 120
+      nice_value: -15
+      read_pattern: "zipfian"
+      zipfian_constant: 0.99
+
+  - name: reader_beta
+    nice_schedule:
+      - [0, 15]
+      - [60, -15]
+    config:
+      directory: /mydata/file_workload_data/large
+      file_prefix: "data_"
+      num_files: 5000
+      num_threads: 2
+      warmup_seconds: 10
+      runtime_seconds: 120
+      nice_value: 15
+      read_pattern: "uniform"
+      zipfian_constant: 0.99

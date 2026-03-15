@@ -1,0 +1,285 @@
+2026-03-10 23:42:00,029 INFO Waiting for evaluation lock /tmp/cache_ext_file_evaluate.lock ...
+2026-03-10 23:44:47,690 INFO Acquired evaluation lock.
+2026-03-10 23:44:47,690 INFO === Step 0: Drop page cache ===
+2026-03-10 23:44:47,690 INFO CMD: sudo sync
+2026-03-10 23:44:47,845 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-10 23:44:48,051 INFO Page cache dropped.
+2026-03-10 23:44:48,051 INFO === Step 1: Compile evolved policy ===
+2026-03-10 23:44:48,063 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-10 23:44:48,423 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-10 23:44:51,187 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-10 23:44:51,373 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-10 23:44:52,292 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-10 23:44:52,292 INFO === Step 2: Disable MGLRU ===
+2026-03-10 23:44:52,293 INFO MGLRU current state: 0x0007 — disabling
+2026-03-10 23:44:52,293 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-10 23:44:52,337 INFO MGLRU disabled.
+2026-03-10 23:44:52,337 INFO === Step 3: Create cgroup ===
+2026-03-10 23:44:52,337 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-10 23:44:52,365 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-10 23:44:52,486 INFO CMD: sudo sh -c echo 134217728 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-10 23:44:52,500 INFO CMD: sudo sh -c echo 268435456 > /sys/fs/cgroup/cache_ext_test/memory.swap.max
+2026-03-10 23:44:52,514 INFO Created cgroup cache_ext_test with limit 134217728 bytes, swap limit 268435456 bytes
+2026-03-10 23:44:52,514 INFO === Step 4: Load BPF policy ===
+2026-03-10 23:44:52,514 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/file_workload_data --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-10 23:45:02,535 ERROR Evaluation failed: RuntimeError: Policy loader exited immediately: libbpf: prog 'evolved_evict_folios': BPF program load failed: Permission denied
+libbpf: prog 'evolved_evict_folios': -- BEGIN PROG LOAD LOG --
+reg type unsupported for arg#0 function evolved_evict_folios#238
+0: R1=ctx(off=0,imm=0) R10=fp0
+; void BPF_STRUCT_OPS(evolved_evict_folios,
+0: (79) r7 = *(u64 *)(r1 +8)
+func 'evict_folios' arg1 has btf_id 4109 type STRUCT 'mem_cgroup'
+1: R1=ctx(off=0,imm=0) R7_w=trusted_ptr_mem_cgroup(off=0,imm=0)
+1: (79) r6 = *(u64 *)(r1 +0)
+func 'evict_folios' arg0 has btf_id 744 type STRUCT 'cache_ext_eviction_ctx'
+2: R1=ctx(off=0,imm=0) R6_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+2: (b7) r1 = 0                        ; R1_w=0
+3: (63) *(u32 *)(r10 -4) = r1         ; R1_w=0 R10=fp0 fp-8=0000????
+4: (bf) r2 = r10                      ; R2_w=fp0 R10=fp0
+; 
+5: (07) r2 += -4                      ; R2_w=fp-4
+; u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
+6: (18) r1 = 0xffff88810701bc00       ; R1_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+8: (85) call bpf_map_lookup_elem#1    ; R0_w=map_value_or_null(id=1,off=0,ks=4,vs=8,imm=0)
+; if (val) __sync_fetch_and_add(val, 1);
+9: (15) if r0 == 0x0 goto pc+2        ; R0_w=map_value(off=0,ks=4,vs=8,imm=0)
+10: (b7) r1 = 1                       ; R1_w=1
+; if (val) __sync_fetch_and_add(val, 1);
+11: (db) lock *(u64 *)(r0 +0) += r1   ; R0=map_value(off=0,ks=4,vs=8,imm=0) R1=1
+; bpf_cache_ext_list_iterate(memcg, low_prio_list, bpf_evict_low_prio_cb, eviction_ctx);
+12: (18) r1 = 0xffffc90006622060      ; R1_w=map_value(off=96,ks=4,vs=104,imm=0)
+14: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=96,ks=4,vs=104,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_iterate(memcg, low_prio_list, bpf_evict_low_prio_cb, eviction_ctx);
+15: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+16: (18) r3 = 0x18                    ; R3_w=func(off=0,imm=0)
+18: (bf) r4 = r6                      ; R4_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+19: (85) call bpf_cache_ext_list_iterate#88804
+R1 is not a scalar
+caller:
+ R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R10=fp0 fp-8=mmmm????
+callee:
+ frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+41: frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+; static int bpf_evict_low_prio_cb(int idx, struct cache_ext_list_node *node)
+41: (bf) r7 = r2                      ; frame1: R2=ptr_cache_ext_list_node(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 now = bpf_ktime_get_ns();
+42: (85) call bpf_ktime_get_ns#5      ; frame1: R0=scalar() cb
+43: (bf) r6 = r0                      ; frame1: R0=scalar(id=2) R6_w=scalar(id=2) cb
+; u64 key = (u64)node->folio;
+44: (79) r1 = *(u64 *)(r7 +0)         ; frame1: R1_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 key = (u64)node->folio;
+45: (7b) *(u64 *)(r10 -8) = r1        ; frame1: R1_w=ptr_folio(off=0,imm=0) R10=fp0 fp-8_w=ptr_ cb
+46: (bf) r2 = r10                     ; frame1: R2_w=fp0 R10=fp0 cb
+; 
+47: (07) r2 += -8                     ; frame1: R2_w=fp-8 cb
+; bpf_map_lookup_elem(&folio_metadata_map, &key);
+48: (18) r1 = 0xffff888d9b836400      ; frame1: R1_w=map_ptr(off=0,ks=8,vs=24,imm=0) cb
+50: (85) call bpf_map_lookup_elem#1   ; frame1: R0_w=map_value_or_null(id=3,off=0,ks=8,vs=24,imm=0) cb
+51: (bf) r1 = r0                      ; frame1: R0_w=map_value_or_null(id=3,off=0,ks=8,vs=24,imm=0) R1_w=map_value_or_null(id=3,off=0,ks=8,vs=24,imm=0) cb
+52: (b7) r0 = 2                       ; frame1: R0_w=2 cb
+; if (!meta)
+53: (15) if r1 == 0x0 goto pc+27      ; frame1: R1_w=map_value(off=0,ks=8,vs=24,imm=0) cb
+54: (b7) r0 = 0                       ; frame1: R0_w=0 cb
+55: (b7) r2 = 0                       ; frame1: R2_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+56: (79) r3 = *(u64 *)(r7 +0)         ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+57: (0f) r3 += r2                     ; frame1: R2_w=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+58: (79) r3 = *(u64 *)(r3 +0)         ; frame1: R3_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+59: (57) r3 &= 16                     ; frame1: R3=scalar(umax=16,var_off=(0x0; 0x10)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+60: (55) if r3 != 0x0 goto pc+20      ; frame1: R3=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+61: (79) r3 = *(u64 *)(r7 +0)         ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+62: (0f) r3 += r2                     ; frame1: R2=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+63: (79) r2 = *(u64 *)(r3 +0)         ; frame1: R2_w=scalar() R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+64: (57) r2 &= 2                      ; frame1: R2_w=scalar(umax=2,var_off=(0x0; 0x2)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+65: (55) if r2 != 0x0 goto pc+15      ; frame1: R2_w=0 cb
+; u64 age = now - meta->last_access_ts;
+66: (79) r2 = *(u64 *)(r1 +0)         ; frame1: R1=map_value(off=0,ks=8,vs=24,imm=0) R2_w=scalar() cb
+; u64 age = now - meta->last_access_ts;
+67: (1f) r6 -= r2                     ; frame1: R2_w=scalar() R6_w=scalar() cb
+; if (meta->access_count >= VERY_HOT_ACCESS_THRESHOLD) {
+68: (61) r1 = *(u32 *)(r1 +8)         ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+69: (b7) r2 = 6                       ; frame1: R2=6 cb
+; if (meta->access_count >= VERY_HOT_ACCESS_THRESHOLD) {
+70: (2d) if r2 > r1 goto pc+2         ; frame1: R1=scalar(umin=6,umax=4294967295,var_off=(0x0; 0xffffffff)) R2=6 cb
+71: (b7) r2 = 300000000               ; frame1: R2_w=300000000 cb
+72: (2d) if r2 > r6 goto pc+8         ; frame1: R2_w=300000000 R6=scalar(umin=300000000) cb
+73: (b7) r2 = 2                       ; frame1: R2_w=2 cb
+; if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+74: (2d) if r2 > r1 goto pc+2         ; frame1: R1=scalar(umin=6,umax=4294967295,var_off=(0x0; 0xffffffff)) R2_w=2 cb
+75: (b7) r1 = 600000000               ; frame1: R1_w=600000000 cb
+76: (2d) if r1 > r6 goto pc+4         ; frame1: R1_w=600000000 R6=scalar(umin=600000000) cb
+77: (b7) r0 = 1                       ; frame1: R0=1 cb
+78: (25) if r6 > 0x11e1a2ff goto pc+1         ; frame1: R6=scalar(umin=600000000) cb
+; 
+80: (67) r0 <<= 1                     ; frame1: R0_w=2 cb
+; }
+81: (95) exit
+returning from callee:
+ frame1: R0_w=2 R1=600000000 R2=2 R3=ptr_folio(off=0,imm=0) R6=scalar(umin=600000000) R7=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 fp-8=mmmmmmmm cb
+to caller at 20:
+ R0=scalar() R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R10=fp0 fp-8=mmmm????
+; 
+20: (18) r1 = 0xffffc90006622058      ; R1_w=map_value(off=88,ks=4,vs=104,imm=0)
+22: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=88,ks=4,vs=104,imm=0) R2_w=scalar()
+; if (sched_nr_running > HIGH_CONTENTION_THRESHOLD) {
+23: (18) r1 = 0xffffc90006622038      ; R1_w=map_value(off=56,ks=4,vs=104,imm=0)
+25: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+26: (b7) r3 = 7                       ; R3=7
+; if (sched_nr_running > HIGH_CONTENTION_THRESHOLD) {
+27: (2d) if r3 > r1 goto pc+7         ; R1=scalar(umin=7,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=7
+; bpf_cache_ext_list_sample(memcg, high_prio_list, bpf_evict_high_prio_cb, 20, eviction_ctx);
+28: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+29: (18) r3 = 0x34                    ; R3_w=func(off=0,imm=0)
+31: (b7) r4 = 20                      ; R4_w=20
+32: (bf) r5 = r6                      ; R5_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+33: (85) call bpf_cache_ext_list_sample#88809
+R4 type=scalar expected=fp
+processed 67 insns (limit 1000000) max_states_per_insn 0 total_states 6 peak_states 6 mark_read 5
+-- END PROG LOAD LOG --
+libbpf: prog 'evolved_evict_folios': failed to load: -13
+libbpf: failed to load object 'cache_ext_evolved_bpf'
+libbpf: failed to load BPF skeleton 'cache_ext_evolved_bpf': -13
+Failed to load BPF program
+
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/file_evaluate.py", line 447, in evaluate
+    policy_proc = start_policy(loader_path, FILE_DATA_DIR)
+  File "/mydata/cache_ext/eviction_evo/file_evaluate.py", line 220, in start_policy
+    raise RuntimeError(f"Policy loader exited immediately: {stderr}")
+RuntimeError: Policy loader exited immediately: libbpf: prog 'evolved_evict_folios': BPF program load failed: Permission denied
+libbpf: prog 'evolved_evict_folios': -- BEGIN PROG LOAD LOG --
+reg type unsupported for arg#0 function evolved_evict_folios#238
+0: R1=ctx(off=0,imm=0) R10=fp0
+; void BPF_STRUCT_OPS(evolved_evict_folios,
+0: (79) r7 = *(u64 *)(r1 +8)
+func 'evict_folios' arg1 has btf_id 4109 type STRUCT 'mem_cgroup'
+1: R1=ctx(off=0,imm=0) R7_w=trusted_ptr_mem_cgroup(off=0,imm=0)
+1: (79) r6 = *(u64 *)(r1 +0)
+func 'evict_folios' arg0 has btf_id 744 type STRUCT 'cache_ext_eviction_ctx'
+2: R1=ctx(off=0,imm=0) R6_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+2: (b7) r1 = 0                        ; R1_w=0
+3: (63) *(u32 *)(r10 -4) = r1         ; R1_w=0 R10=fp0 fp-8=0000????
+4: (bf) r2 = r10                      ; R2_w=fp0 R10=fp0
+; 
+5: (07) r2 += -4                      ; R2_w=fp-4
+; u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
+6: (18) r1 = 0xffff88810701bc00       ; R1_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+8: (85) call bpf_map_lookup_elem#1    ; R0_w=map_value_or_null(id=1,off=0,ks=4,vs=8,imm=0)
+; if (val) __sync_fetch_and_add(val, 1);
+9: (15) if r0 == 0x0 goto pc+2        ; R0_w=map_value(off=0,ks=4,vs=8,imm=0)
+10: (b7) r1 = 1                       ; R1_w=1
+; if (val) __sync_fetch_and_add(val, 1);
+11: (db) lock *(u64 *)(r0 +0) += r1   ; R0=map_value(off=0,ks=4,vs=8,imm=0) R1=1
+; bpf_cache_ext_list_iterate(memcg, low_prio_list, bpf_evict_low_prio_cb, eviction_ctx);
+12: (18) r1 = 0xffffc90006622060      ; R1_w=map_value(off=96,ks=4,vs=104,imm=0)
+14: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=96,ks=4,vs=104,imm=0) R2_w=scalar()
+; bpf_cache_ext_list_iterate(memcg, low_prio_list, bpf_evict_low_prio_cb, eviction_ctx);
+15: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+16: (18) r3 = 0x18                    ; R3_w=func(off=0,imm=0)
+18: (bf) r4 = r6                      ; R4_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+19: (85) call bpf_cache_ext_list_iterate#88804
+R1 is not a scalar
+caller:
+ R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R10=fp0 fp-8=mmmm????
+callee:
+ frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+41: frame1: R1=scalar() R2=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 cb
+; static int bpf_evict_low_prio_cb(int idx, struct cache_ext_list_node *node)
+41: (bf) r7 = r2                      ; frame1: R2=ptr_cache_ext_list_node(off=0,imm=0) R7_w=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 now = bpf_ktime_get_ns();
+42: (85) call bpf_ktime_get_ns#5      ; frame1: R0=scalar() cb
+43: (bf) r6 = r0                      ; frame1: R0=scalar(id=2) R6_w=scalar(id=2) cb
+; u64 key = (u64)node->folio;
+44: (79) r1 = *(u64 *)(r7 +0)         ; frame1: R1_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+; u64 key = (u64)node->folio;
+45: (7b) *(u64 *)(r10 -8) = r1        ; frame1: R1_w=ptr_folio(off=0,imm=0) R10=fp0 fp-8_w=ptr_ cb
+46: (bf) r2 = r10                     ; frame1: R2_w=fp0 R10=fp0 cb
+; 
+47: (07) r2 += -8                     ; frame1: R2_w=fp-8 cb
+; bpf_map_lookup_elem(&folio_metadata_map, &key);
+48: (18) r1 = 0xffff888d9b836400      ; frame1: R1_w=map_ptr(off=0,ks=8,vs=24,imm=0) cb
+50: (85) call bpf_map_lookup_elem#1   ; frame1: R0_w=map_value_or_null(id=3,off=0,ks=8,vs=24,imm=0) cb
+51: (bf) r1 = r0                      ; frame1: R0_w=map_value_or_null(id=3,off=0,ks=8,vs=24,imm=0) R1_w=map_value_or_null(id=3,off=0,ks=8,vs=24,imm=0) cb
+52: (b7) r0 = 2                       ; frame1: R0_w=2 cb
+; if (!meta)
+53: (15) if r1 == 0x0 goto pc+27      ; frame1: R1_w=map_value(off=0,ks=8,vs=24,imm=0) cb
+54: (b7) r0 = 0                       ; frame1: R0_w=0 cb
+55: (b7) r2 = 0                       ; frame1: R2_w=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+56: (79) r3 = *(u64 *)(r7 +0)         ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+57: (0f) r3 += r2                     ; frame1: R2_w=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+58: (79) r3 = *(u64 *)(r3 +0)         ; frame1: R3_w=scalar() cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+59: (57) r3 &= 16                     ; frame1: R3=scalar(umax=16,var_off=(0x0; 0x10)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+60: (55) if r3 != 0x0 goto pc+20      ; frame1: R3=0 cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+61: (79) r3 = *(u64 *)(r7 +0)         ; frame1: R3_w=ptr_folio(off=0,imm=0) R7=ptr_cache_ext_list_node(off=0,imm=0) cb
+62: (0f) r3 += r2                     ; frame1: R2=0 R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+63: (79) r2 = *(u64 *)(r3 +0)         ; frame1: R2_w=scalar() R3_w=ptr_folio(off=0,imm=0) cb
+; return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+64: (57) r2 &= 2                      ; frame1: R2_w=scalar(umax=2,var_off=(0x0; 0x2)) cb
+; if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+65: (55) if r2 != 0x0 goto pc+15      ; frame1: R2_w=0 cb
+; u64 age = now - meta->last_access_ts;
+66: (79) r2 = *(u64 *)(r1 +0)         ; frame1: R1=map_value(off=0,ks=8,vs=24,imm=0) R2_w=scalar() cb
+; u64 age = now - meta->last_access_ts;
+67: (1f) r6 -= r2                     ; frame1: R2_w=scalar() R6_w=scalar() cb
+; if (meta->access_count >= VERY_HOT_ACCESS_THRESHOLD) {
+68: (61) r1 = *(u32 *)(r1 +8)         ; frame1: R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff)) cb
+69: (b7) r2 = 6                       ; frame1: R2=6 cb
+; if (meta->access_count >= VERY_HOT_ACCESS_THRESHOLD) {
+70: (2d) if r2 > r1 goto pc+2         ; frame1: R1=scalar(umin=6,umax=4294967295,var_off=(0x0; 0xffffffff)) R2=6 cb
+71: (b7) r2 = 300000000               ; frame1: R2_w=300000000 cb
+72: (2d) if r2 > r6 goto pc+8         ; frame1: R2_w=300000000 R6=scalar(umin=300000000) cb
+73: (b7) r2 = 2                       ; frame1: R2_w=2 cb
+; if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+74: (2d) if r2 > r1 goto pc+2         ; frame1: R1=scalar(umin=6,umax=4294967295,var_off=(0x0; 0xffffffff)) R2_w=2 cb
+75: (b7) r1 = 600000000               ; frame1: R1_w=600000000 cb
+76: (2d) if r1 > r6 goto pc+4         ; frame1: R1_w=600000000 R6=scalar(umin=600000000) cb
+77: (b7) r0 = 1                       ; frame1: R0=1 cb
+78: (25) if r6 > 0x11e1a2ff goto pc+1         ; frame1: R6=scalar(umin=600000000) cb
+; 
+80: (67) r0 <<= 1                     ; frame1: R0_w=2 cb
+; }
+81: (95) exit
+returning from callee:
+ frame1: R0_w=2 R1=600000000 R2=2 R3=ptr_folio(off=0,imm=0) R6=scalar(umin=600000000) R7=ptr_cache_ext_list_node(off=0,imm=0) R10=fp0 fp-8=mmmmmmmm cb
+to caller at 20:
+ R0=scalar() R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0) R10=fp0 fp-8=mmmm????
+; 
+20: (18) r1 = 0xffffc90006622058      ; R1_w=map_value(off=88,ks=4,vs=104,imm=0)
+22: (79) r2 = *(u64 *)(r1 +0)         ; R1_w=map_value(off=88,ks=4,vs=104,imm=0) R2_w=scalar()
+; if (sched_nr_running > HIGH_CONTENTION_THRESHOLD) {
+23: (18) r1 = 0xffffc90006622038      ; R1_w=map_value(off=56,ks=4,vs=104,imm=0)
+25: (61) r1 = *(u32 *)(r1 +0)         ; R1_w=scalar(umax=4294967295,var_off=(0x0; 0xffffffff))
+26: (b7) r3 = 7                       ; R3=7
+; if (sched_nr_running > HIGH_CONTENTION_THRESHOLD) {
+27: (2d) if r3 > r1 goto pc+7         ; R1=scalar(umin=7,umax=4294967295,var_off=(0x0; 0xffffffff)) R3=7
+; bpf_cache_ext_list_sample(memcg, high_prio_list, bpf_evict_high_prio_cb, 20, eviction_ctx);
+28: (bf) r1 = r7                      ; R1_w=trusted_ptr_mem_cgroup(off=0,imm=0) R7=trusted_ptr_mem_cgroup(off=0,imm=0)
+29: (18) r3 = 0x34                    ; R3_w=func(off=0,imm=0)
+31: (b7) r4 = 20                      ; R4_w=20
+32: (bf) r5 = r6                      ; R5_w=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0) R6=trusted_ptr_cache_ext_eviction_ctx(off=0,imm=0)
+33: (85) call bpf_cache_ext_list_sample#88809
+R4 type=scalar expected=fp
+processed 67 insns (limit 1000000) max_states_per_insn 0 total_states 6 peak_states 6 mark_read 5
+-- END PROG LOAD LOG --
+libbpf: prog 'evolved_evict_folios': failed to load: -13
+libbpf: failed to load object 'cache_ext_evolved_bpf'
+libbpf: failed to load BPF skeleton 'cache_ext_evolved_bpf': -13
+Failed to load BPF program
+
+
+2026-03-10 23:45:02,536 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-10 23:45:02,555 INFO CMD: sudo sh -c echo 0x0007 > /sys/kernel/mm/lru_gen/enabled
+2026-03-10 23:45:02,597 INFO MGLRU re-enabled (restored to 0x0007).

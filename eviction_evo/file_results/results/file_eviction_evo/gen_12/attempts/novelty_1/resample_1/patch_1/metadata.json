@@ -1,0 +1,14 @@
+{
+  "generation": 12,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "contention_aware_sampling_no_promotion",
+  "patch_description": "Remove the hot-folio promotion logic that is degrading file_niceness throughput (2628.16 \u2192 2361.44), and replace it with contention-aware probabilistic sampling of the high-priority list during peak CPU contention. When sched_nr_running exceeds CPU_BUSY_THRESHOLD + 2, sample only 20% of high-prio folios during eviction callbacks instead of iterating the entire list. This reduces callback overhead during contention (improving P99 latency by ~2-3%) while maintaining the protective benefits of the dual-list strategy. The simpler folio_accessed logic without promotion preserves the clean priority segregation that was working better in Program 5.",
+  "error_msg": null,
+  "timestamp": "2026-03-10T23:40:33.884073",
+  "llm_cost": 0.056007,
+  "llm_model": null
+}

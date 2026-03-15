@@ -1,0 +1,80 @@
+<NAME>
+folio_recency_boost
+</NAME>
+
+<DESCRIPTION>
+The current best program (score 2182.27) used adaptive hot thresholds that responded to network conditions and session state. The current version (2048.15) has regressed, particularly in dual_small_vs_large throughput (1681.15 → 1531.13), suggesting that frequently-accessed small folios are being evicted too aggressively.
+
+The recommendation proposes adding a "folio recency boost" mechanism: folios accessed within the last 10ms should be treated as having one additional access count for the purposes of threshold comparison. This targets a specific gap: small folios that are frequently accessed but fall just below the hot threshold (access_count == 2, needed 3) during active bursts.
+
+In the dual_small_vs_large workload, the fast reader client generates rapid bursts of small-folio access. Without recency boost, these folios hit the eviction threshold during their second or third access if not accessed again within the adaptation windows. With recency boost, a folio accessed 5ms ago is treated as if it has one more access count, causing it to be classified as hot (2+1 >= 2) and protected.
+
+This mechanism:
+1. Adds a 10ms recency window check in the eviction callback
+2. Temporarily increases the effective access count for threshold comparison only (not stored metadata)
+3. Works alongside existing network-aware thresholds without disrupting them
+4. Has minimal performance impact (one additional time comparison per folio)
+
+Expected improvement: 1-3% on dual_small_vs_large (protecting more small-folio bursts) without degrading dual_congested (network pressure conditions still dominate threshold behavior).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Working set stability: sample folios and measure recent access patterns
+#define WORKING_SET_STABILITY_WINDOW_NS 100000000ULL  // 100 ms window
+#define WORKING_SET_STABILITY_THRESHOLD_PCT 80       // 80% of sampled must be accessed to lower threshold
+#define WORKING_SET_SAMPLE_SIZE 50         // Sample 50 folios per scan
+=======
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Recency boost: boost effective access count for folios accessed within this window
+#define RECENCY_BOOST_WINDOW_NS 10000000ULL  // 10 ms - protect very recently accessed folios
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Higher access_count = lower eviction score
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        // Hot folios: strong penalty (-30)
+        score = (score > 30) ? (score - 30) : 0;
+    } else if (meta->access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        score = (score > 15) ? (score - 15) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+=======
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Higher access_count = lower eviction score
+    // Apply recency boost: treat folios accessed within 10ms as having +1 access count
+    u64 recency = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    bool has_recency_boost = (recency < RECENCY_BOOST_WINDOW_NS);
+    u32 effective_access_count = meta->access_count + (has_recency_boost ? 1 : 0);
+
+    if (effective_access_count >= HOT_ACCESS_THRESHOLD) {
+        // Hot folios: strong penalty (-30)
+        score = (score > 30) ? (score - 30) : 0;
+    } else if (effective_access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        score = (score > 15) ? (score - 15) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+>>>>>>> REPLACE
+</DIFF>

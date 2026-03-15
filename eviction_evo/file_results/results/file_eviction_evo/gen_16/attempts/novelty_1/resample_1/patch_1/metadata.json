@@ -1,0 +1,14 @@
+{
+  "generation": 16,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "graduated_access_count_protection",
+  "patch_description": "Replace the current binary hot/very-hot threshold system in the high-priority eviction callback with a graduated protection multiplier that scales smoothly from 2\u00d7 to 3\u00d7 based on access frequency. This provides finer-grained protection for folios with moderate access counts (4-5 accesses), which currently receive the same 2\u00d7 protection as barely-hot folios (2-3 accesses).\n\nThe new system:\n- access_count >= 6: 3.0\u00d7 protection (unchanged)\n- access_count >= 4: 2.5\u00d7 protection (NEW - previously lumped with 2\u00d7 tier)\n- access_count >= 2: 2.0\u00d7 protection (unchanged)\n- access_count < 2: 1.0\u00d7 baseline (unchanged)\n\nThis graduated approach should reduce eviction of moderately-hot pages, improving cache hit rates for the file_priority workload where access patterns have intermediate hotness levels. By using integer arithmetic (multiplying by 250 then dividing by 100 for 2.5\u00d7), we maintain BPF verifier compatibility while achieving smooth protection scaling.\n\nThis change addresses the gap between the current binary 2\u00d7/3\u00d7 thresholds by adding an intermediate tier, which should improve throughput by 1-2% through better retention of medium-frequency pages.",
+  "error_msg": null,
+  "timestamp": "2026-03-10T23:56:04.834417",
+  "llm_cost": 0.145578,
+  "llm_model": null
+}

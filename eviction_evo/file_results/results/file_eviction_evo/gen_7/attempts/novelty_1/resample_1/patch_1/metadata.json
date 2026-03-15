@@ -1,0 +1,14 @@
+{
+  "generation": 7,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "promote_hot_lowprio_folios",
+  "patch_description": "Implement a promotion mechanism that moves frequently-accessed low-priority folios to the high-priority list when they demonstrate high access counts.\n\n**Rationale:** The current dual-list strategy segregates folios by the accessor's *initial* priority (nice value at time of first access). However, a folio's *access pattern* is often a better predictor of cache value than initial priority. A low-priority process that repeatedly accesses certain files creates a hot working set that deserves protection, even though the process has low CPU priority.\n\nBy promoting low-priority folios with access_count >= 8 to the high-priority list, we capture the insight that reuse frequency trumps scheduling priority for cache retention decisions. This should:\n1. Reduce thrashing for low-priority processes with sequential/repetitive access patterns\n2. Better protect true working sets regardless of their accessor's nice value\n3. Improve the weaker file_niceness trace (currently 2510.52) where priority can change mid-run, benefiting from adaptive promotion\n\nThe mechanism uses only existing metadata fields: if a folio from a low-priority accessor accumulates 8+ accesses (indicating a hot pattern), it gets promoted to the high-priority list where it receives stronger eviction protection. This is a form of adaptive tiering based on observed access patterns.\n\n**Expected impact:** 2-3% improvement on combined score, primarily by boosting the file_niceness trace where dynamic priority changes benefit from promotion of hot patterns.",
+  "error_msg": null,
+  "timestamp": "2026-03-10T23:23:59.169471",
+  "llm_cost": 0.047125,
+  "llm_model": null
+}

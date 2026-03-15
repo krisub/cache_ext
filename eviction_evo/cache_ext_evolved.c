@@ -15,6 +15,7 @@
 
 typedef unsigned long long u64;
 typedef unsigned int u32;
+typedef int s32;
 
 #include "dir_watcher.h"
 #include "cache_ext_evolved.skel.h"

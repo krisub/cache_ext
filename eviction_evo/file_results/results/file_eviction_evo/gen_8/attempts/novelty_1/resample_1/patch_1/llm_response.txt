@@ -1,0 +1,48 @@
+<NAME>
+sample-based-high-prio-eviction
+</NAME>
+
+<DESCRIPTION>
+The current implementation iterates through the entire high-priority list during every eviction event. This callback overhead can accumulate, especially under memory pressure when evictions are frequent. By switching to probabilistic sampling of the high-priority list (via `bpf_cache_ext_list_sample()` instead of `bpf_cache_ext_list_iterate()`), we reduce the number of callbacks executed while still allowing selective eviction of high-priority pages when necessary.
+
+The recommendation suggests using a ratio of 0.2 (sample 20% of high-priority folios randomly). This balances:
+- **Reduced overhead**: Sample-based iteration processes fewer folios, lowering callback costs
+- **Maintained protection**: Most high-priority pages remain untouched in each eviction pass
+- **Adaptive pressure handling**: Under high memory pressure, multiple eviction passes will gradually sample different folios, achieving eventual eviction of aged high-priority pages
+
+This should yield 1-2% throughput improvement by reducing per-eviction latency while preserving the protective benefits of priority-aware segregation.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Evict from low-priority list first
+    bpf_cache_ext_list_iterate(memcg, low_prio_list, bpf_evict_low_prio_cb, eviction_ctx);
+
+    // Only if needed, evict from high-priority list
+    bpf_cache_ext_list_iterate(memcg, high_prio_list, bpf_evict_high_prio_cb, eviction_ctx);
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Evict from low-priority list first
+    bpf_cache_ext_list_iterate(memcg, low_prio_list, bpf_evict_low_prio_cb, eviction_ctx);
+
+    // Sample high-priority list probabilistically to reduce callback overhead
+    // while still allowing gradual eviction under sustained memory pressure
+    bpf_cache_ext_list_sample(memcg, high_prio_list, bpf_evict_high_prio_cb, 20, eviction_ctx);
+}
+>>>>>>> REPLACE
+
+</DIFF>

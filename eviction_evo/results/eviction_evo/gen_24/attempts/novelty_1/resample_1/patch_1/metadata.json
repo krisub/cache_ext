@@ -1,0 +1,14 @@
+{
+  "generation": 24,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 9,
+  "patch_name": "add_burst_velocity_tracking",
+  "patch_description": "The current program uses inter-arrival time for burst detection but doesn't effectively adapt the hot access threshold based on sustained burst vs steady-state traffic patterns. This change adds packet velocity tracking (inspired by the first program's approach but with better integration into the scoring system) to distinguish between:\n1. High-velocity bursts (many packets in short time) \u2192 use lower HOT_ACCESS_THRESHOLD (2) to protect more aggressively\n2. Steady-state active sessions \u2192 use standard HOT_ACCESS_THRESHOLD (3)\n3. Idle sessions \u2192 use higher threshold (4)\n\nThe key improvement is computing sustained burst state per eviction scan (not per folio) and using it to adjust the frequency penalty in scoring, making hot folios even more protected during bursts without affecting the rest of the scoring logic.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T13:54:33.052047",
+  "llm_cost": 0.177966,
+  "llm_model": null
+}

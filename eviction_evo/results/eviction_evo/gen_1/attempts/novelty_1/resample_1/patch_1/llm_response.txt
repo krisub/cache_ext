@@ -1,0 +1,203 @@
+Looking at the current performance (1907.18 combined score), I can identify several opportunities for improvement:
+
+## Analysis
+
+1. **Fixed time windows don't adapt to network conditions**: The 100ms and 1s windows are generic but both workloads have different network characteristics:
+   - `dual_small_vs_large`: Mixed direct/delayed clients
+   - `dual_congested`: Both clients behind 2-5ms delays with limited bandwidth
+   
+2. **No loss/congestion reaction**: The policy ignores `net_lost`, `net_retrans_out`, and cwnd pressure. When the network is degraded, every cache miss is MORE expensive, so we should be MORE aggressive about protection.
+
+3. **No burst detection**: The inter-arrival time (last_packet_ts - net_prev_packet_ts) could indicate request bursts. During bursts, we should protect more pages.
+
+4. **Unused network metrics**: We have RTT, jitter, cwnd, packets_out available but only use packet timestamp. RTT scales how costly a miss is - high RTT means longer protection windows.
+
+## Proposed Improvements
+
+I'll add:
+1. **RTT-aware adaptive time windows** - Scale protection windows based on network latency
+2. **Congestion detection** - Tighten eviction when packets are lost or being retransmitted
+3. **Burst detection** - Protect more during request bursts
+4. **Jitter-aware tier promotion** - Be conservative when network is unstable
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Time window: folios accessed within this window are "recently used"
+#define RECENT_ACCESS_NS    100000000ULL   // 100 ms
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Working set window: protect folios accessed within this window during active session
+#define WORKING_SET_NS      1000000000ULL  // 1 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+=======
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      50000000ULL    // 50 ms baseline (will scale with RTT)
+#define BASE_WORKING_SET_NS 500000000ULL   // 500 ms baseline
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < RECENT_ACCESS_NS;
+    bool in_working_set = (now - meta->last_access_ts) < WORKING_SET_NS;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+=======
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
+{
+    u64 adapted = base_ns;
+    
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 10;
+    
+    // If network is under pressure (loss, retrans, high jitter), increase window
+    if (under_pressure) {
+        adapted = (adapted * 3) >> 1;  // 1.5x multiplier
+    }
+    
+    return adapted;
+}
+
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network condition detection ------------------------------------------
+    
+    // Loss/retransmission indicators
+    bool has_loss = (net_lost > 0) || (net_retrans_out > 0);
+    
+    // Cwnd pressure: if packets in flight > cwnd, network is bottlenecked
+    bool cwnd_pressure = (net_packets_out > 0) && 
+                         ((u32)net_packets_out > (net_snd_cwnd / CWND_PRESSURE_RATIO));
+    
+    // High jitter: unstable network
+    bool high_jitter = (net_mdev_us > 1000000);  // > 1ms jitter
+    
+    // Network is under pressure if any of: loss, cwnd pressure, high jitter
+    bool net_under_pressure = has_loss || cwnd_pressure || high_jitter;
+    
+    // Burst detection: short inter-arrival time = burst of requests
+    u64 inter_arrival = (net_prev_packet_ts > 0) ? 
+                        (last_packet_ts - net_prev_packet_ts) : (~0ULL);
+    bool is_burst = (inter_arrival > 0) && (inter_arrival < BURST_THRESHOLD_NS);
+
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+    
+    // Extend windows further during bursts (protect the working set)
+    if (is_burst) {
+        adapted_recent = (adapted_recent * 3) >> 1;
+        adapted_working_set = (adapted_working_set * 3) >> 1;
+    }
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+## Rationale
+
+1. **RTT-aware scaling**: When RTT is high (dual_congested has 2-5ms delays), each page miss is more costly, so we protect pages longer. The adaptation is linear: `adapted = base + (rtt_us / 10)`, which doubles the window for ~10ms RTT.
+
+2. **Congestion detection**: Three indicators:
+   - `net_lost > 0 or net_retrans_out > 0`: packets being lost → network unstable
+   - `packets_out > cwnd/2`: more packets in flight than safe cwnd → bottleneck
+   - `net_mdev_us > 1ms`: jitter indicates unstable timing
+   
+   When any of these occur, we extend protection windows by 1.5x.
+
+3. **Burst detection**: When `inter_arrival < 10ms`, it's a burst of requests. During bursts, we further extend protection (1.5x) because the working set is hot.
+
+4. **Conservative during congestion**: All three multipliers (RTT, pressure, burst) are multiplicative, so the policy becomes progressively more conservative as network conditions degrade—exactly when we need it most.
+
+This approach should improve throughput on both traces by:
+- **dual_small_vs_large**: Better handling of the slow writer (detects it as burst) while protecting reader's working set
+- **dual_congested**: Aggressive protection when network has delays/congestion, since there's measurable loss and latency

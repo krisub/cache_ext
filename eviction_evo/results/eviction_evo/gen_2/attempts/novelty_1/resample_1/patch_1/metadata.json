@@ -1,0 +1,14 @@
+{
+  "generation": 2,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "network_adaptive_eviction_thresholds",
+  "patch_description": "The current policy uses fixed thresholds (100ms for recent access, 1s for working set) and only checks if the session is active. This doesn't adapt to network conditions. During congestion (high RTT, retransmissions, low cwnd), each cache miss is much more expensive, so we should protect pages more aggressively.\n\nThis change makes the eviction policy network-adaptive by:\n\n1. **Adjusting protection windows based on RTT**: Higher RTT means cache misses are more expensive, so we expand the working set window proportionally. If base RTT is ~1ms and current RTT is 10ms, we should protect 10x more pages.\n\n2. **Congestion detection**: When retransmissions or packet loss occur, or when cwnd is low relative to packets_out, we detect congestion and protect the working set more aggressively.\n\n3. **Burst detection using inter-arrival time**: Short inter-arrival times indicate a burst of requests. During bursts, we should protect the working set more since it's actively being used.\n\n4. **Adaptive hot threshold**: When the network is congested or during bursts, we lower the access count threshold for \"hot\" pages, making it easier for pages to be protected.\n\nThe key insight is that network conditions directly affect the cost of cache misses. A miss during high RTT or congestion is 10-100x more expensive than during low latency, so our eviction should adapt accordingly.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T11:44:11.251151",
+  "llm_cost": 0.07299900000000001,
+  "llm_model": null
+}

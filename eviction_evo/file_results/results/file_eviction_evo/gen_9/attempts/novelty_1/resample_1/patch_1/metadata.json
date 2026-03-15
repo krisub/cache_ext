@@ -1,0 +1,14 @@
+{
+  "generation": 9,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "weighted_score_adaptive_eviction",
+  "patch_description": "Instead of the current binary protection windows and problematic promotion logic, this approach uses a **weighted composite scoring algorithm** for each folio during eviction. The score combines recency, access frequency, priority level, and system urgency into a single continuous metric that determines eviction likelihood.\n\nKey innovations:\n1. **Composite scoring**: Each folio gets a numeric score based on age \u00d7 priority \u00d7 access count weighting, rather than hard time-window cutoffs.\n2. **Adaptive urgency weighting**: Under high CPU contention, the scoring weights high-priority pages much more heavily, while keeping low-priority pages more vulnerable.\n3. **Removal of problematic promotion logic**: The current program's cross-list promotion based on access count causes thrashing and hurts file_niceness throughput. This new approach avoids artificial priority reassignment.\n4. **Smoother transitions**: By using continuous scoring rather than binary windows, the policy gracefully adapts to priority changes without jarring list migrations.\n5. **Dual-list organization retained**: We keep high/low-priority segregation for efficiency, but the eviction callback uses fine-grained scoring within each list.\n\nThis should improve the harmonic mean by:\n- Maintaining strong protection for the high-priority workload (file_priority)\n- Better balancing low-priority workload throughput (file_niceness) without over-protecting hot low-priority files\n- Avoiding the regression in file_niceness caused by the current promotion threshold artifact",
+  "error_msg": null,
+  "timestamp": "2026-03-10T23:33:50.521430",
+  "llm_cost": 0.07309199999999999,
+  "llm_model": null
+}

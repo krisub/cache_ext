@@ -1,0 +1,9 @@
+2026-03-11 14:26:05,235 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 801, in <module>
+    main()
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 797, in main
+    evaluate(args.program_path, args.results_dir)
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 644, in evaluate
+    fcntl.flock(lock_fd, fcntl.LOCK_EX)  # blocks until previous run finishes
+KeyboardInterrupt

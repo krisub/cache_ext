@@ -1,0 +1,328 @@
+<NAME>
+burst_adaptive_hot_threshold
+</NAME>
+
+<DESCRIPTION>
+The current program uses a fixed `HOT_ACCESS_THRESHOLD` of 3 for all conditions. However, the prior best-performing program (score 2182.27) showed that adaptive hot thresholds based on network conditions improve dual_small_vs_large throughput significantly (1681 vs current 1444).
+
+The recommendation suggests extending this further by distinguishing between "active burst" (high packet rate) and "steady-state" sessions. When a sustained burst is detected (many packets arriving in a short time window), we should lower the hot threshold from 3 to 2, providing stronger protection to warm folios during traffic spikes. This is especially important for the small-vs-large workload where the fast reader generates frequent small requests that need protection.
+
+The implementation tracks packet velocity (packets per 100ms) and maintains burst state. When `burst_active` is true, we use HOT_ACCESS_THRESHOLD_BURST=2 instead of the normal threshold, significantly protecting more folios from eviction during traffic bursts. This should improve small-vs-large throughput by 1-2% while maintaining congested performance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+
+// =============================================================================
+// EVICTION POLICY — everything below is evolved by ShinkaEvolve
+// =============================================================================
+
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      30000000ULL    // 30 ms baseline (more aggressive)
+#define BASE_WORKING_SET_NS 300000000ULL   // 300 ms baseline (more aggressive)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+=======
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+// -- Burst detection state (track packet velocity for sustained burst detection) --
+static u64 last_recv_count_snapshot = 0;
+static u64 last_recv_count_ts = 0;
+
+
+// =============================================================================
+// EVICTION POLICY — everything below is evolved by ShinkaEvolve
+// =============================================================================
+
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      30000000ULL    // 30 ms baseline (more aggressive)
+#define BASE_WORKING_SET_NS 300000000ULL   // 300 ms baseline (more aggressive)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Access count thresholds: adaptive based on network conditions and burst detection
+#define HOT_ACCESS_THRESHOLD_BURST 2       // During burst: treat warm as hot (very protective)
+#define HOT_ACCESS_THRESHOLD_NORMAL 3      // Normal conditions: standard threshold
+#define HOT_ACCESS_THRESHOLD_IDLE 4        // Idle/low-pressure: aggressive eviction
+// Burst detection thresholds
+#define SUSTAINED_BURST_VELOCITY_THRESHOLD 50  // packets per 100ms = sustained burst
+#define VELOCITY_WINDOW_NS 100000000ULL        // 100ms window for velocity calculation
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
+{
+    u64 adapted = base_ns;
+
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 20;  // Reduce RTT scaling impact
+
+    // If network is under pressure (loss, retrans, high jitter), increase window modestly
+    if (under_pressure) {
+        adapted = (adapted * 5) >> 2;  // 1.25x multiplier (was 1.5x)
+    }
+
+    return adapted;
+}
+=======
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
+{
+    u64 adapted = base_ns;
+
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 20;  // Reduce RTT scaling impact
+
+    // If network is under pressure (loss, retrans, high jitter), increase window modestly
+    if (under_pressure) {
+        adapted = (adapted * 5) >> 2;  // 1.25x multiplier (was 1.5x)
+    }
+
+    return adapted;
+}
+
+// -- Helper: detect sustained burst via packet velocity ---------------------
+static __always_inline bool is_sustained_burst_active(u64 now)
+{
+    if (last_recv_count_ts == 0)
+        return false;
+
+    u64 time_since_last_snapshot = (now > last_recv_count_ts) ?
+                                   (now - last_recv_count_ts) : 0;
+
+    // Only compute velocity if we have a reasonable time delta
+    if (time_since_last_snapshot > 0 && time_since_last_snapshot <= VELOCITY_WINDOW_NS * 2) {
+        u64 packet_delta = (net_recv_count > last_recv_count_snapshot) ?
+                           (net_recv_count - last_recv_count_snapshot) : 0;
+        // Normalize to packets per 100ms
+        u64 normalized_velocity = (packet_delta * VELOCITY_WINDOW_NS) / (time_since_last_snapshot + 1);
+        return (normalized_velocity >= SUSTAINED_BURST_VELOCITY_THRESHOLD);
+    }
+
+    return false;
+}
+
+// -- Helper: compute dynamic hot threshold based on burst and network state -
+static __always_inline u32 get_hot_access_threshold(bool net_under_pressure, bool session_active, bool burst_active)
+{
+    // During sustained burst: lower threshold to protect more folios (very protective)
+    if (burst_active && session_active) {
+        return HOT_ACCESS_THRESHOLD_BURST;
+    }
+
+    // Under pressure without burst: still use normal threshold for good protection
+    if (net_under_pressure && session_active) {
+        return HOT_ACCESS_THRESHOLD_NORMAL;
+    }
+
+    // Idle session: raise threshold to aggressively evict cold folios
+    if (!session_active) {
+        return HOT_ACCESS_THRESHOLD_IDLE;
+    }
+
+    // Normal conditions (active session, no pressure, no burst): standard threshold
+    return HOT_ACCESS_THRESHOLD_NORMAL;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network condition detection ------------------------------------------
+
+    // Loss/retransmission indicators
+    bool has_loss = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Cwnd pressure: if packets in flight > cwnd, network is bottlenecked
+    bool cwnd_pressure = (net_packets_out > 0) &&
+                         ((u32)net_packets_out > (net_snd_cwnd / CWND_PRESSURE_RATIO));
+
+    // High jitter: unstable network (only extreme jitter indicates real pressure)
+    bool high_jitter = (net_mdev_us > 2000000);  // > 2ms jitter (was > 1ms)
+
+    // Network is under pressure if any of: loss, cwnd pressure, high jitter
+    bool net_under_pressure = has_loss || cwnd_pressure || high_jitter;
+
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= HOT_ACCESS_THRESHOLD);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+=======
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // -- Network condition detection ------------------------------------------
+
+    // Loss/retransmission indicators
+    bool has_loss = (net_lost > 0) || (net_retrans_out > 0);
+
+    // Cwnd pressure: if packets in flight > cwnd, network is bottlenecked
+    bool cwnd_pressure = (net_packets_out > 0) &&
+                         ((u32)net_packets_out > (net_snd_cwnd / CWND_PRESSURE_RATIO));
+
+    // High jitter: unstable network (only extreme jitter indicates real pressure)
+    bool high_jitter = (net_mdev_us > 2000000);  // > 2ms jitter (was > 1ms)
+
+    // Network is under pressure if any of: loss, cwnd pressure, high jitter
+    bool net_under_pressure = has_loss || cwnd_pressure || high_jitter;
+
+    // Session activity (check early)
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+
+    // Burst detection via packet velocity
+    bool burst_active = is_sustained_burst_active(now);
+
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+
+    // -- Dynamic hot threshold based on burst and network conditions ---------
+    u32 dynamic_hot_threshold = get_hot_access_threshold(net_under_pressure, session_active, burst_active);
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= dynamic_hot_threshold);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Update burst detection snapshot at each eviction scan
+    u64 now = bpf_ktime_get_ns();
+    last_recv_count_snapshot = net_recv_count;
+    last_recv_count_ts = now;
+
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Update tier based on access count
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+=======
+    // Update tier based on access count (use normal threshold for tier classification)
+    // Tier classification is decoupled from eviction decisions; use standard threshold
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD_NORMAL)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+>>>>>>> REPLACE
+</DIFF>

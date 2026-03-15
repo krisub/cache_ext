@@ -1,0 +1,225 @@
+<NAME>
+add_burst_velocity_tracking
+</NAME>
+
+<DESCRIPTION>
+The current program uses inter-arrival time for burst detection but doesn't effectively adapt the hot access threshold based on sustained burst vs steady-state traffic patterns. This change adds packet velocity tracking (inspired by the first program's approach but with better integration into the scoring system) to distinguish between:
+1. High-velocity bursts (many packets in short time) → use lower HOT_ACCESS_THRESHOLD (2) to protect more aggressively
+2. Steady-state active sessions → use standard HOT_ACCESS_THRESHOLD (3)
+3. Idle sessions → use higher threshold (4)
+
+The key improvement is computing sustained burst state per eviction scan (not per folio) and using it to adjust the frequency penalty in scoring, making hot folios even more protected during bursts without affecting the rest of the scoring logic.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Companion map: track survival count for each folio (survivor promotion) ---
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, u64);          // (u64)folio pointer
+    __type(value, u32);        // survival_count: how many scans this folio survived
+    __uint(max_entries, 100000);
+} folio_survival_map SEC(".maps");
+=======
+// -- Burst velocity tracking state (detect sustained high packet rate) --------
+static u64 last_burst_check_ts = 0;
+static u64 last_burst_check_recv_count = 0;
+static bool sustained_burst_active = false;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Survivor tier promotion: folios that survive this many scans are promoted
+#define SURVIVOR_SURVIVAL_THRESHOLD 3
+=======
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Burst velocity detection: packets per 100ms to qualify as sustained burst
+#define BURST_VELOCITY_THRESHOLD 30        // 30 packets / 100ms = sustained burst
+#define BURST_VELOCITY_WINDOW_NS 100000000ULL  // 100ms measurement window
+// Hot access thresholds (adaptive based on burst state)
+#define HOT_THRESHOLD_BURST 2              // During bursts: lower threshold (more protective)
+#define HOT_THRESHOLD_NORMAL 3             // Normal conditions: standard threshold
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Higher access_count = lower eviction score
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        // Hot folios: strong penalty (-30)
+        score = (score > 30) ? (score - 30) : 0;
+    } else if (meta->access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        score = (score > 15) ? (score - 15) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+=======
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Higher access_count = lower eviction score
+    // During sustained bursts, use lower threshold to protect warm folios too
+    u32 hot_threshold = sustained_burst_active ? HOT_THRESHOLD_BURST : HOT_THRESHOLD_NORMAL;
+    
+    if (meta->access_count >= hot_threshold) {
+        // Hot folios: strong penalty (-30)
+        // Extra protection during bursts
+        u32 penalty = sustained_burst_active ? 35 : 30;
+        score = (score > penalty) ? (score - penalty) : 0;
+    } else if (meta->access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        // Enhanced protection during bursts
+        u32 penalty = sustained_burst_active ? 20 : 15;
+        score = (score > penalty) ? (score - penalty) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Factor 3: Tier-based bonus
+    // Cold tier folios get extra score (more evictable)
+    if (meta->access_tier == 0) {
+        score += 20;  // Cold tier bonus
+    } else if (meta->access_tier == 1) {
+        score += 5;   // Warm tier small bonus
+    }
+    // Hot tier (2): no bonus
+
+    // Factor 4: Survivor tier protection
+    // Check if this folio is a survivor (has survived multiple scans)
+    u32 *survival_cnt = bpf_map_lookup_elem(&folio_survival_map, &key);
+    u32 current_survival = (survival_cnt) ? *survival_cnt : 0;
+    bool is_survivor = (current_survival >= SURVIVOR_SURVIVAL_THRESHOLD);
+
+    if (is_survivor) {
+        score = (score >> 1);  // 0.5x multiplier for survivors
+    }
+
+    // Factor 5: Network-aware adjustment
+=======
+    // Factor 3: Tier-based bonus
+    // Cold tier folios get extra score (more evictable)
+    if (meta->access_tier == 0) {
+        score += 20;  // Cold tier bonus
+    } else if (meta->access_tier == 1) {
+        score += 5;   // Warm tier small bonus
+    }
+    // Hot tier (2): no bonus
+
+    // Factor 4: Network-aware adjustment
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Factor 6: Burst protection
+=======
+    // Factor 5: Burst protection
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // -- Survival counter increment (before decision) -------------------------
+    // Increment survival count for this scan pass (it's still not evicted)
+    if (!is_survivor) {
+        // Only non-survivors increment; survivors stay at threshold
+        u32 new_survival = current_survival + 1;
+        bpf_map_update_elem(&folio_survival_map, &key, &new_survival, BPF_ANY);
+    }
+
+    // -- Dynamic eviction threshold -------------------------------------------
+=======
+    // -- Dynamic eviction threshold -------------------------------------------
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    
+    // Update burst detection state before eviction scan
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_check = (now > last_burst_check_ts) ? (now - last_burst_check_ts) : 0;
+    
+    // Only recompute burst state if enough time has passed (avoid per-folio overhead)
+    if (time_since_check > BURST_VELOCITY_WINDOW_NS || last_burst_check_ts == 0) {
+        u64 recv_delta = (net_recv_count > last_burst_check_recv_count) ?
+                         (net_recv_count - last_burst_check_recv_count) : 0;
+        
+        // Compute velocity: packets per 100ms window
+        if (time_since_check > 0) {
+            u64 velocity = (recv_delta * BURST_VELOCITY_WINDOW_NS) / time_since_check;
+            sustained_burst_active = (velocity >= BURST_VELOCITY_THRESHOLD);
+        }
+        
+        // Update snapshot
+        last_burst_check_ts = now;
+        last_burst_check_recv_count = net_recv_count;
+    }
+    
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Update tier based on access count
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Reset survival count on access (accessed folios don't need survivor protection)
+    bpf_map_delete_elem(&folio_survival_map, &key);
+
+    // Move to head of list (MRU position); third arg is 'tail', so false = head
+=======
+    // Update tier based on access count (use normal threshold for tier classification)
+    if (meta->access_count >= HOT_THRESHOLD_NORMAL)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Move to head of list (MRU position); third arg is 'tail', so false = head
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    u64 key = (u64)folio;
+    bpf_map_delete_elem(&folio_metadata_map, &key);
+
+    // Clean up survival tracking as well
+    bpf_map_delete_elem(&folio_survival_map, &key);
+    bump_counter(5);
+=======
+    u64 key = (u64)folio;
+    bpf_map_delete_elem(&folio_metadata_map, &key);
+    bump_counter(5);
+>>>>>>> REPLACE
+</DIFF>

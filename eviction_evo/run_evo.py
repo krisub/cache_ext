@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import shutil
 import sys
 import os
 import subprocess
@@ -16,6 +17,13 @@ import subprocess
 SHINKA_DIR = os.environ.get("SHINKA_DIR", "/mydata/ShinkaEvolve")
 if SHINKA_DIR not in sys.path:
     sys.path.insert(0, SHINKA_DIR)
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_TEMPLATE = os.path.join(SCRIPT_DIR, ".env.template")
+SHINKA_ENV = os.path.join(SHINKA_DIR, ".env")
+
+if os.path.exists(ENV_TEMPLATE):
+    shutil.copy2(ENV_TEMPLATE, SHINKA_ENV)
 
 import yaml
 from shinka.core import EvolutionRunner, EvolutionConfig
@@ -28,7 +36,8 @@ def main(config_path: str):
         config = yaml.safe_load(f)
 
     evo_config = EvolutionConfig(**config["evo_config"])
-    job_config = LocalJobConfig(eval_program_path="evaluate.py")
+    eval_program = config.get("eval_program_path", "evaluate.py")
+    job_config = LocalJobConfig(eval_program_path=eval_program)
     db_config = DatabaseConfig(**config["db_config"])
 
     evo_runner = EvolutionRunner(

@@ -1,0 +1,14 @@
+{
+  "generation": 15,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "adaptive_thresholds_lower_contention",
+  "patch_description": "The current code has adaptive access-count thresholds that only activate when `sched_nr_running > CPU_BUSY_THRESHOLD` (4 tasks). However, examining the prior generations shows that earlier versions achieved higher harmonic means (Gen 4: 2911.51 vs current 2771.08) when they were more aggressive about protecting hot pages.\n\nThe recommendation calls for adaptive access-count thresholds that respond to CPU contention. The key insight is that we should lower the contention threshold that triggers more aggressive hot-page classification, and also reduce the baseline thresholds. This means:\n\n1. Lower `CPU_BUSY_THRESHOLD` from 4 to 3 \u2014 so contention kicks in sooner\n2. Reduce baseline `HOT_ACCESS_THRESHOLD` from 2 to 1 \u2014 one access is enough to trigger special handling\n3. Keep `VERY_HOT_ACCESS_THRESHOLD` at 6 baseline, but drop to 3 under contention (was 4)\n4. This makes the policy more responsive to working-set hotness under load, reducing eviction of frequently-accessed pages\n\nThis change maintains fixed time windows (RECENT_ACCESS_NS, WORKING_SET_NS) while making access-count detection faster and more aggressive, which should improve both throughput (by protecting hot pages better) and reduce P99 latency spread by preventing thrashing of active working sets.",
+  "error_msg": null,
+  "timestamp": "2026-03-10T23:50:15.492400",
+  "llm_cost": 0.048775,
+  "llm_model": null
+}

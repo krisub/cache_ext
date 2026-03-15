@@ -1,0 +1,22 @@
+{
+  "combined_score": 2904.0237673324827,
+  "public": {
+    "file_priority_throughput": 3432.55,
+    "file_priority_read_p99_ns": 71817187.0,
+    "file_niceness_throughput": 2516.54,
+    "file_niceness_read_p99_ns": 63230036.0,
+    "combined_score_harmonic_mean": 2904.0237673324827,
+    "traces_passed": 2,
+    "traces_total": 2
+  },
+  "private": {
+    "file_priority": {
+      "total_throughput": 3432.55,
+      "read_latency_p99_ns": 71817187.0
+    },
+    "file_niceness": {
+      "total_throughput": 2516.54,
+      "read_latency_p99_ns": 63230036.0
+    }
+  }
+}

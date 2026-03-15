@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -45,6 +46,9 @@ LEVELDB_DB = "/mydata/leveldb"
 LEVELDB_TEMP_DB = "/mydata/leveldb_temp"
 TRACES_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo", "traces")
 PROXY_SCRIPT = os.path.join(CACHE_EXT_DIR, "eviction_evo", "tcp_delay_proxy.py")
+SSH_OPTS = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+           "-i", "/users/krisub/.ssh/id_ed25519"]
+REMOTE_CLIENT_CGROUP = "cache_ext_remote_clients"
 # Ordered list of trace configs to run for each evaluation.
 # Each trace is (short_name, yaml_filename).
 TRACE_CONFIGS = [
@@ -456,20 +460,67 @@ def start_proxy(listen_port, delay_ms, bandwidth_kbps):
     return proc
 
 
+def scp_to_remote(local_path, remote_host, remote_path, timeout=30):
+    """Copy a file to a remote host via scp."""
+    subprocess.run(
+        ["scp"] + SSH_OPTS + [local_path, f"{remote_host}:{remote_path}"],
+        check=True, timeout=timeout, capture_output=True, text=True,
+    )
+
+
+def ssh_rm(remote_host, remote_path):
+    """Remove a file on a remote host."""
+    subprocess.run(
+        ["ssh"] + SSH_OPTS + [remote_host, "rm", "-f", remote_path],
+        check=False, timeout=10, capture_output=True,
+    )
+
+
+def ssh_shell_cmd(remote_host, shell_command):
+    """Build ssh argv that runs a command through remote sh -lc."""
+    return ["ssh"] + SSH_OPTS + [remote_host, f"sh -lc {shlex.quote(shell_command)}"]
+
+
+def ensure_remote_client_cgroup(remote_host):
+    """Best-effort create shared remote cgroup for benchmark client processes."""
+    setup_cmd = (
+        f"sudo -n cgcreate -g memory:{REMOTE_CLIENT_CGROUP} >/dev/null 2>&1 || true"
+    )
+    subprocess.run(
+        ssh_shell_cmd(remote_host, setup_cmd),
+        check=False, timeout=15, capture_output=True, text=True,
+    )
+
+
+def remote_bench_command(bench_binary, remote_path):
+    """Run benchmark in shared remote cgroup when available."""
+    return (
+        f"if command -v cgexec >/dev/null 2>&1; then "
+        f"cgexec -g memory:{REMOTE_CLIENT_CGROUP} "
+        f"{bench_binary} {remote_path} && exit 0; "
+        f"fi; "
+        f"exec {bench_binary} {remote_path}"
+    )
+
+
 def run_dual_client_benchmark(trace_config_dict):
     """
     Run a dual-client benchmark: two My-YCSB clients in parallel against
-    the same server, optionally through delay proxies.
+    the same server. Clients with a 'host' field are launched on that host
+    via SSH; others run locally (optionally through delay proxies).
     Returns results dict with total_throughput (sum of both clients).
     """
     clients = trace_config_dict["clients"]
     proxy_procs = []
+    # Each entry: (local_path, remote_host_or_None, remote_path_or_None)
     temp_files = []
     bench_binary = os.path.join(BENCH_BINARY_DIR, "run_net_leveldb")
 
     try:
-        # Start proxies for clients that need them
+        # Start proxies for local clients that need them
         for client in clients:
+            if client.get("host"):
+                continue
             proxy_port = client.get("proxy_port", 0)
             delay_ms = client.get("proxy_delay_ms", 0)
             bw_kbps = client.get("proxy_bandwidth_kbps", 0)
@@ -477,20 +528,43 @@ def run_dual_client_benchmark(trace_config_dict):
                 proc = start_proxy(proxy_port, delay_ms, bw_kbps)
                 proxy_procs.append(proc)
 
+        # Ensure a shared client cgroup exists on each remote host.
+        for host in {c.get("host") for c in clients if c.get("host")}:
+            ensure_remote_client_cgroup(host)
+
         # Write temp config files and launch clients
         client_procs = []
         for client in clients:
             config = client["config"]
-            fd, path = tempfile.mkstemp(suffix=".yaml",
-                                        prefix=f"dual_{client['name']}_")
+            remote_host = client.get("host")
+
+            fd, local_path = tempfile.mkstemp(suffix=".yaml",
+                                              prefix=f"dual_{client['name']}_")
             with os.fdopen(fd, 'w') as f:
                 pyyaml.dump(config, f)
-            temp_files.append(path)
 
-            cmd = [bench_binary, path]
-            log.info("Starting client %s: %s", client["name"], " ".join(cmd))
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, text=True)
+            if remote_host:
+                remote_path = f"/tmp/{os.path.basename(local_path)}"
+                scp_to_remote(local_path, remote_host, remote_path)
+                temp_files.append((local_path, remote_host, remote_path))
+
+                remote_cmd = remote_bench_command(
+                    bench_binary,
+                    remote_path,
+                )
+                cmd = ssh_shell_cmd(remote_host, remote_cmd)
+                log.info("Starting remote client %s on %s: %s",
+                         client["name"], remote_host, " ".join(cmd))
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, text=True)
+            else:
+                temp_files.append((local_path, None, None))
+                cmd = [bench_binary, local_path]
+                log.info("Starting local client %s: %s",
+                         client["name"], " ".join(cmd))
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, text=True)
+
             client_procs.append((client["name"], proc))
 
         # Wait for all clients to finish
@@ -538,11 +612,16 @@ def run_dual_client_benchmark(trace_config_dict):
                 proc.wait(timeout=5)
             except Exception:
                 pass
-        for path in temp_files:
+        for local_path, remote_host, remote_path in temp_files:
             try:
-                os.unlink(path)
+                os.unlink(local_path)
             except Exception:
                 pass
+            if remote_host and remote_path:
+                try:
+                    ssh_rm(remote_host, remote_path)
+                except Exception:
+                    pass
 
 
 # -- Main Evaluation -----------------------------------------------------------

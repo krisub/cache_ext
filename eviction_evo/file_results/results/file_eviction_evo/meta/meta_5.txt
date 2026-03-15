@@ -1,0 +1,110 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Scheduler-Aware Page Cache Eviction with Priority Protection**
+
+- **Implementation**: Uses a single MRU list with per-folio metadata tracking access timestamps, access counts, and accessor process priority (nice value). Eviction decisions employ multi-factor heuristics: protecting hot folios (≥3 accesses) accessed by high-priority processes within the working set window (1s), protecting recently accessed folios (<100ms), and adaptively protecting high-priority working sets when CPU runqueue depth exceeds 4 tasks. Dirty/writeback folios are always retained.
+
+- **Performance**: Achieves combined harmonic mean score of 2480.18 with file_priority_throughput of 2703.39 ops/s and file_niceness_throughput of 2291.01 ops/s, demonstrating strong prioritization of high-priority process I/O while maintaining reasonable throughput for normal-priority workloads.
+
+- **Feedback**: The policy successfully balances competing objectives by using scheduler context (nice values, runqueue depth) to make eviction decisions, with the adaptive CPU-load-aware protection (sched_nr_running > 4 threshold) effectively reducing I/O wait for high-priority processes during contention. The relatively tight P99 latencies (67.9ms and 58.7ms) indicate consistent performance, though the 412ms gap between priority and niceness throughput suggests room for tuning the access count threshold or time window constants to better equalize workload performance.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Priority-Aware Page Cache Eviction with Scheduler Metrics**
+
+- **Implementation**: Uses a single MRU list with priority-tier classification based on process nice values and access patterns. Eviction callback implements multi-level protection: recent accesses (50ms) are always retained, hot pages (≥5 accesses) from high-priority processes are protected within 500ms working set, and low-priority pages (nice≥5) are aggressively evicted after 200ms. Folio metadata tracks last access timestamp, access count, accessor nice value, and PID; accessed folios are moved to list head for MRU ordering.
+
+- **Performance**: Combined harmonic mean score of 2757.44 across file priority (3025.89 throughput, 68.9ms p99) and file niceness (2532.74 throughput, 67.6ms p99) workloads, passing all 2 validation traces.
+
+- **Feedback**: The strategy effectively balances throughput and latency by using time-window thresholds (50ms/200ms/500ms) and access-count hotness detection to differentiate protection levels. The aggressive eviction of low-priority aged pages (200ms threshold) combined with CPU load awareness (sched_nr_running > 4) provides responsive prioritization, though the harmonic mean indicates room for improvement in the niceness workload relative to priority workload performance.
+**Program Identifier:** Generation 1 - Patch Name priority_weighted_eviction - Correct Program: True
+
+**Program Name: Dual-List Priority Segregation with Adaptive Aging**
+
+- **Implementation**: Uses two separate LRU lists (high-priority and low-priority) segregated by process nice value (threshold: -5), with differentiated eviction callbacks applying stricter age thresholds and access-count protections for high-priority folios. Small files (≤64KB) receive extended protection, and CPU load awareness (nr_running > 4) triggers aggressive working-set preservation for high-priority processes. Metadata tracking includes last_access_ts, access_count, accessor_nice, and accessor_pid per folio.
+
+- **Performance**: Combined harmonic mean score of 2846.05 across file priority (3285.09 throughput, 68ms p99) and file niceness (2510.52 throughput, 59ms p99) workloads, passing all validation tests.
+
+- **Feedback**: The dual-list approach effectively isolates priority classes, reducing contention and enabling tailored eviction policies. Aggressive time window tuning (30ms recent access, 300ms working set) and lower access thresholds (2 vs 3) improve responsiveness to priority changes. The CPU-busy threshold provides adaptive behavior under load, though the high-priority callback's conservative protection (multiple WORKING_SET_NS multipliers) may slightly limit throughput gains despite strong p99 latency performance.
+**Program Identifier:** Generation 2 - Patch Name dual_list_priority_adaptive_aging - Correct Program: True
+
+**Program Name: CPU-Aware Priority-Tiered Page Cache Eviction Policy**
+
+- **Implementation**: Uses adaptive time-window thresholds (50ms–500ms) that contract under CPU contention, combined with priority-tier classification (very-high/low-priority processes) and access-count hotness detection. Folios are maintained in an MRU list; eviction decisions weigh recency, access frequency, process priority (via nice value), and system load (sched_nr_running). Low-priority pages are evicted aggressively after 150ms, while hot pages from high-priority processes are protected in the working set.
+
+- **Performance**: Achieves combined harmonic-mean score of 2561.71, with file_priority_throughput of 2941.81 ops/s and file_niceness_throughput of 2268.60 ops/s; P99 latencies are 69.4ms (priority) and 58.4ms (niceness), passing all 2 validation traces.
+
+- **Feedback**: The adaptive contention-factor mechanism (70%–100% window scaling) effectively balances memory pressure with fairness across priority classes. The three-tier priority scheme (very-high/medium/low) combined with separate aging thresholds per tier provides fine-grained control, though the harmonic mean suggests room for further tuning of the low-priority eviction threshold or hot-page protection criteria under mixed workloads.
+**Program Identifier:** Generation 3 - Patch Name none - Correct Program: True
+
+**Program Name: Adaptive Priority-Aware Dual-List Cache Eviction Policy**
+
+- **Implementation**: Uses separate high-priority (nice ≤ 0) and low-priority (nice > 0) LRU lists with metadata-driven eviction callbacks that protect hot folios (access_count ≥ 5) and recently-accessed pages (< 40ms) while aggressively evicting aged low-priority pages. Handles priority swaps by checking accessor_nice in metadata during eviction decisions, allowing misrouted folios to receive appropriate protection levels. Small files (≤64KB) from high-priority processes receive extended working-set windows (2x multiplier), and CPU load awareness (nr_running > 3) triggers aggressive high-priority protection.
+
+- **Performance**: Achieves combined harmonic mean score of 2525.15 with file_priority_throughput of 2962.16 ops/sec and file_niceness_throughput of 2200.51 ops/sec, both with P99 latencies around 68.6ms; passes all 2 validation traces.
+
+- **Feedback**: The dual-list architecture with metadata-aware callbacks effectively balances priority-based protection against stale routing issues, though the relatively modest throughput gains (2200-2962 ops/sec) suggest the eviction thresholds may be conservative. The approach of checking actual accessor_nice during eviction rather than relying solely on list membership is sound for handling dynamic priority changes, but the similar P99 latencies across priority classes (68.6ms) indicates potential room for more aggressive differentiation in eviction aggressiveness between lists.
+**Program Identifier:** Generation 4 - Patch Name adaptive_priority_aware_dual_list - Correct Program: True
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+# Optimization Insights Analysis
+
+## Successful Algorithmic Patterns
+
+- **Dual-list priority segregation with aggressive time-window tuning** (Generation 2: 2846.05 score) outperforms single-list approaches by isolating priority classes and enabling tailored eviction policies. The current best program achieves the highest combined harmonic mean by using separate high-priority (nice ≤ -5) and low-priority (nice > -5) lists with differentiated callbacks, compared to Generation 0's single MRU list (2480.18) and Generation 1's single list with tier classification (2757.44). The key advantage is reduced contention and independent aging thresholds per priority class.
+
+- **Aggressive time-window contraction (30ms recent access, 300ms working set)** in the current best program (Generation 2) significantly improves responsiveness compared to longer windows in earlier generations. Generation 0 used 100ms recent access and 1s working set windows, while Generation 2 reduced these to 30ms and 300ms respectively, achieving 2846.05 vs 2480.18. This faster adaptation to priority changes and memory pressure events directly correlates with the 365-point improvement in harmonic mean score.
+
+- **Lower access-count thresholds (2 for hot, 6 for very-hot) combined with differentiated protection multipliers** in the current best program enables more nuanced folio protection. Generation 2 uses HOT_ACCESS_THRESHOLD=2 (vs Generation 0's 3) and introduces VERY_HOT_ACCESS_THRESHOLD=6, allowing the high-priority callback to apply 3x WORKING_SET_NS protection for very-hot folios while low-priority gets 2x. This multi-tier protection strategy achieves better throughput balance (3285.09 priority vs 2510.52 niceness) than Generation 1's simpler access-count logic.
+
+- **CPU-load-aware adaptive protection (nr_running > 4 threshold) combined with small-file special handling (≤64KB with 2x multiplier)** in the current best program provides context-sensitive eviction decisions. The high-priority callback explicitly protects small files and aggressively preserves working sets when CPU is busy, achieving 68ms P99 latency for priority workload while maintaining 59ms for niceness workload—the tightest P99 spread among all evaluated programs.
+
+## Ineffective Approaches
+
+- **Single MRU list with per-folio metadata and multi-factor heuristics** (Generation 0: 2480.18) underperforms dual-list segregation by 366 points despite using scheduler context (nice values, runqueue depth). The fundamental issue is that a single list cannot efficiently apply different eviction policies to different priority classes simultaneously; protecting high-priority folios in a shared list inherently delays eviction of low-priority folios, creating contention. The 412ms throughput gap between priority (2703.39) and niceness (2291.01) workloads indicates the single list cannot balance competing priorities effectively.
+
+- **Overly conservative protection multipliers and thresholds** in Generation 4 (2525.15 score) demonstrate that excessive protection of high-priority folios reduces overall throughput without proportional latency gains. Generation 4 uses similar dual-list architecture but achieves only 2962.16 priority throughput vs Generation 2's 3285.09 (9.8% lower), suggesting its eviction thresholds are too lenient. The similar P99 latencies across priority classes (68.6ms) indicate the policy fails to differentiate protection aggressiveness sufficiently.
+
+- **Adaptive contention-factor window scaling (70%-100% based on CPU load)** in Generation 3 (2561.71 score) adds complexity without performance benefit compared to fixed aggressive windows. Generation 3's approach of contracting time windows under CPU contention achieves lower harmonic mean (2561.71) than Generation 2's fixed 30ms/300ms windows (2846.05), suggesting that dynamic scaling introduces unpredictability. The 284-point gap indicates that fixed, aggressively-tuned windows outperform adaptive scaling for this workload pattern.
+
+- **Metadata-aware callback routing with priority-swap detection** in Generation 4 (2525.15) adds overhead without sufficient benefit. While the approach of checking accessor_nice during eviction to handle dynamic priority changes is theoretically sound, the modest throughput gains (2200-2962 ops/sec) and lack of P99 differentiation (68.6ms across both workloads) suggest the metadata lookups and conditional logic consume resources without improving eviction quality. The 321-point gap vs Generation 2 indicates this complexity is not justified.
+
+## Implementation Insights
+
+- **Dual-list architecture with separate eviction callbacks enables independent policy tuning per priority class.** The current best program (Generation 2) maintains high_prio_list and low_prio_list with distinct bpf_evict_high_prio_cb and bpf_evict_low_prio_cb functions. The high-priority callback applies 3x WORKING_SET_NS protection for very-hot folios and 2x for hot folios, while the low-priority callback uses 2x and 1x respectively. This asymmetry directly enables the 3285.09 priority throughput while maintaining 2510.52 niceness throughput—a 31% differential that reflects the intended priority bias. Single-list approaches cannot achieve this level of differentiation without complex conditional logic that degrades performance.
+
+- **Aggressive time-window constants (RECENT_ACCESS_NS=30ms, WORKING_SET_NS=300ms) combined with low access thresholds (HOT_ACCESS_THRESHOLD=2) create a responsive eviction policy.** The current best program's 30ms recent-access window is 3.3x shorter than Generation 0's 100ms, enabling faster detection of access pattern changes. The 300ms working-set window is 3.3x shorter than Generation 0's 1s, reducing memory waste from stale folios. These aggressive constants work because they're paired with low access thresholds—a folio becomes "hot" after just 2 accesses, so the shorter windows don't prematurely evict frequently-accessed data. The combination achieves 68ms P99 latency (priority) and 59ms (niceness), the tightest latencies across all programs.
+
+- **Differentiated protection multipliers (3x for very-hot, 2x for hot in high-prio; 2x and 1x in low-prio) create a multi-tier protection hierarchy.** The current best program's high-priority callback uses `if (meta->access_count >= VERY_HOT_ACCESS_THRESHOLD) { if (age < WORKING_SET_NS * 3) return CONTINUE; }` followed by hot-folio logic with 2x multiplier. This creates three protection tiers: very-hot (900ms), hot (600ms), and normal (300ms) for high-priority folios, vs two tiers (600ms, 300ms) for low-priority. The asymmetry ensures that frequently-accessed high-priority data stays in cache longer, directly supporting the 31% throughput differential between priority and niceness workloads.
+
+- **CPU-load-aware adaptive protection (sched_nr_running > 4 threshold) in the high-priority callback provides context-sensitive eviction without complexity.** The current best program's high-priority callback includes `if (sched_nr_running > CPU_BUSY_THRESHOLD) { if (age < WORKING_SET_NS) return CONTINUE; }`, which aggressively protects the working set when the CPU runqueue exceeds 4 tasks. This single conditional check (vs Generation 3's complex contention-factor scaling) achieves better performance by providing binary, predictable behavior: under contention, protect aggressively; otherwise, use standard thresholds. The approach avoids the unpredictability of dynamic scaling while still responding to system load.
+
+## Performance Analysis
+
+- **Dual-list segregation (Generation 2: 2846.05) achieves the highest combined harmonic mean score, outperforming all single-list approaches by 66-366 points.** Generation 0 (single MRU, 2480.18), Generation 1 (single list with tier classification, 2757.44), Generation 3 (single MRU with adaptive scaling, 2561.71), and Generation 4 (dual-list with metadata-aware routing, 2525.15) all score lower than Generation 2. The 2846.05 score represents a 3.2% improvement over Generation 1 (the best single-list approach) and a 14.8% improvement over Generation 0. This consistent pattern across multiple implementations demonstrates that dual-list segregation is fundamentally superior for priority-aware page cache eviction.
+
+- **Aggressive time-window tuning (30ms/300ms in Generation 2) correlates with the highest throughput-latency balance.** Generation 2 achieves 3285.09 priority throughput with 68ms P99 latency and 2510.52 niceness throughput with 59ms P99 latency. Comparing to Generation 1 (which uses 50ms/500ms windows): Generation 1 achieves 3025.89 priority throughput (7.9% lower) with 68.9ms P99 (0.1% higher latency) and 2532.74 niceness throughput (0.9% higher) with 67.6ms P99 (14.5% higher latency). The tighter P99 latencies in Generation 2 (especially for niceness: 59ms vs 67.6ms) indicate that shorter windows reduce tail latency variance while maintaining throughput.
+
+- **Priority-niceness throughput differential (31% in Generation 2) is the largest among all programs, indicating effective priority differentiation.** Generation 2 achieves 3285.09 / 2510.52 = 1.31x ratio. Comparing to other programs: Generation 0 (2703.39 / 2291.01 = 1.18x), Generation 1 (3025.89 / 2532.74 = 1.19x), Generation 3 (2941.81 / 2268.60 = 1.30x), Generation 4 (2962.16 / 2200.51 = 1.35x). While Generation 4 has a slightly higher ratio (1.35x), its absolute throughput is lower (2962.16 vs 3285.09 for priority), indicating the ratio comes from depressed niceness performance rather than elevated priority performance. Generation 2's 31% differential reflects genuine priority bias without sacrificing absolute throughput.
+
+- **Harmonic mean score progression shows diminishing returns from complexity: Generation 2 (2846.05) > Generation 1 (2757.44) > Generation 3 (2561.71) > Generation 4 (2525.15).** The progression from single-list (Gen 1) to dual-list (Gen 2) yields +89 points (+3.2%), but adding adaptive scaling (Gen 3) yields -285 points (-10.0%), and adding metadata-aware routing (Gen 4) yields -36 points (-1.4%). This pattern indicates that the core dual-list architecture with fixed aggressive thresholds is optimal, and additional complexity (adaptive scaling, metadata-aware routing) introduces overhead or unpredictability that degrades performance. The current best program achieves the highest score by maintaining simplicity while using aggressive, well-tuned constants.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+# Actionable Recommendations for Future Program Mutations
+
+1. **Introduce adaptive access-count thresholds based on CPU load and memory pressure signals.** The current best program uses fixed HOT_ACCESS_THRESHOLD=2 and VERY_HOT_ACCESS_THRESHOLD=6, but these could be dynamically adjusted: when `sched_nr_running > CPU_BUSY_THRESHOLD`, lower the thresholds (e.g., HOT=1, VERY_HOT=4) to classify folios as "hot" more aggressively and protect them earlier under contention. This builds on the successful CPU-load-aware protection pattern while adding responsiveness to system state, potentially improving the P99 latency spread between priority and niceness workloads (currently 68ms vs 59ms).
+
+2. **Implement per-list eviction budgets with priority-weighted allocation to prevent low-priority list starvation.** Currently, the eviction orchestration iterates low-priority first, then high-priority, but doesn't enforce a budget ratio. Add a mechanism where if `eviction_ctx->nr_to_scan` is 1000, allocate 700 to low-priority and 300 to high-priority (or dynamically based on list sizes), ensuring that high-priority protection doesn't cause excessive low-priority folio retention. This extends the dual-list segregation pattern with explicit fairness guarantees, potentially improving the niceness throughput (currently 2510.52) without sacrificing priority throughput.
+
+3. **Add a "promotion" mechanism that moves frequently-accessed low-priority folios to the high-priority list after reaching a threshold.** Implement a counter in folio metadata that tracks consecutive accesses within a short time window (e.g., 3 accesses in 50ms). When a low-priority folio crosses this threshold, move it to the high-priority list and update its accessor_nice. This captures the insight that access patterns matter more than initial priority assignment, potentially improving overall throughput by 2-3% by better protecting working-set folios regardless of initial classification.
+
+4. **Refine the small-file protection multiplier (currently 2x WORKING_SET_NS) to be access-count-aware.** Instead of uniform 2x protection for all small files, use: `if (is_small && access_count >= HOT_ACCESS_THRESHOLD) { multiplier = 3x } else if (is_small) { multiplier = 1.5x }`. This recognizes that small files with high access counts (e.g., frequently-read config files) deserve more aggressive protection than small files accessed once, aligning with the multi-tier protection hierarchy that made the current best program successful.
+
+5. **Experiment with a hybrid eviction strategy that samples the high-priority list probabilistically rather than iterating it sequentially.** Replace the second `bpf_cache_ext_list_iterate()` call with `bpf_cache_ext_list_sample()` using a ratio of 0.1-0.3 (evict 10-30% of sampled high-priority folios). This reduces the overhead of scanning the entire high-priority list while still allowing some eviction under memory pressure, potentially improving throughput by 1-2% by reducing callback overhead while maintaining the protective benefits of dual-list segregation.

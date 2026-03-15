@@ -1,0 +1,14 @@
+{
+  "generation": 26,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "recency_boost_for_frequently_accessed_folios",
+  "patch_description": "The recommendation suggests adding a \"folio recency boost\" mechanism that protects frequently-accessed small folios falling just below the dynamic hot threshold. \n\nThe approach: In `bpf_evict_cb`, check if a folio was accessed within the last 10ms (10,000,000 ns). If so, treat it as having +1 access count for the purpose of threshold comparison. This boosts protection for recently-accessed folios that are likely part of an active working set, particularly beneficial for small-value reads in the dual_small_vs_large workload where small folios compete with large ones.\n\nThis also addresses a bug in the current program's stability tracking where both protected and recent counters increment together in the same branch, making the ratio always ~100% and defeating the adaptive threshold.\n\nThe change:\n1. Remove the buggy eviction_scan_stats tracking\n2. Add a per-folio recency check and apply a boost to the access count before threshold comparison\n3. Keep the simpler, proven network-aware eviction strategy from the prior best",
+  "error_msg": null,
+  "timestamp": "2026-03-11T14:08:24.284447",
+  "llm_cost": 0.057674,
+  "llm_model": null
+}

@@ -1,0 +1,14 @@
+{
+  "generation": 18,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "secondary_demotion_moderate_access",
+  "patch_description": "The current program shows a regression in niceness_throughput (2313.36) compared to the best prior version (2494.39). Analysis reveals that while the graduated protection mechanism was added, it may not be aggressive enough in cleaning up moderately-accessed but stale folios from the high-priority list.\n\nThe recommendation proposes adding a **secondary demotion tier** for folios with 2-3 accesses that have aged beyond 1.5x WORKING_SET_NS. This creates a graduated demotion strategy:\n- Tier 1: Single-access folios aged > 2.0x WORKING_SET_NS (existing)\n- Tier 2: Moderate-access folios (2-3 accesses) aged > 1.5x WORKING_SET_NS (new)\n\nThis prevents cold pages with moderate reuse from monopolizing high-priority cache slots, freeing space for truly hot pages (6+ accesses) and improving both priority and niceness throughput. The mechanism is conservative (only demotes after 1.5x aging period) and uses integer arithmetic to avoid floating point operations.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T00:04:13.632660",
+  "llm_cost": 0.050337,
+  "llm_model": null
+}

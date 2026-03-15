@@ -1,0 +1,59 @@
+2026-03-11 11:51:22,594 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate.lock ...
+2026-03-11 11:57:08,489 INFO Acquired evaluation lock.
+2026-03-11 11:57:08,489 INFO === Step 0: Drop page cache ===
+2026-03-11 11:57:08,490 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping rsync
+2026-03-11 11:57:08,490 INFO CMD: sudo sync
+2026-03-11 11:57:08,612 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-11 11:57:08,855 INFO Page cache dropped.
+2026-03-11 11:57:08,855 INFO === Step 1: Compile evolved policy ===
+2026-03-11 11:57:08,855 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-11 11:57:09,199 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-11 11:57:12,037 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-11 11:57:12,232 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-11 11:57:13,152 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-11 11:57:13,152 INFO === Step 2: Disable MGLRU ===
+2026-03-11 11:57:13,152 INFO MGLRU current state: 0x0007 — disabling
+2026-03-11 11:57:13,152 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-11 11:57:13,229 INFO MGLRU disabled.
+2026-03-11 11:57:13,229 INFO === Step 3: Create cgroup ===
+2026-03-11 11:57:13,229 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-11 11:57:13,255 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-11 11:57:13,359 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-11 11:57:13,374 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-11 11:57:13,374 INFO === Step 4: Load BPF policy ===
+2026-03-11 11:57:13,374 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-11 11:57:23,385 INFO Policy loaded (PID 25452)
+2026-03-11 11:57:23,385 INFO === Step 5: Start server ===
+2026-03-11 11:57:23,385 INFO Starting server: sudo cgexec -g memory:cache_ext_test /mydata/cache_ext/net_leveldb_server 9100 /mydata/leveldb_temp
+2026-03-11 11:57:23,387 INFO Waiting for server on port 9100 ...
+2026-03-11 11:57:24,455 INFO Server ready (PID 25471) on port 9100
+2026-03-11 11:57:24,456 INFO === Step 6: Run 2 trace benchmarks ===
+2026-03-11 11:57:24,456 INFO --- Trace 1/2: dual_small_vs_large ---
+2026-03-11 11:57:25,110 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'if command -v cgexec >/dev/null 2>&1; then cgexec -g memory:cache_ext_remote_clients /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_ynve7my1.yaml && exit 0; fi; exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_ynve7my1.yaml'
+2026-03-11 11:57:25,349 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'if command -v cgexec >/dev/null 2>&1; then cgexec -g memory:cache_ext_remote_clients /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_c8nzwhh6.yaml && exit 0; fi; exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_c8nzwhh6.yaml'
+2026-03-11 12:00:23,837 INFO Client reader_fast: throughput=945.52
+2026-03-11 12:00:23,838 INFO Client writer_slow: throughput=498.57
+2026-03-11 12:00:23,838 INFO Dual-client combined throughput: 1444.09 ops/sec
+2026-03-11 12:00:24,299 INFO Trace dual_small_vs_large: throughput=1444.09 ops/sec
+2026-03-11 12:00:24,299 INFO --- Trace 2/2: dual_congested ---
+2026-03-11 12:00:24,299 INFO CMD: sudo sync
+2026-03-11 12:00:24,453 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-11 12:00:24,790 INFO Page cache dropped.
+2026-03-11 12:00:27,639 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'if command -v cgexec >/dev/null 2>&1; then cgexec -g memory:cache_ext_remote_clients /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_3svdgdyk.yaml && exit 0; fi; exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_3svdgdyk.yaml'
+2026-03-11 12:00:27,895 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'if command -v cgexec >/dev/null 2>&1; then cgexec -g memory:cache_ext_remote_clients /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_aerf1j6u.yaml && exit 0; fi; exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_aerf1j6u.yaml'
+2026-03-11 12:03:25,866 INFO Client wan_reader: throughput=1432.25
+2026-03-11 12:03:26,257 INFO Client wan_writer: throughput=1706.48
+2026-03-11 12:03:26,257 INFO Dual-client combined throughput: 3138.73 ops/sec
+2026-03-11 12:03:26,731 INFO Trace dual_congested: throughput=3138.73 ops/sec
+2026-03-11 12:03:26,742 INFO === Evaluation complete ===
+2026-03-11 12:03:26,742 INFO Combined score (harmonic mean): 1978.09  (2/2 traces passed)
+2026-03-11 12:03:26,742 INFO   dual_small_vs_large: 1444.09 ops/sec
+2026-03-11 12:03:26,742 INFO   dual_congested: 3138.73 ops/sec
+2026-03-11 12:03:26,742 INFO Stopping net_leveldb_server (PID 25471)
+2026-03-11 12:03:26,742 INFO CMD: sudo kill 25471
+2026-03-11 12:03:26,861 INFO Unloading BPF policy (PID 25452)
+2026-03-11 12:03:26,861 INFO CMD: sudo kill -2 25452
+2026-03-11 12:03:27,193 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
+2026-03-11 12:03:27,215 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-11 12:03:27,244 INFO CMD: sudo sh -c echo 0x0007 > /sys/kernel/mm/lru_gen/enabled
+2026-03-11 12:03:27,347 INFO MGLRU re-enabled (restored to 0x0007).

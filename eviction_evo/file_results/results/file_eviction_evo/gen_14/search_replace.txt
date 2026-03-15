@@ -1,0 +1,147 @@
+<NAME>
+demote_cold_high_prio_folios
+</NAME>
+
+<DESCRIPTION>
+The recommendation suggests implementing a "demotion" mechanism to move infrequently-accessed high-priority folios to the low-priority list after aging beyond a threshold.
+
+Currently, a folio accessed once by a high-priority process can occupy a high-priority cache slot indefinitely as long as it remains within the working-set window. This wastes precious high-priority slots that should be reserved for truly hot, repeatedly-accessed pages from high-priority processes.
+
+The mechanism works as follows:
+- In `bpf_evict_high_prio_cb`, before evicting, check if a folio meets the demotion criteria: `access_count == 1` AND `age > WORKING_SET_NS * 2`
+- If criteria are met, demote the folio by removing it from the high-priority list and adding it to the low-priority list
+- Update the accessor_nice to reflect that the folio is now treated as low-priority
+- Return CONTINUE_ITER (don't evict; the folio survives, just on a different list)
+
+This optimization:
+1. Frees high-priority slots for truly active, hot pages
+2. Allows rarely-accessed pages to age out of the working set more quickly on the low-priority list
+3. Improves file_niceness_throughput (currently weak at 2628.16) by better utilizing cache for varied access patterns
+4. Maintains high performance on file_priority_throughput by protecting actual hot pages
+
+Expected improvement: +2-3% on niceness trace without sacrificing priority trace.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Eviction callback for high-priority list (protect aggressively) --------
+static int bpf_evict_high_prio_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct sched_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Never evict dirty/writeback pages
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u64 age = now - meta->last_access_ts;
+
+    // Very hot folios: protect aggressively
+    if (meta->access_count >= VERY_HOT_ACCESS_THRESHOLD) {
+        if (age < WORKING_SET_NS * 3)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Hot folios from high-priority processes: protect well
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        if (age < WORKING_SET_NS * 2)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Small files from high-priority: extend protection window
+    bool is_small = should_protect_small_file(node->folio);
+    if (is_small) {
+        if (age < WORKING_SET_NS * 2)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // When CPU is busy, protect high-prio working set aggressively
+    if (sched_nr_running > CPU_BUSY_THRESHOLD) {
+        if (age < WORKING_SET_NS)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Recently accessed: protect
+    if (age < RECENT_ACCESS_NS)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Only evict if very old
+    if (age < WORKING_SET_NS)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    return CACHE_EXT_EVICT_NODE;
+}
+=======
+// -- Eviction callback for high-priority list (protect aggressively) --------
+static int bpf_evict_high_prio_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct sched_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    if (!meta)
+        return CACHE_EXT_EVICT_NODE;
+
+    // Never evict dirty/writeback pages
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
+
+    u64 age = now - meta->last_access_ts;
+
+    // -- Demotion mechanism: move rarely-accessed high-prio folios to low-prio list
+    // This frees high-priority slots for truly hot pages
+    if (meta->access_count == 1 && age > WORKING_SET_NS * 2) {
+        // Demote: remove from high-prio list, add to low-prio list
+        bpf_cache_ext_list_del(node->folio);
+        bpf_cache_ext_list_add_tail(low_prio_list, node->folio);
+        // Update metadata to reflect demotion
+        meta->accessor_nice = 10;  // Mark as demoted (will be treated as low-prio)
+        bump_counter(7);
+        return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Very hot folios: protect aggressively
+    if (meta->access_count >= VERY_HOT_ACCESS_THRESHOLD) {
+        if (age < WORKING_SET_NS * 3)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Hot folios from high-priority processes: protect well
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        if (age < WORKING_SET_NS * 2)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Small files from high-priority: extend protection window
+    bool is_small = should_protect_small_file(node->folio);
+    if (is_small) {
+        if (age < WORKING_SET_NS * 2)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // When CPU is busy, protect high-prio working set aggressively
+    if (sched_nr_running > CPU_BUSY_THRESHOLD) {
+        if (age < WORKING_SET_NS)
+            return CACHE_EXT_CONTINUE_ITER;
+    }
+
+    // Recently accessed: protect
+    if (age < RECENT_ACCESS_NS)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Only evict if very old
+    if (age < WORKING_SET_NS)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    return CACHE_EXT_EVICT_NODE;
+}
+>>>>>>> REPLACE
+</DIFF>

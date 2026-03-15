@@ -1,0 +1,2 @@
+timestamp	combined_score	dual_small_vs_large	dual_congested
+20260311_142842	1531.3933	1098.04	2529.81

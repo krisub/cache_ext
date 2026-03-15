@@ -1,0 +1,199 @@
+<NAME>
+working_set_stability_scoring
+</NAME>
+
+<DESCRIPTION>
+The current scoring-based eviction policy uses fixed hot access thresholds (HOT_ACCESS_THRESHOLD = 3), but the working set characteristics vary significantly across workloads. The dual_small_vs_large trace (fast reader + slow writer with zipfian distribution) particularly suffers when we can't distinguish between a small concentrated hot set vs. a diffuse warm set.
+
+The recommendation is to add "working set stability" detection: measure whether folios we're protecting are actually being reused. If a high percentage (>80%) of folios within the protected window are recently accessed (within last 100ms), the working set is "stable and hot" - we should lower the hot threshold to be more protective. If stability is low, we keep normal thresholds.
+
+Implementation approach:
+1. Add a map to track eviction scan statistics (protected folios seen vs recently accessed)
+2. During eviction iteration, accumulate these statistics for folios in the working set window
+3. After partial scan (to avoid BPF loop limits), compute stability ratio
+4. Adjust the hot threshold downward (by 1) if stability > 80%
+5. This helps the dual_small_vs_large trace by better protecting the zipfian hot set while still aggressively evicting the cold slow-writer pages
+
+This data-driven threshold adaptation should improve small_vs_large throughput (currently 1645.52) toward 1680+, while maintaining or improving congested trace performance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+=======
+// -- List handles + eviction policy constants (evolved) -----------------------
+static u64 main_list;
+
+// -- Per-scan statistics for working set stability detection ------------------
+struct eviction_scan_stats {
+    u32 protected_in_window;  // folios in working set window we evaluated
+    u32 recent_in_window;     // folios in working set window recently accessed (< 100ms)
+    u32 sample_count;         // number of folios we've sampled in this call
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct eviction_scan_stats);
+} eviction_scan_stats_map SEC(".maps");
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+=======
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Working set stability threshold: if (recent/protected) > 80%, lower hot threshold
+#define STABILITY_HIGH_RATIO 80            // percent
+// Recent access window for stability calculation: folios accessed within this are "recent"
+#define STABILITY_RECENT_NS 100000000ULL   // 100 ms
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
+{
+    u64 adapted = base_ns;
+
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 10;
+
+    // If network is under pressure (loss, retrans, high jitter), increase window
+    if (under_pressure) {
+        adapted = (adapted * 3) >> 1;  // 1.5x multiplier
+    }
+
+    return adapted;
+}
+=======
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
+{
+    u64 adapted = base_ns;
+
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 10;
+
+    // If network is under pressure (loss, retrans, high jitter), increase window
+    if (under_pressure) {
+        adapted = (adapted * 3) >> 1;  // 1.5x multiplier
+    }
+
+    return adapted;
+}
+
+// -- Helper: get dynamic hot threshold based on working set stability --------
+static __always_inline u32 get_hot_threshold_by_stability(void)
+{
+    u32 stats_key = 0;
+    struct eviction_scan_stats *stats =
+        bpf_map_lookup_elem(&eviction_scan_stats_map, &stats_key);
+    
+    if (!stats || stats->protected_in_window == 0)
+        return HOT_ACCESS_THRESHOLD;
+
+    // Calculate stability ratio: (recently accessed in window / total in window) * 100
+    u32 stability = (stats->recent_in_window * 100) / stats->protected_in_window;
+
+    // If working set is stable (>80% of protected folios recently accessed),
+    // lower the hot threshold by 1 to be more protective
+    if (stability > STABILITY_HIGH_RATIO) {
+        // Lower threshold promotes warm folios to "hot" protection
+        return (HOT_ACCESS_THRESHOLD > 1) ? (HOT_ACCESS_THRESHOLD - 1) : 1;
+    }
+
+    return HOT_ACCESS_THRESHOLD;
+}
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Higher access_count = lower eviction score
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        // Hot folios: strong penalty (-30)
+        score = (score > 30) ? (score - 30) : 0;
+    } else if (meta->access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        score = (score > 15) ? (score - 15) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+=======
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Use adaptive hot threshold based on working set stability
+    u32 dynamic_hot_threshold = get_hot_threshold_by_stability();
+    
+    // Higher access_count = lower eviction score
+    if (meta->access_count >= dynamic_hot_threshold) {
+        // Hot folios: strong penalty (-30)
+        score = (score > 30) ? (score - 30) : 0;
+    } else if (meta->access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        score = (score > 15) ? (score - 15) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+    
+    // -- Track stability statistics for this scan pass ---
+    u64 age_stable = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    bool in_working_set_stable = (age_stable < STABILITY_RECENT_NS);
+    
+    if (in_working_set_stable) {
+        u32 stats_key = 0;
+        struct eviction_scan_stats *stats =
+            bpf_map_lookup_elem(&eviction_scan_stats_map, &stats_key);
+        if (stats) {
+            __sync_fetch_and_add(&stats->protected_in_window, 1);
+            // Count as "recent" if accessed within stability window
+            if (age_stable < STABILITY_RECENT_NS) {
+                __sync_fetch_and_add(&stats->recent_in_window, 1);
+            }
+        }
+    }
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    
+    // Reset scan statistics at the start of eviction
+    u32 stats_key = 0;
+    struct eviction_scan_stats zero_stats = {0, 0, 0};
+    bpf_map_update_elem(&eviction_scan_stats_map, &stats_key, &zero_stats, BPF_ANY);
+    
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>

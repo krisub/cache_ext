@@ -1,0 +1,67 @@
+# Analysis and Proposed Improvement
+
+## Diagnosis
+
+The current dual-list approach has achieved good improvement on `file_priority_throughput` (3285.09), but `file_niceness_throughput` (2510.52) has regressed compared to the third version (2532.74).
+
+The key issue is **inter-list migration on priority changes**: In the `file_niceness` trace, process priorities FLIP mid-run (process A: nice=-15→15, process B: nice=15→-15 at 60s). When a folio's accessor_nice changes, the folio should migrate between high_prio_list and low_prio_list, but currently:
+1. A folio added by a high-priority process stays in high_prio_list
+2. When accessed later by a low-priority process, accessor_nice is updated, BUT the folio is never moved to low_prio_list
+3. This causes improper over-protection of pages after a process's priority flips down
+
+## Solution
+
+Implement **dynamic inter-list migration** in `folio_accessed` to move folios between lists when their accessor's priority tier changes. This ensures that pages follow their access patterns rather than being locked into their initial classification.
+
+<NAME>
+inter_list_migration_on_priority_change
+</NAME>
+
+<DESCRIPTION>
+When a folio is accessed by a process with a different priority tier than its last accessor, migrate the folio between high_prio_list and low_prio_list. This handles the file_niceness trace correctly where process priorities flip mid-run.
+
+The key insight: in file_niceness, when process A flips from nice=-15 to nice=15, its previously high-priority pages should move to the low-priority list so they can be evicted sooner. Currently they remain in high_prio_list because we only update accessor_nice but don't move the folio.
+
+The fix detects tier changes by comparing is_high_prio_folio(meta->accessor_nice) before and after update. If the tier changes, we:
+1. Remove the folio from its current list (bpf_cache_ext_list_del)
+2. Add it to the new list (bpf_cache_ext_list_add)
+
+This ensures the page will be evaluated by the correct eviction callback on the next eviction cycle, improving adaptation to priority flips.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Update metadata
+    meta->last_access_ts = bpf_ktime_get_ns();
+    meta->access_count += 1;
+    meta->accessor_nice = nice;
+    meta->accessor_pid  = pid;
+
+    // Move to head (MRU) within the appropriate list
+    bpf_cache_ext_list_move(target_list, folio, false);
+    bump_counter(4);
+=======
+    // Update metadata
+    meta->last_access_ts = bpf_ktime_get_ns();
+    meta->access_count += 1;
+
+    // Detect priority tier change (high-prio vs low-prio)
+    bool old_is_high_prio = is_high_prio_folio(meta->accessor_nice);
+    meta->accessor_nice = nice;
+    meta->accessor_pid  = pid;
+    bool new_is_high_prio = is_high_prio_folio(nice);
+
+    // If priority tier changed, migrate folio between lists
+    if (old_is_high_prio != new_is_high_prio) {
+        // Remove from current list and add to new list
+        bpf_cache_ext_list_del(folio);
+        bpf_cache_ext_list_add(target_list, folio);
+        bump_counter(6);
+    } else {
+        // Same tier; just promote to MRU within the list
+        bpf_cache_ext_list_move(target_list, folio, false);
+        bump_counter(4);
+    }
+>>>>>>> REPLACE
+
+</DIFF>

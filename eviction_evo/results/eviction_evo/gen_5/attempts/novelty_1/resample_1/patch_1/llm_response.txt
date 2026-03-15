@@ -1,0 +1,86 @@
+Looking at the performance metrics, the current program achieves 2162.27 (1645.52 on dual_small_vs_large, 3152.17 on dual_congested). The dual_small_vs_large read p99 latency is quite high (60.4ms), indicating the working set of small (200B) values from the fast zipfian reader isn't being protected well enough against the large (4KB) uniform writes.
+
+## Key observations:
+1. **dual_small_vs_large has worse p99 latency** despite being the higher-throughput scenario on that trace
+2. The current scoring doesn't account for **folio size** - smaller folios (working set items) are treated the same as larger ones (bulk writes)
+3. The fast zipfian reader needs its small working set protected, but large write folios can be evicted more aggressively
+
+## Proposed improvement: Size-aware eviction bias
+
+Add a folio-size factor to the scoring: **prefer to evict larger folios**. This aligns with the principle that small frequently-accessed folios (typical working set) have higher value-to-size ratio than large, less frequently-accessed folios.
+
+<NAME>
+size_aware_eviction_bias
+</NAME>
+
+<DESCRIPTION>
+Add folio-size awareness to the eviction scoring: larger folios get penalty bonuses (higher eviction score), making them more evictable. This helps the dual_small_vs_large workload by protecting the small (200B) working set from the fast reader while being aggressive about evicting large (4KB) write folios.
+
+The rationale: in mixed-size workloads, the value density per byte is higher for small, frequently-accessed folios. By penalizing large folios, we free space more efficiently for the high-value working set.
+
+This change also helps under memory pressure: evicting one 4KB folio frees 20x more space than evicting one 200B folio, reducing the number of expensive page faults for the working set.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+=======
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Size bias: folios with more pages get higher eviction score
+// 1 page = 4KB; each extra page adds size_score
+#define SIZE_SCORE_PER_PAGE 8               // score increase per folio page count
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Factor 3: Tier-based bonus
+    // Cold tier folios get extra score (more evictable)
+    if (meta->access_tier == 0) {
+        score += 20;  // Cold tier bonus
+    } else if (meta->access_tier == 1) {
+        score += 5;   // Warm tier small bonus
+    }
+    // Hot tier (2): no bonus
+
+    // Factor 4: Network-aware adjustment
+=======
+    // Factor 3: Tier-based bonus
+    // Cold tier folios get extra score (more evictable)
+    if (meta->access_tier == 0) {
+        score += 20;  // Cold tier bonus
+    } else if (meta->access_tier == 1) {
+        score += 5;   // Warm tier small bonus
+    }
+    // Hot tier (2): no bonus
+
+    // Factor 3.5: Size bias (larger folios = more evictable)
+    // Prefer to evict large folios; protects small working-set items
+    u32 folio_pages = folio_nr_pages(node->folio);
+    if (folio_pages > 1) {
+        // Each extra page adds score (4KB per page)
+        u32 size_penalty = (folio_pages - 1) * SIZE_SCORE_PER_PAGE;
+        if (size_penalty > 100) size_penalty = 100;  // Cap at 100 to avoid overflow
+        score += size_penalty;
+    }
+
+    // Factor 4: Network-aware adjustment
+=======
+>>>>>>> REPLACE
+</DIFF>

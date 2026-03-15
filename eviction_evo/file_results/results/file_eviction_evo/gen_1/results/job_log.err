@@ -1,0 +1,303 @@
+2026-03-10 22:45:24,563 INFO Waiting for evaluation lock /tmp/cache_ext_file_evaluate.lock ...
+2026-03-10 22:45:24,563 INFO Acquired evaluation lock.
+2026-03-10 22:45:24,563 INFO === Step 0: Drop page cache ===
+2026-03-10 22:45:24,563 INFO CMD: sudo sync
+2026-03-10 22:45:24,717 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-10 22:45:25,285 INFO Page cache dropped.
+2026-03-10 22:45:25,285 INFO === Step 1: Compile evolved policy ===
+2026-03-10 22:45:25,287 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-10 22:45:25,625 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-10 22:45:28,528 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-10 22:45:28,711 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-10 22:45:29,672 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-10 22:45:29,672 INFO === Step 2: Disable MGLRU ===
+2026-03-10 22:45:29,673 INFO MGLRU current state: 0x0007 — disabling
+2026-03-10 22:45:29,673 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-10 22:45:29,767 INFO MGLRU disabled.
+2026-03-10 22:45:29,767 INFO === Step 3: Create cgroup ===
+2026-03-10 22:45:29,768 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-10 22:45:29,803 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-10 22:45:29,906 INFO CMD: sudo sh -c echo 134217728 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-10 22:45:29,921 INFO CMD: sudo sh -c echo 268435456 > /sys/fs/cgroup/cache_ext_test/memory.swap.max
+2026-03-10 22:45:29,934 INFO Created cgroup cache_ext_test with limit 134217728 bytes, swap limit 268435456 bytes
+2026-03-10 22:45:29,934 INFO === Step 4: Load BPF policy ===
+2026-03-10 22:45:29,934 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/file_workload_data --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-10 22:45:39,945 INFO Policy loaded (PID 116035)
+2026-03-10 22:45:39,945 INFO === Step 5: Run 2 file workload traces ===
+2026-03-10 22:45:39,945 INFO --- Trace 1/2: file_priority ---
+2026-03-10 22:45:39,967 INFO Starting process high_prio_reader: sudo cgexec -g memory:cache_ext_test sh -c echo $$ > "/tmp/file_workload_high_prio_reader_115915.pid" && exec "/mydata/cache_ext/eviction_evo/build/file_workload" "/tmp/file_high_prio_reader_ifbcz9ty.yaml"
+2026-03-10 22:45:39,970 INFO Starting process low_prio_reader: sudo cgexec -g memory:cache_ext_test sh -c echo $$ > "/tmp/file_workload_low_prio_reader_115915.pid" && exec "/mydata/cache_ext/eviction_evo/build/file_workload" "/tmp/file_low_prio_reader_nu5sr9kf.yaml"
+2026-03-10 22:45:42,975 INFO Process high_prio_reader actual PID: 116122 (wrapper PID: 116119)
+2026-03-10 22:45:42,976 INFO Process low_prio_reader actual PID: 116124 (wrapper PID: 116120)
+2026-03-10 22:47:50,405 INFO Process high_prio_reader: throughput=2800.88
+2026-03-10 22:47:50,406 INFO Process low_prio_reader: throughput=225.01
+2026-03-10 22:47:50,406 INFO File workload combined throughput: 3025.89 ops/sec
+2026-03-10 22:47:50,417 INFO Trace file_priority: throughput=3025.89 ops/sec
+2026-03-10 22:47:50,417 INFO --- Trace 2/2: file_niceness ---
+2026-03-10 22:47:50,417 INFO CMD: sudo sync
+2026-03-10 22:47:50,535 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-10 22:47:51,150 INFO Page cache dropped.
+2026-03-10 22:47:53,197 INFO Starting process reader_alpha: sudo cgexec -g memory:cache_ext_test sh -c echo $$ > "/tmp/file_workload_reader_alpha_115915.pid" && exec "/mydata/cache_ext/eviction_evo/build/file_workload" "/tmp/file_reader_alpha_mvpoy8cj.yaml"
+2026-03-10 22:47:53,213 INFO Starting process reader_beta: sudo cgexec -g memory:cache_ext_test sh -c echo $$ > "/tmp/file_workload_reader_beta_115915.pid" && exec "/mydata/cache_ext/eviction_evo/build/file_workload" "/tmp/file_reader_beta_3iyn8x8f.yaml"
+2026-03-10 22:47:56,219 INFO Process reader_alpha actual PID: 116438 (wrapper PID: 116434)
+2026-03-10 22:47:56,219 INFO Process reader_beta actual PID: 116439 (wrapper PID: 116435)
+2026-03-10 22:47:56,219 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:47:56,348 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:47:57,367 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:47:57,387 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:47:58,404 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:47:58,423 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:47:59,441 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:47:59,460 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:00,478 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:00,499 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:01,517 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:01,537 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:02,557 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:02,578 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:03,597 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:03,618 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:04,638 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:04,658 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:05,676 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:05,696 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:06,714 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:06,733 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:07,750 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:07,767 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:08,783 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:08,802 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:09,820 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:09,840 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:10,857 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:10,876 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:11,894 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:11,914 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:12,932 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:12,950 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:13,967 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:13,987 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:15,005 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:15,025 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:16,042 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:16,063 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:17,080 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:17,099 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:18,119 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:18,138 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:19,154 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:19,173 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:20,190 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:20,209 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:21,228 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:21,247 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:22,265 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:22,286 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:23,304 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:23,324 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:24,340 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:24,359 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:25,375 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:25,396 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:26,413 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:26,433 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:27,452 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:27,472 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:28,490 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:28,509 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:29,529 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:29,548 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:30,565 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:30,585 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:31,603 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:31,624 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:32,642 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:32,662 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:33,679 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:33,697 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:34,716 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:34,736 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:35,754 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:35,774 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:36,790 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:36,810 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:37,829 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:37,850 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:38,868 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:38,884 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:39,902 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:39,921 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:40,941 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:40,960 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:41,977 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:41,997 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:43,015 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:43,034 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:44,052 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:44,072 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:45,092 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:45,112 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:46,132 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:46,152 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:47,173 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:47,194 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:48,212 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:48,231 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:49,248 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:49,267 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:50,286 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:50,304 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:51,319 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:51,338 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:52,355 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:52,372 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:53,388 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:53,408 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:54,425 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:54,445 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:55,462 INFO CMD: sudo renice -15 -p 116438
+2026-03-10 22:48:55,483 INFO CMD: sudo renice 15 -p 116439
+2026-03-10 22:48:56,500 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:48:56,520 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:48:57,539 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:48:57,559 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:48:58,578 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:48:58,597 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:48:59,614 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:48:59,633 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:00,650 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:00,670 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:01,688 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:01,708 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:02,726 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:02,746 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:03,765 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:03,784 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:04,803 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:04,823 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:05,840 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:05,860 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:06,880 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:06,899 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:07,917 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:07,937 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:08,955 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:08,973 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:09,991 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:10,010 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:11,032 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:11,051 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:12,069 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:12,088 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:13,106 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:13,125 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:14,141 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:14,161 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:15,179 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:15,199 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:16,221 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:16,240 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:17,258 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:17,277 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:18,296 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:18,316 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:19,336 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:19,354 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:20,373 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:20,392 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:21,409 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:21,429 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:22,446 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:22,465 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:23,485 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:23,504 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:24,524 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:24,543 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:25,564 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:25,582 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:26,600 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:26,618 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:27,635 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:27,653 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:28,672 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:28,692 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:29,710 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:29,729 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:30,748 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:30,768 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:31,785 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:31,805 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:32,822 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:32,841 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:33,860 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:33,879 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:34,898 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:34,918 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:35,936 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:35,957 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:36,975 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:36,995 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:38,014 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:38,035 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:39,053 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:39,073 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:40,091 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:40,111 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:41,129 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:41,149 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:42,167 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:42,187 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:43,206 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:43,224 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:44,241 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:44,261 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:45,279 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:45,298 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:46,317 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:46,337 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:47,354 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:47,374 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:48,392 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:48,411 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:49,429 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:49,449 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:50,469 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:50,489 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:51,504 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:51,523 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:52,541 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:52,562 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:53,581 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:53,600 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:54,617 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:54,639 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:55,658 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:55,678 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:56,696 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:56,716 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:57,733 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:57,754 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:58,772 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:58,791 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:49:59,809 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:49:59,828 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:50:00,844 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:50:00,863 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:50:01,881 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:50:01,901 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:50:02,919 INFO CMD: sudo renice 15 -p 116438
+2026-03-10 22:50:02,938 INFO CMD: sudo renice -15 -p 116439
+2026-03-10 22:50:03,957 INFO Process reader_alpha: throughput=2323.84
+2026-03-10 22:50:03,958 INFO Process reader_beta: throughput=208.90
+2026-03-10 22:50:03,958 INFO File workload combined throughput: 2532.74 ops/sec
+2026-03-10 22:50:03,958 INFO Trace file_niceness: throughput=2532.74 ops/sec
+2026-03-10 22:50:03,972 INFO === Evaluation complete ===
+2026-03-10 22:50:03,972 INFO Combined score (harmonic mean): 2757.44  (2/2 traces passed)
+2026-03-10 22:50:03,972 INFO   file_priority: 3025.89 ops/sec
+2026-03-10 22:50:03,972 INFO   file_niceness: 2532.74 ops/sec
+2026-03-10 22:50:03,973 INFO Unloading BPF policy (PID 116035)
+2026-03-10 22:50:03,973 INFO CMD: sudo kill -2 116035
+2026-03-10 22:50:04,314 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
+2026-03-10 22:50:04,336 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-10 22:50:04,362 INFO CMD: sudo sh -c echo 0x0007 > /sys/kernel/mm/lru_gen/enabled
+2026-03-10 22:50:04,463 INFO MGLRU re-enabled (restored to 0x0007).

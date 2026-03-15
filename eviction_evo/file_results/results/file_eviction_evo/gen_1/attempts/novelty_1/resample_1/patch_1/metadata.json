@@ -1,0 +1,14 @@
+{
+  "generation": 1,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "priority_weighted_eviction",
+  "patch_description": "The current policy is over-protective, leading to cache thrashing and high p99 latencies. The key issues are:\n\n1. **Too generous time windows**: RECENT_ACCESS_NS (100ms) and WORKING_SET_NS (1s) protect too many pages\n2. **Too low hot threshold**: HOT_ACCESS_THRESHOLD=3 marks too many pages as hot\n3. **Binary priority decisions**: HIGH_PRIO_NICE_MAX=0 doesn't differentiate between nice=-10 and nice=-1, or between nice=5 and nice=15\n4. **Weak adaptation to priority changes**: In file_niceness where priorities flip mid-run, the policy relies on stale accessor_nice values\n\nThis edit implements a more nuanced priority-weighted eviction strategy:\n\n1. **Tighten time windows**: Reduce RECENT_ACCESS_NS to 50ms (more realistic for active working set) and WORKING_SET_NS to 500ms (reduce over-protection)\n2. **Increase hot threshold**: Raise HOT_ACCESS_THRESHOLD to 5 (be more selective)\n3. **Add granular priority tiers**: Instead of binary high/low priority, distinguish between very high (nice<=-5), medium (nice<5), and low priority (nice>=5)\n4. **Priority-weighted age thresholds**: Low-priority pages can be evicted with shorter age, while high-priority pages get more protection\n5. **Strong eviction signal for low-priority old pages**: Aggressively evict pages from low-priority processes that haven't been accessed in 200ms\n\nThis approach should:\n- Reduce thrashing by being less protective overall\n- Better differentiate between priority levels\n- Adapt better when priorities change (by evicting low-priority pages faster)\n- Improve file_niceness throughput (the weaker trace) more than it hurts file_priority",
+  "error_msg": null,
+  "timestamp": "2026-03-10T22:45:22.673650",
+  "llm_cost": 0.090492,
+  "llm_model": null
+}

@@ -1,0 +1,14 @@
+{
+  "generation": 16,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 5,
+  "patch_name": "working_set_stability_scoring",
+  "patch_description": "The current scoring-based eviction policy uses fixed hot access thresholds (HOT_ACCESS_THRESHOLD = 3), but the working set characteristics vary significantly across workloads. The dual_small_vs_large trace (fast reader + slow writer with zipfian distribution) particularly suffers when we can't distinguish between a small concentrated hot set vs. a diffuse warm set.\n\nThe recommendation is to add \"working set stability\" detection: measure whether folios we're protecting are actually being reused. If a high percentage (>80%) of folios within the protected window are recently accessed (within last 100ms), the working set is \"stable and hot\" - we should lower the hot threshold to be more protective. If stability is low, we keep normal thresholds.\n\nImplementation approach:\n1. Add a map to track eviction scan statistics (protected folios seen vs recently accessed)\n2. During eviction iteration, accumulate these statistics for folios in the working set window\n3. After partial scan (to avoid BPF loop limits), compute stability ratio\n4. Adjust the hot threshold downward (by 1) if stability > 80%\n5. This helps the dual_small_vs_large trace by better protecting the zipfian hot set while still aggressively evicting the cold slow-writer pages\n\nThis data-driven threshold adaptation should improve small_vs_large throughput (currently 1645.52) toward 1680+, while maintaining or improving congested trace performance.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T13:04:11.138829",
+  "llm_cost": 0.058002,
+  "llm_model": null
+}

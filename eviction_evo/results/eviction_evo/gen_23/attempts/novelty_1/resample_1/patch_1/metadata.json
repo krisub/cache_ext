@@ -1,0 +1,14 @@
+{
+  "generation": 23,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "folio_recency_boost",
+  "patch_description": "The current best program (score 2182.27) used adaptive hot thresholds that responded to network conditions and session state. The current version (2048.15) has regressed, particularly in dual_small_vs_large throughput (1681.15 \u2192 1531.13), suggesting that frequently-accessed small folios are being evicted too aggressively.\n\nThe recommendation proposes adding a \"folio recency boost\" mechanism: folios accessed within the last 10ms should be treated as having one additional access count for the purposes of threshold comparison. This targets a specific gap: small folios that are frequently accessed but fall just below the hot threshold (access_count == 2, needed 3) during active bursts.\n\nIn the dual_small_vs_large workload, the fast reader client generates rapid bursts of small-folio access. Without recency boost, these folios hit the eviction threshold during their second or third access if not accessed again within the adaptation windows. With recency boost, a folio accessed 5ms ago is treated as if it has one more access count, causing it to be classified as hot (2+1 >= 2) and protected.\n\nThis mechanism:\n1. Adds a 10ms recency window check in the eviction callback\n2. Temporarily increases the effective access count for threshold comparison only (not stored metadata)\n3. Works alongside existing network-aware thresholds without disrupting them\n4. Has minimal performance impact (one additional time comparison per folio)\n\nExpected improvement: 1-3% on dual_small_vs_large (protecting more small-folio bursts) without degrading dual_congested (network pressure conditions still dominate threshold behavior).",
+  "error_msg": null,
+  "timestamp": "2026-03-11T13:47:27.037942",
+  "llm_cost": 0.049006999999999995,
+  "llm_model": null
+}

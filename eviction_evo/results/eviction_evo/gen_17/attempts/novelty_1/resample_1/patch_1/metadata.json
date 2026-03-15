@@ -1,0 +1,14 @@
+{
+  "generation": 17,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 6,
+  "patch_name": "working_set_stability_threshold_adaptation",
+  "patch_description": "Replace the burst velocity tracking (which regressed from 2182.27 to 2005.09) with a working set stability score that samples recently-accessed folios within the protected window during eviction. If >80% of sampled folios show recent access (within 100ms), lower the hot access threshold by 1 to be more protective of the working set. This data-driven approach keeps thresholds well-calibrated as working set size and access patterns shift across workloads.\n\nChanges:\n1. Remove burst_velocity_map and related burst velocity logic (regressed performance)\n2. Add a simple pass in eviction to sample folios and measure working set stability\n3. Track a stability counter that feeds into dynamic hot threshold calculation\n4. Lower HOT_ACCESS_THRESHOLD by 1 when stability >80%, otherwise keep it normal",
+  "error_msg": null,
+  "timestamp": "2026-03-11T13:09:50.816817",
+  "llm_cost": 0.075339,
+  "llm_model": null
+}

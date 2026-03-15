@@ -1,0 +1,14 @@
+{
+  "generation": 18,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 5,
+  "patch_name": "burst_adaptive_hot_threshold",
+  "patch_description": "The current program uses a fixed `HOT_ACCESS_THRESHOLD` of 3 for all conditions. However, the prior best-performing program (score 2182.27) showed that adaptive hot thresholds based on network conditions improve dual_small_vs_large throughput significantly (1681 vs current 1444).\n\nThe recommendation suggests extending this further by distinguishing between \"active burst\" (high packet rate) and \"steady-state\" sessions. When a sustained burst is detected (many packets arriving in a short time window), we should lower the hot threshold from 3 to 2, providing stronger protection to warm folios during traffic spikes. This is especially important for the small-vs-large workload where the fast reader generates frequent small requests that need protection.\n\nThe implementation tracks packet velocity (packets per 100ms) and maintains burst state. When `burst_active` is true, we use HOT_ACCESS_THRESHOLD_BURST=2 instead of the normal threshold, significantly protecting more folios from eviction during traffic bursts. This should improve small-vs-large throughput by 1-2% while maintaining congested performance.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T13:15:56.524395",
+  "llm_cost": 0.061909,
+  "llm_model": null
+}

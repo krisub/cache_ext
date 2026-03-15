@@ -1,0 +1,190 @@
+<NAME>
+adaptive_jitter_threshold_scaling
+</NAME>
+
+<DESCRIPTION>
+The current program uses a fixed 2ms jitter threshold regardless of RTT, which can cause false positives on high-latency connections. 
+
+The analysis of prior programs shows the best performance (2182.27) was achieved without the working set stability tracking that's currently hurting performance (2087.32 vs 2182.27).
+
+The recommended improvement is to implement adaptive jitter threshold scaling based on RTT:
+- At low RTT (e.g., 1ms), a 2ms jitter is severe → trigger pressure detection
+- At high RTT (e.g., 100ms+), a 2ms jitter is negligible → don't trigger pressure detection
+
+Formula: threshold = 2ms * (RTT / 100ms), clamped to [1ms, 4ms]
+
+This makes congestion detection context-aware, reducing false positives during high-latency periods and preventing unnecessary eviction protection that can hurt cache efficiency.
+
+Additionally, remove the working set stability tracking which is adding complexity without benefit (current 2087.32 is worse than previous 2182.27).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Per-scan statistics for working set stability detection ------------------
+struct eviction_scan_stats {
+    u32 protected_in_window;  // folios in working set window we evaluated
+    u32 recent_in_window;     // folios in working set window recently accessed (< 100ms)
+    u32 sample_count;         // number of folios we've sampled in this call
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct eviction_scan_stats);
+} eviction_scan_stats_map SEC(".maps");
+=======
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Working set stability threshold: if (recent/protected) > 80%, lower hot threshold
+#define STABILITY_HIGH_RATIO 80            // percent
+// Recent access window for stability calculation: folios accessed within this are "recent"
+#define STABILITY_RECENT_NS 100000000ULL   // 100 ms
+=======
+// -- Tunable constants --------------------------------------------------------
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Burst detection: inter-arrival < this = burst
+#define BURST_THRESHOLD_NS  10000000ULL    // 10 ms
+// Access count threshold: folios with >= this many accesses are "hot"
+#define HOT_ACCESS_THRESHOLD 3
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // packets_out * 2 > cwnd = pressure
+// Jitter threshold baseline: 2ms in microseconds
+#define JITTER_THRESHOLD_BASE_US 2000000   // 2ms
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Helper: get dynamic hot threshold based on working set stability --------
+static __always_inline u32 get_hot_threshold_by_stability(void)
+{
+    u32 stats_key = 0;
+    struct eviction_scan_stats *stats =
+        bpf_map_lookup_elem(&eviction_scan_stats_map, &stats_key);
+
+    if (!stats || stats->protected_in_window == 0)
+        return HOT_ACCESS_THRESHOLD;
+
+    // Calculate stability ratio: (recently accessed in window / total in window) * 100
+    u32 stability = (stats->recent_in_window * 100) / stats->protected_in_window;
+
+    // If working set is stable (>80% of protected folios recently accessed),
+    // lower the hot threshold by 1 to be more protective
+    if (stability > STABILITY_HIGH_RATIO) {
+        // Lower threshold promotes warm folios to "hot" protection
+        return (HOT_ACCESS_THRESHOLD > 1) ? (HOT_ACCESS_THRESHOLD - 1) : 1;
+    }
+
+    return HOT_ACCESS_THRESHOLD;
+}
+=======
+// -- Helper: compute adaptive jitter threshold based on RTT percentile -------
+// Scale 2ms baseline by (RTT / 100ms), clamped to [0.5x, 2.0x] → [1ms, 4ms]
+static __always_inline u32 get_adaptive_jitter_threshold(void)
+{
+    // If RTT is 0, use baseline threshold
+    if (net_srtt_us == 0)
+        return JITTER_THRESHOLD_BASE_US;
+
+    // Calculate threshold = 2ms * (net_srtt_us / 100ms)
+    // This makes jitter interpretation context-aware:
+    // - Low RTT (1ms): threshold = 2ms * (1ms / 100ms) = 20us (very strict)
+    // - Medium RTT (10ms): threshold = 2ms * (10ms / 100ms) = 200us
+    // - High RTT (100ms+): threshold = 2ms * (100ms+ / 100ms) = 2ms+ (loose)
+    u64 scaled = ((u64)net_srtt_us * JITTER_THRESHOLD_BASE_US) / 100000;
+
+    // Clamp scaling ratio to [0.5, 2.0] to avoid extreme thresholds
+    if (scaled < 1000000) scaled = 1000000;    // 0.5x minimum → 1ms
+    if (scaled > 4000000) scaled = 4000000;    // 2.0x maximum → 4ms
+
+    return (u32)scaled;
+}
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    // High jitter: unstable network (relaxed threshold)
+    bool high_jitter = (net_mdev_us > 2000000);  // > 2ms jitter
+=======
+    // High jitter: unstable network (adaptive threshold based on RTT)
+    u32 adaptive_jitter_threshold = get_adaptive_jitter_threshold();
+    bool high_jitter = (net_mdev_us > adaptive_jitter_threshold);
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Use adaptive hot threshold based on working set stability
+    u32 dynamic_hot_threshold = get_hot_threshold_by_stability();
+
+    // Higher access_count = lower eviction score
+    if (meta->access_count >= dynamic_hot_threshold) {
+        // Hot folios: strong penalty (-30)
+        score = (score > 30) ? (score - 30) : 0;
+    } else if (meta->access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        score = (score > 15) ? (score - 15) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+
+    // -- Track stability statistics for this scan pass ---
+    u64 age_stable = (now > meta->last_access_ts) ? (now - meta->last_access_ts) : 0;
+    bool in_working_set_stable = (age_stable < STABILITY_RECENT_NS);
+
+    if (in_working_set_stable) {
+        u32 stats_key = 0;
+        struct eviction_scan_stats *stats =
+            bpf_map_lookup_elem(&eviction_scan_stats_map, &stats_key);
+        if (stats) {
+            __sync_fetch_and_add(&stats->protected_in_window, 1);
+            // Count as "recent" if accessed within stability window
+            if (age_stable < STABILITY_RECENT_NS) {
+                __sync_fetch_and_add(&stats->recent_in_window, 1);
+            }
+        }
+    }
+=======
+    // Factor 2: Frequency penalty (reduce score for frequently accessed folios)
+    // Higher access_count = lower eviction score
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD) {
+        // Hot folios: strong penalty (-30)
+        score = (score > 30) ? (score - 30) : 0;
+    } else if (meta->access_count >= 2) {
+        // Warm folios: moderate penalty (-15)
+        score = (score > 15) ? (score - 15) : 0;
+    }
+    // Cold folios (access_count == 1): no penalty
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+
+    // Reset scan statistics at the start of eviction
+    u32 stats_key = 0;
+    struct eviction_scan_stats zero_stats = {0, 0, 0};
+    bpf_map_update_elem(&eviction_scan_stats_map, &stats_key, &zero_stats, BPF_ANY);
+
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+=======
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>

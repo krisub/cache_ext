@@ -1,0 +1,14 @@
+{
+  "generation": 15,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 3,
+  "success": true,
+  "num_applied": 6,
+  "patch_name": "sustained_burst_detection",
+  "patch_description": "The current burst detection relies solely on inter-arrival time (< 10ms) to identify request bursts. However, this can miss sustained high-frequency workloads where requests don't have consistent sub-10ms spacing but maintain steady high packet rates.\n\nThis change adds a secondary burst signal based on packet count velocity: track the previous net_recv_count value and check if more than 15 packets arrive within a 100ms window. During sustained bursts, we apply stronger protection to folios accessed within the last 500ms by reducing their eviction scores further (0.4x multiplier instead of current implicit protection).\n\nThis complements the existing inter-arrival based burst detection and helps distinguish between transient spikes and sustained load, improving throughput during congested scenarios while maintaining good performance on asymmetric workloads.",
+  "error_msg": null,
+  "timestamp": "2026-03-11T12:57:47.681114",
+  "llm_cost": 0.059172,
+  "llm_model": null
+}

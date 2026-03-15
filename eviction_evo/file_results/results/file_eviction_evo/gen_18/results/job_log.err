@@ -1,0 +1,31 @@
+2026-03-11 00:05:12,272 INFO Waiting for evaluation lock /tmp/cache_ext_file_evaluate.lock ...
+2026-03-11 00:08:35,242 INFO Acquired evaluation lock.
+2026-03-11 00:08:35,242 INFO === Step 0: Drop page cache ===
+2026-03-11 00:08:35,242 INFO CMD: sudo sync
+2026-03-11 00:08:35,417 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-11 00:08:35,635 INFO Page cache dropped.
+2026-03-11 00:08:35,635 INFO === Step 1: Compile evolved policy ===
+2026-03-11 00:08:35,650 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-11 00:08:36,033 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-11 00:08:38,965 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-11 00:08:39,151 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-11 00:08:40,049 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-11 00:08:40,049 INFO === Step 2: Disable MGLRU ===
+2026-03-11 00:08:40,050 INFO MGLRU current state: 0x0007 — disabling
+2026-03-11 00:08:40,050 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-11 00:08:40,097 INFO MGLRU disabled.
+2026-03-11 00:08:40,097 INFO === Step 3: Create cgroup ===
+2026-03-11 00:08:40,097 INFO CMD: sudo cgdelete memory:cache_ext_test
+2026-03-11 00:08:40,126 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-11 00:08:40,234 INFO CMD: sudo sh -c echo 134217728 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-11 00:08:40,249 INFO CMD: sudo sh -c echo 268435456 > /sys/fs/cgroup/cache_ext_test/memory.swap.max
+2026-03-11 00:08:40,263 INFO Created cgroup cache_ext_test with limit 134217728 bytes, swap limit 268435456 bytes
+2026-03-11 00:08:40,263 INFO === Step 4: Load BPF policy ===
+2026-03-11 00:08:40,263 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/file_workload_data --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-11 00:08:50,274 INFO Policy loaded (PID 132439)
+2026-03-11 00:08:50,274 INFO === Step 5: Run 2 file workload traces ===
+2026-03-11 00:08:50,274 INFO --- Trace 1/2: file_priority ---
+2026-03-11 00:08:50,301 INFO Starting process high_prio_reader: sudo cgexec -g memory:cache_ext_test sh -c echo $$ > "/tmp/file_workload_high_prio_reader_131591.pid" && exec "/mydata/cache_ext/eviction_evo/build/file_workload" "/tmp/file_high_prio_reader_l4fw6_a3.yaml"
+2026-03-11 00:08:50,304 INFO Starting process low_prio_reader: sudo cgexec -g memory:cache_ext_test sh -c echo $$ > "/tmp/file_workload_low_prio_reader_131591.pid" && exec "/mydata/cache_ext/eviction_evo/build/file_workload" "/tmp/file_low_prio_reader_f2oj5z1m.yaml"
+2026-03-11 00:08:53,308 INFO Process high_prio_reader actual PID: 132447 (wrapper PID: 132443)
+2026-03-11 00:08:53,309 INFO Process low_prio_reader actual PID: 132448 (wrapper PID: 132444)
