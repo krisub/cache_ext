@@ -1,16 +1,16 @@
-// vulcan_bpf.h — BPF-compatible listener primitives for kernel-libvulcan.
+// vulcan_bpf.h -- BPF-compatible listener primitives for kernel-libvulcan.
 //
 // Provides four listener types that maintain running statistics over a
 // stream of integer values.  All arithmetic is integer-only (no floats).
 //
 // Listener types:
-//   vulcan_minmax          — tracks observed min and max
-//   vulcan_ewma            — exponentially weighted moving average (fixed-point)
-//   vulcan_avg             — running arithmetic average
-//   vulcan_rolling_window  — fixed-size circular buffer with windowed average
+//   vulcan_minmax          -- tracks observed min and max
+//   vulcan_ewma            -- exponentially weighted moving average (fixed-point)
+//   vulcan_avg             -- running arithmetic average
+//   vulcan_rolling_window  -- fixed-size circular buffer with windowed average
 //
 // EWMA uses fixed-point arithmetic scaled by VULCAN_FP_SCALE (1000).
-// Alpha values are integers in [0, 1000]: 1000 ≡ alpha=1.0, 100 ≡ 0.1.
+// Alpha values are integers in [0, 1000]: 1000 = alpha=1.0, 100 = 0.1.
 //
 // Rolling windows have compile-time max VULCAN_MAX_WINDOW (16).
 // The runtime window size is passed to vulcan_rw_update().
@@ -23,8 +23,6 @@
 #define VULCAN_FP_SCALE   1000
 #define VULCAN_MAX_WINDOW 16
 
-// BPF does not support signed division.  This helper handles the sign
-// manually so the compiler only emits unsigned udiv.
 static __always_inline s64 vulcan_sdiv(s64 a, s64 b)
 {
     if (b == 0) return 0;
@@ -70,7 +68,7 @@ static __always_inline s64 vulcan_minmax_get_max(const struct vulcan_minmax *mm)
 }
 
 // ============================================================================
-// EWMA  (alpha ∈ [0, VULCAN_FP_SCALE])
+// EWMA  (alpha in [0, VULCAN_FP_SCALE])
 // ============================================================================
 
 struct vulcan_ewma {

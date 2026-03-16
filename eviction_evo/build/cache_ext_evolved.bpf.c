@@ -1,204 +1,93 @@
-// BPF page cache eviction policy using kernel-libvulcan abstractions.
-// This file is evolved by ShinkaEvolve.  The EVOLVE-BLOCK contains
-// configuration constants, the scoring function, and struct_ops callbacks.
+// BPF page cache eviction policy with network awareness.
+// This file is evolved by ShinkaEvolve. The EVOLVE-BLOCK contains the
+// eviction strategy that will be optimized to maximize throughput.
 //
-// ═══════════════════════════════════════════════════════════════════════
-// ARCHITECTURE — Separation of Duties (libvulcan for kernelspace)
-// ═══════════════════════════════════════════════════════════════════════
-//
-// FIXED infrastructure (outside EVOLVE-BLOCK):
+// Fixed infrastructure (outside EVOLVE-BLOCK):
 //   - Includes, license, map definitions
-//   - Vulcan listener state maps (MinMax, EWMA, RollingWindow, Average
-//     for each global feature)
-//   - Per-folio metadata struct and map (with embedded per-folio listeners)
-//   - Global feature accessor functions (vulcan_get_min, vulcan_get_max, …)
-//   - Per-folio helper functions (vulcan_folio_init, vulcan_folio_on_access)
-//   - vulcan_update_global — feeds raw metrics into all listener types
-//   - Network monitoring kprobe (tcp_recvmsg) — updates raw globals AND
-//     calls vulcan_update_global for every global feature
-//   - struct_ops registration
+//   - Network monitoring kprobe (tcp_recvmsg) that captures TCP metrics
+//   - struct_ops registration at the end
 //
-// What the LLM evolves (inside EVOLVE-BLOCK):
-//   - Configuration constants:
-//       VULCAN_EWMA_ALPHA   — EWMA smoothing for global features [0..1000]
-//       VULCAN_RW_SIZE      — rolling window size for global features [1..16]
-//       VULCAN_FOLIO_EWMA_ALPHA — EWMA smoothing for per-folio intervals
-//       SAMPLE_SIZE         — candidates sampled per eviction slot
-//   - bpf_score_fn(node) → s64 — returns a VALUE score for each folio
-//       ◆ HIGHER score  = more valuable = keep longer
-//       ◆ LOWER  score  = less valuable = evict first
-//       ◆ S64_MAX       = never evict (dirty / writeback)
-//   - evolved_init          — allocate list(s)
-//   - evolved_evict_folios  — orchestrate eviction (calls list_sample)
-//   - evolved_folio_added   — track new folios
-//   - evolved_folio_accessed — update metadata on re-access
-//   - evolved_folio_evicted — cleanup on eviction
+// What the LLM can evolve (inside EVOLVE-BLOCK):
+//   - Constants and thresholds (e.g., time windows, scoring weights)
+//   - The eviction callback (bpf_evict_cb): decides per-folio evict vs keep
+//   - folio_added: how new folios are classified and tracked
+//   - folio_accessed: how re-accesses update metadata
+//   - folio_evicted: cleanup on eviction
+//   - evict_folios: the top-level eviction orchestration
+//   - Any helper functions or additional data structures
 //
-// ═══════════════════════════════════════════════════════════════════════
-// GLOBAL FEATURE ACCESSOR API  (usable inside bpf_score_fn)
-// ═══════════════════════════════════════════════════════════════════════
-//
-//   vulcan_get_min(GF_xxx)              — observed minimum
-//   vulcan_get_max(GF_xxx)              — observed maximum
-//   vulcan_get_ewma(GF_xxx)             — exponentially weighted moving avg
-//   vulcan_get_avg(GF_xxx)              — running arithmetic average
-//   vulcan_get_latest(GF_xxx)           — most recent value in rolling window
-//   vulcan_get_kth_recent(GF_xxx, k)    — k-th most recent (0=latest)
-//   vulcan_get_window_avg(GF_xxx)       — rolling-window average
-//   vulcan_get_window_count(GF_xxx)     — number of values in window
-//
-// Global feature IDs:
-//   GF_SRTT_US          — smoothed RTT (usec, kernel srtt<<3)
-//   GF_MDEV_US          — RTT mean deviation / jitter (usec)
-//   GF_SND_CWND         — congestion window (segments)
-//   GF_SND_SSTHRESH     — slow-start threshold (segments)
-//   GF_RCV_WND          — advertised receive window (bytes)
-//   GF_PACKETS_OUT      — packets currently in flight
-//   GF_TOTAL_RETRANS    — lifetime retransmissions
-//   GF_RETRANS_OUT      — retransmits currently in flight
-//   GF_LOST             — segments considered lost
-//   GF_SEGS_IN          — total TCP segments received
-//   GF_SEGS_OUT         — total TCP segments sent
-//   GF_DELIVERED        — total packets delivered
-//   GF_BYTES_RECEIVED   — total bytes received
-//   GF_BYTES_ACKED      — total bytes acknowledged
-//   GF_INTER_ARRIVAL    — inter-packet arrival time (ns)
-//   GF_RECV_COUNT       — total tcp_recvmsg calls
-//
-// ═══════════════════════════════════════════════════════════════════════
-// PER-FOLIO METADATA  (struct vulcan_folio_metadata, in folio_metadata_map)
-// ═══════════════════════════════════════════════════════════════════════
-//
-//   meta->access_count             — number of accesses (u32)
-//   meta->last_access_ts           — timestamp of last access (u64 ns)
-//   meta->prev_access_ts           — timestamp of access before that (u64 ns)
-//   meta->interval_minmax.min_val  — minimum inter-access interval (s64 ns)
-//   meta->interval_minmax.max_val  — maximum inter-access interval (s64 ns)
-//   meta->interval_ewma.value      — EWMA of inter-access interval (s64 ns)
-//
-// Per-folio helpers (call from folio hooks):
-//   vulcan_folio_init(now)                         → initialized metadata struct
-//   vulcan_folio_on_access(meta, now, ewma_alpha)  — update all per-folio listeners
-//
-// ═══════════════════════════════════════════════════════════════════════
-// RAW NETWORK GLOBALS  (still available for direct access)
-// ═══════════════════════════════════════════════════════════════════════
-//
-//   last_packet_ts, net_prev_packet_ts, net_recv_count
-//   net_srtt_us, net_mdev_us
-//   net_bytes_received, net_bytes_acked, net_segs_in, net_segs_out, net_delivered
-//   net_snd_cwnd, net_snd_ssthresh, net_rcv_wnd, net_packets_out
-//   net_total_retrans, net_retrans_out, net_lost
-//
-// ═══════════════════════════════════════════════════════════════════════
-// BPF LIST / EVICTION APIs
-// ═══════════════════════════════════════════════════════════════════════
-//
-//   bpf_cache_ext_list_add(list, folio)
-//   bpf_cache_ext_list_add_tail(list, folio)
-//   bpf_cache_ext_list_del(folio)
-//   bpf_cache_ext_list_move(list, folio, tail)
-//   bpf_cache_ext_list_sample(memcg, list, score_fn, &opts, ctx)
-//   bpf_cache_ext_list_iterate(memcg, list, cb, ctx)
-//   bpf_cache_ext_ds_registry_new_list(memcg)
+// Available BPF APIs (from cache_ext_lib.bpf.h):
+//   bpf_cache_ext_list_add(list, folio)        — add folio to head of list
+//   bpf_cache_ext_list_add_tail(list, folio)    — add folio to tail of list
+//   bpf_cache_ext_list_del(list, folio)         — remove folio from list
+//   bpf_cache_ext_list_move(list, folio, tail)  — move folio within list (tail=false→head/front, tail=true→tail/back)
+//   bpf_cache_ext_list_iterate(memcg, list, callback, eviction_ctx) — iterate list, callback returns EVICT_NODE or CONTINUE_ITER
+//   bpf_cache_ext_list_iterate_extended(memcg, list, callback, opts, eviction_ctx) — iterate with continue_list for promotions
+//   bpf_cache_ext_list_sample(memcg, list, callback, ratio, eviction_ctx) — sample random folios
+//   bpf_cache_ext_ds_registry_new_list(memcg)   — allocate a new list, returns list handle
 //
 // Folio helpers:
-//   folio_test_dirty/writeback/unevictable/uptodate/lru(folio)
 //   folio_nr_pages(folio), folio_index(folio)
+//   folio_test_uptodate/lru/dirty/writeback/unevictable(folio)
 //
-// ═══════════════════════════════════════════════════════════════════════
+// Callback return values:
+//   CACHE_EXT_EVICT_NODE    — evict this folio
+//   CACHE_EXT_CONTINUE_ITER — keep this folio (skip)
+//
+// Network metrics available as globals (updated each tcp_recvmsg on port 9100):
+//   last_packet_ts      — timestamp (ns) of last TCP packet on monitored port
+//   net_prev_packet_ts  — timestamp (ns) of the packet before that (for inter-arrival delta)
+//   net_recv_count      — total number of tcp_recvmsg calls on monitored port
+//
+// TCP connection quality (from struct tcp_sock of latest recv):
+//   net_srtt_us         — smoothed RTT in usec (kernel stores srtt<<3, divide by 8 for true RTT)
+//   net_mdev_us         — RTT mean deviation (jitter indicator) in usec
+//
+// TCP throughput counters (cumulative on the connection):
+//   net_bytes_received  — total bytes received on the connection
+//   net_bytes_acked     — total bytes acknowledged by remote (proxy for bytes sent)
+//   net_segs_in         — total segments received
+//   net_segs_out        — total segments sent
+//   net_delivered       — total packets successfully delivered
+//
+// TCP congestion / flow-control state:
+//   net_snd_cwnd        — congestion window size (segments)
+//   net_snd_ssthresh    — slow-start threshold (segments)
+//   net_rcv_wnd         — advertised receive window (bytes)
+//   net_packets_out     — packets currently in flight (unacknowledged)
+//
+// TCP error / loss indicators:
+//   net_total_retrans   — lifetime retransmissions on connection
+//   net_retrans_out     — retransmitted segments currently in flight
+//   net_lost            — segments considered lost
+//
+// Per-folio metadata in folio_metadata_map:
+//   last_access_ts — timestamp (ns) of last access to this folio
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include "cache_ext_lib.bpf.h"
-#include "vulcan_bpf.h"
 #include "dir_watcher.bpf.h"
 
 char _license[] SEC("license") = "GPL";
 
-// ═════════════════════════════════════════════════════════════════════════════
-// GLOBAL FEATURE IDS
-// ═════════════════════════════════════════════════════════════════════════════
-
-#define VULCAN_NUM_GLOBAL_FEATURES 16
-
-enum vulcan_global_feature {
-    GF_SRTT_US = 0,
-    GF_MDEV_US,
-    GF_SND_CWND,
-    GF_SND_SSTHRESH,
-    GF_RCV_WND,
-    GF_PACKETS_OUT,
-    GF_TOTAL_RETRANS,
-    GF_RETRANS_OUT,
-    GF_LOST,
-    GF_SEGS_IN,
-    GF_SEGS_OUT,
-    GF_DELIVERED,
-    GF_BYTES_RECEIVED,
-    GF_BYTES_ACKED,
-    GF_INTER_ARRIVAL,
-    GF_RECV_COUNT,
-    GF_COUNT,
-};
-
-// ═════════════════════════════════════════════════════════════════════════════
-// PER-FOLIO METADATA (with embedded per-folio listeners)
-// ═════════════════════════════════════════════════════════════════════════════
-
-struct vulcan_folio_metadata {
+// -- Per-folio metadata -------------------------------------------------------
+struct net_folio_metadata {
     u64 last_access_ts;
-    u64 prev_access_ts;
-    u32 access_count;
-    u32 _pad;
-    struct vulcan_minmax interval_minmax;
-    struct vulcan_ewma   interval_ewma;
+    u32 access_count;        // number of times this folio was accessed
+    u32 access_tier;         // tier classification (0=cold, 1=warm, 2=hot)
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
-// MAPS
-// ═════════════════════════════════════════════════════════════════════════════
-
-// Per-folio metadata
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, u64);
-    __type(value, struct vulcan_folio_metadata);
+    __type(key, u64);          // (u64)folio pointer
+    __type(value, struct net_folio_metadata);
     __uint(max_entries, 1000000);
 } folio_metadata_map SEC(".maps");
 
-// Global listener state — one entry per global feature
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, struct vulcan_minmax);
-} vulcan_gminmax SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, struct vulcan_ewma);
-} vulcan_gewma SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, struct vulcan_rolling_window);
-} vulcan_grw SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, struct vulcan_avg);
-} vulcan_gavg SEC(".maps");
-
-// Debug counters
+// -- Debug counters -----------------------------------------------------------
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 16);
@@ -206,32 +95,33 @@ struct {
     __type(value, u64);
 } debug_counters SEC(".maps");
 
-// ═════════════════════════════════════════════════════════════════════════════
-// RAW NETWORK GLOBALS (updated by kprobe)
-// ═════════════════════════════════════════════════════════════════════════════
+// -- Network state (updated by kprobe below) ----------------------------------
+u64 last_packet_ts = 0;
 
-u64 last_packet_ts     = 0;
-u64 net_prev_packet_ts = 0;
-u64 net_recv_count     = 0;
-u32 net_srtt_us        = 0;
-u32 net_mdev_us        = 0;
-u64 net_bytes_received = 0;
-u64 net_bytes_acked    = 0;
-u32 net_segs_in        = 0;
-u32 net_segs_out       = 0;
-u32 net_delivered      = 0;
-u32 net_snd_cwnd       = 0;
-u32 net_snd_ssthresh   = 0;
-u32 net_rcv_wnd        = 0;
-u32 net_packets_out    = 0;
-u32 net_total_retrans  = 0;
-u32 net_retrans_out    = 0;
-u32 net_lost           = 0;
+// -- Extended network metrics (snapshot from tcp_sock per recv) ---------------
+// Request counting / timing:
+u64 net_recv_count = 0;        // total tcp_recvmsg calls on monitored port
+u64 net_prev_packet_ts = 0;    // previous packet timestamp (for inter-arrival)
+// TCP connection quality:
+u32 net_srtt_us = 0;           // smoothed RTT in usec (kernel srtt<<3)
+u32 net_mdev_us = 0;           // RTT mean deviation (jitter) in usec
+// TCP throughput counters:
+u64 net_bytes_received = 0;    // total bytes received on connection
+u64 net_bytes_acked = 0;       // total bytes acked (proxy for sent)
+u32 net_segs_in = 0;           // total segments received
+u32 net_segs_out = 0;          // total segments sent
+u32 net_delivered = 0;         // total delivered segments
+// TCP congestion / flow-control:
+u32 net_snd_cwnd = 0;          // congestion window (segments)
+u32 net_snd_ssthresh = 0;      // slow-start threshold
+u32 net_rcv_wnd = 0;           // receive window (bytes)
+u32 net_packets_out = 0;       // packets currently in flight
+// TCP error / loss:
+u32 net_total_retrans = 0;     // lifetime retransmissions
+u32 net_retrans_out = 0;       // retransmits currently in flight
+u32 net_lost = 0;              // segments considered lost
 
-// ═════════════════════════════════════════════════════════════════════════════
-// HELPERS (fixed)
-// ═════════════════════════════════════════════════════════════════════════════
-
+// -- Helpers (fixed) ----------------------------------------------------------
 static __always_inline void bump_counter(u32 idx) {
     u64 *val = bpf_map_lookup_elem(&debug_counters, &idx);
     if (val) __sync_fetch_and_add(val, 1);
@@ -243,160 +133,131 @@ static __always_inline bool is_folio_relevant(struct folio *folio) {
     return inode_in_watchlist(folio->mapping->host->i_ino);
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// VULCAN — Update all listener types for one global feature
-// ═════════════════════════════════════════════════════════════════════════════
-
-static __always_inline void vulcan_update_global(u32 feature_id, s64 value,
-                                                 u32 ewma_alpha,
-                                                 u32 rw_size)
-{
-    struct vulcan_minmax *mm = bpf_map_lookup_elem(&vulcan_gminmax, &feature_id);
-    if (mm) vulcan_minmax_update(mm, value);
-
-    struct vulcan_ewma *ew = bpf_map_lookup_elem(&vulcan_gewma, &feature_id);
-    if (ew) vulcan_ewma_update(ew, value, ewma_alpha);
-
-    struct vulcan_rolling_window *rw = bpf_map_lookup_elem(&vulcan_grw, &feature_id);
-    if (rw) vulcan_rw_update(rw, value, rw_size);
-
-    struct vulcan_avg *av = bpf_map_lookup_elem(&vulcan_gavg, &feature_id);
-    if (av) vulcan_avg_update(av, value);
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// VULCAN — Global feature accessor functions
-// ═════════════════════════════════════════════════════════════════════════════
-
-static __always_inline s64 vulcan_get_min(u32 fid) {
-    struct vulcan_minmax *mm = bpf_map_lookup_elem(&vulcan_gminmax, &fid);
-    return mm ? vulcan_minmax_get_min(mm) : 0;
-}
-
-static __always_inline s64 vulcan_get_max(u32 fid) {
-    struct vulcan_minmax *mm = bpf_map_lookup_elem(&vulcan_gminmax, &fid);
-    return mm ? vulcan_minmax_get_max(mm) : 0;
-}
-
-static __always_inline s64 vulcan_get_ewma(u32 fid) {
-    struct vulcan_ewma *ew = bpf_map_lookup_elem(&vulcan_gewma, &fid);
-    return ew ? vulcan_ewma_get(ew) : 0;
-}
-
-static __always_inline s64 vulcan_get_avg(u32 fid) {
-    struct vulcan_avg *av = bpf_map_lookup_elem(&vulcan_gavg, &fid);
-    return av ? vulcan_avg_get(av) : 0;
-}
-
-static __always_inline s64 vulcan_get_latest(u32 fid) {
-    struct vulcan_rolling_window *rw = bpf_map_lookup_elem(&vulcan_grw, &fid);
-    return rw ? vulcan_rw_get_latest(rw) : 0;
-}
-
-static __always_inline s64 vulcan_get_kth_recent(u32 fid, u32 k) {
-    struct vulcan_rolling_window *rw = bpf_map_lookup_elem(&vulcan_grw, &fid);
-    return rw ? vulcan_rw_get_kth_recent(rw, k) : 0;
-}
-
-static __always_inline s64 vulcan_get_window_avg(u32 fid) {
-    struct vulcan_rolling_window *rw = bpf_map_lookup_elem(&vulcan_grw, &fid);
-    return rw ? vulcan_rw_get_avg(rw) : 0;
-}
-
-static __always_inline u32 vulcan_get_window_count(u32 fid) {
-    struct vulcan_rolling_window *rw = bpf_map_lookup_elem(&vulcan_grw, &fid);
-    return rw ? vulcan_rw_get_count(rw) : 0;
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// VULCAN — Per-folio helpers
-// ═════════════════════════════════════════════════════════════════════════════
-
-static __always_inline struct vulcan_folio_metadata
-vulcan_folio_init(u64 now)
-{
-    struct vulcan_folio_metadata m = {
-        .last_access_ts  = now,
-        .prev_access_ts  = 0,
-        .access_count    = 1,
-        ._pad            = 0,
-        .interval_minmax = { .min_val = 0, .max_val = 0, .count = 0, ._pad = 0 },
-        .interval_ewma   = { .value = 0, .initialized = 0, ._pad = 0 },
-    };
-    return m;
-}
-
-static __always_inline void
-vulcan_folio_on_access(struct vulcan_folio_metadata *meta, u64 now,
-                       u32 folio_ewma_alpha)
-{
-    if (meta->last_access_ts > 0 && meta->access_count > 0) {
-        s64 interval = (s64)(now - meta->last_access_ts);
-        vulcan_minmax_update(&meta->interval_minmax, interval);
-        vulcan_ewma_update(&meta->interval_ewma, interval, folio_ewma_alpha);
-    }
-    meta->prev_access_ts = meta->last_access_ts;
-    meta->last_access_ts = now;
-    meta->access_count++;
-}
-
 // EVOLVE-BLOCK-START
-// ═════════════════════════════════════════════════════════════════════════════
-// EVICTION POLICY — everything below (until EVOLVE-BLOCK-END) is evolved
-// ═════════════════════════════════════════════════════════════════════════════
-
-// -- Configuration constants -------------------------------------------------
-// EWMA smoothing for global features: 0=no smoothing, 1000=instant (no memory)
-#define VULCAN_EWMA_ALPHA       100   // α = 0.10
-// Rolling window size for global features (max 16)
-#define VULCAN_RW_SIZE          8
-// EWMA smoothing for per-folio inter-access intervals
-#define VULCAN_FOLIO_EWMA_ALPHA 200   // α = 0.20
-// Number of candidates to sample per eviction slot
-#define SAMPLE_SIZE             20
-
+// -- List handles + eviction policy constants (evolved) -----------------------
 static u64 main_list;
 
-// -- Scoring function --------------------------------------------------------
-// Called for each sampled folio during eviction.
-// Return s64 score: HIGHER = keep, LOWER = evict first, S64_MAX = unevictable.
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
+
+// =============================================================================
+// EVICTION POLICY — everything below is evolved by ShinkaEvolve
+// =============================================================================
+
+// -- Tunable constants --------------------------------------------------------
+// Base time windows (will be adapted based on RTT and congestion)
+#define BASE_RECENT_NS      30000000ULL    // 30 ms baseline (more aggressive)
+#define BASE_WORKING_SET_NS 300000000ULL   // 300 ms baseline (more aggressive)
+// Time window: network session considered active if packet within this window
+#define NET_IDLE_TIMEOUT_NS 5000000000ULL  // 5 s
+// Access count thresholds: adaptive based on network conditions
+#define HOT_ACCESS_THRESHOLD_PRESSURE 2    // Under pressure: treat warm as hot (protective)
+#define HOT_ACCESS_THRESHOLD_NORMAL 3      // Normal conditions: standard threshold
+#define HOT_ACCESS_THRESHOLD_IDLE 4        // Idle/low-pressure: aggressive eviction
+// Congestion thresholds
+#define CWND_PRESSURE_RATIO 2              // cwnd * 2 < packets_out = pressure
+
+// -- Helper: compute adaptive time window based on network conditions --------
+static __always_inline u64 get_adaptive_window(u64 base_ns, bool under_pressure)
 {
-    struct folio *folio = node->folio;
+    u64 adapted = base_ns;
 
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
+    // Scale by RTT: higher RTT = longer windows (each miss is more expensive)
+    // Clamp net_srtt_us to avoid overflow; assume max ~10ms RTT for scaling
+    u32 rtt_clamped = (net_srtt_us > 10000000) ? 10000000 : net_srtt_us;
+    adapted = adapted + (u64)rtt_clamped / 20;  // Reduce RTT scaling impact
 
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
+    // If network is under pressure (loss, retrans, high jitter), increase window modestly
+    if (under_pressure) {
+        adapted = (adapted * 5) >> 2;  // 1.25x multiplier (was 1.5x)
+    }
+
+    return adapted;
+}
+
+// -- Helper: compute dynamic hot threshold based on network conditions -------
+static __always_inline u32 get_hot_access_threshold(bool net_under_pressure, bool session_active)
+{
+    // Under severe pressure: lower threshold to treat more folios as hot (protective)
+    if (net_under_pressure && session_active) {
+        return HOT_ACCESS_THRESHOLD_PRESSURE;
+    }
+
+    // Idle session: raise threshold to aggressively evict cold folios
+    if (!session_active) {
+        return HOT_ACCESS_THRESHOLD_IDLE;
+    }
+
+    // Normal conditions: standard threshold
+    return HOT_ACCESS_THRESHOLD_NORMAL;
+}
+
+// -- Eviction iteration callback ----------------------------------------------
+// Called for each folio during eviction scan.
+// Return CACHE_EXT_EVICT_NODE to evict, CACHE_EXT_CONTINUE_ITER to keep.
+static int bpf_evict_cb(int idx, struct cache_ext_list_node *node)
+{
+    u64 now = bpf_ktime_get_ns();
+    u64 key = (u64)node->folio;
+
+    struct net_folio_metadata *meta =
         bpf_map_lookup_elem(&folio_metadata_map, &key);
+
+    // No metadata → unknown folio → evict
     if (!meta)
-        return 0;
+        return CACHE_EXT_EVICT_NODE;
 
-    u64 now    = bpf_ktime_get_ns();
-    s64 age_ns = (s64)(now - meta->last_access_ts);
+    // Skip dirty / under-writeback folios (kernel can't evict them anyway)
+    if (folio_test_dirty(node->folio) || folio_test_writeback(node->folio))
+        return CACHE_EXT_CONTINUE_ITER;
 
-    // Base score: access count (more accesses = more valuable)
-    s64 score = (s64)meta->access_count * 1000000;
+    // -- Network condition detection ------------------------------------------
 
-    // Recency bonus
-    if (age_ns < 100000000)        // < 100 ms
-        score += 10000000;
-    else if (age_ns < 1000000000)  // < 1 s
-        score += 1000000;
+    // Loss/retransmission indicators
+    bool has_loss = (net_lost > 0) || (net_retrans_out > 0);
 
-    // Network pressure: protect hot folios when RTT is elevated or loss present
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 lost_max  = vulcan_get_max(GF_LOST);
-    if ((srtt_ewma > 50000 || lost_max > 0) && meta->access_count >= 3)
-        score += 5000000;
+    // Cwnd pressure: if packets in flight > cwnd, network is bottlenecked
+    bool cwnd_pressure = (net_packets_out > 0) &&
+                         ((u32)net_packets_out > (net_snd_cwnd / CWND_PRESSURE_RATIO));
 
-    // Congestion-aware: boost score when cwnd is small (network bottleneck)
-    s64 cwnd = vulcan_get_ewma(GF_SND_CWND);
-    if (cwnd > 0 && cwnd < 20 && age_ns < 500000000)
-        score += 3000000;
+    // High jitter: unstable network (only extreme jitter indicates real pressure)
+    bool high_jitter = (net_mdev_us > 2000000);  // > 2ms jitter (was > 1ms)
 
-    return score;
+    // Receive window saturation: indicates receiver-side backpressure
+    // 64KB is a typical minimal buffer; below this = receiver can't accept more data
+    bool rcv_wnd_pressure = (net_rcv_wnd > 0) && (net_rcv_wnd < 65536);
+
+    // Network is under pressure if any of: loss, cwnd pressure, high jitter, rcv_wnd saturation
+    bool net_under_pressure = has_loss || cwnd_pressure || high_jitter || rcv_wnd_pressure;
+
+    // Session activity (check early for threshold adaptation)
+    bool session_active = (now - last_packet_ts) < NET_IDLE_TIMEOUT_NS;
+
+    // -- Adaptive time windows ------------------------------------------------
+    u64 adapted_recent = get_adaptive_window(BASE_RECENT_NS, net_under_pressure);
+    u64 adapted_working_set = get_adaptive_window(BASE_WORKING_SET_NS, net_under_pressure);
+
+    // -- Dynamic hot threshold based on network conditions -------------------
+    u32 dynamic_hot_threshold = get_hot_access_threshold(net_under_pressure, session_active);
+
+    // -- Network-aware heuristics ---------------------------------------------
+
+    bool recently_used  = (now - meta->last_access_ts) < adapted_recent;
+    bool in_working_set = (now - meta->last_access_ts) < adapted_working_set;
+    bool is_hot         = (meta->access_count >= dynamic_hot_threshold);
+
+    // Protect hot folios (many accesses) that were recently touched
+    if (is_hot && recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // During an active network session, protect the working set
+    if (session_active && in_working_set)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Protect any recently accessed folio
+    if (recently_used)
+        return CACHE_EXT_CONTINUE_ITER;
+
+    // Everything else → evict
+    return CACHE_EXT_EVICT_NODE;
 }
 
 // -- struct_ops: init ---------------------------------------------------------
@@ -414,9 +275,7 @@ void BPF_STRUCT_OPS(evolved_evict_folios,
                     struct mem_cgroup *memcg)
 {
     bump_counter(0);
-    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
-    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn,
-                              &opts, eviction_ctx);
+    bpf_cache_ext_list_iterate(memcg, main_list, bpf_evict_cb, eviction_ctx);
 }
 
 // -- struct_ops: folio_added --------------------------------------------------
@@ -425,15 +284,20 @@ void BPF_STRUCT_OPS(evolved_folio_added, struct folio *folio)
     if (!is_folio_relevant(folio))
         return;
 
+    // Add to tail of main list (FIFO-like insertion)
     int ret = bpf_cache_ext_list_add_tail(main_list, folio);
     if (ret != 0) {
         bump_counter(1);
         return;
     }
 
+    // Initialize metadata
     u64 key = (u64)folio;
-    struct vulcan_folio_metadata new_meta =
-        vulcan_folio_init(bpf_ktime_get_ns());
+    struct net_folio_metadata new_meta = {
+        .last_access_ts = bpf_ktime_get_ns(),
+        .access_count  = 1,
+        .access_tier   = 0,  // cold
+    };
     bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
     bump_counter(2);
 }
@@ -445,21 +309,40 @@ void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
         return;
 
     u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
+    struct net_folio_metadata *meta =
         bpf_map_lookup_elem(&folio_metadata_map, &key);
 
     if (!meta) {
+        // Folio not tracked yet — add it
         int ret = bpf_cache_ext_list_add(main_list, folio);
-        if (ret != 0)
+        if (ret != 0) {
+            // Already in a list — just move to head (MRU); third arg is 'tail', so false = head
             bpf_cache_ext_list_move(main_list, folio, false);
-        struct vulcan_folio_metadata new_meta =
-            vulcan_folio_init(bpf_ktime_get_ns());
+        }
+        struct net_folio_metadata new_meta = {
+            .last_access_ts = bpf_ktime_get_ns(),
+            .access_count  = 1,
+            .access_tier   = 0,
+        };
         bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
         bump_counter(3);
         return;
     }
 
-    vulcan_folio_on_access(meta, bpf_ktime_get_ns(), VULCAN_FOLIO_EWMA_ALPHA);
+    // Update existing metadata
+    meta->last_access_ts = bpf_ktime_get_ns();
+    meta->access_count += 1;
+
+    // Update tier based on access count (use normal threshold for tier classification)
+    // Tier classification is decoupled from eviction decisions; use standard threshold
+    if (meta->access_count >= HOT_ACCESS_THRESHOLD_NORMAL)
+        meta->access_tier = 2;  // hot
+    else if (meta->access_count >= 2)
+        meta->access_tier = 1;  // warm
+    else
+        meta->access_tier = 0;  // cold
+
+    // Move to head of list (MRU position); third arg is 'tail', so false = head
     bpf_cache_ext_list_move(main_list, folio, false);
     bump_counter(4);
 }
@@ -470,6 +353,9 @@ void BPF_STRUCT_OPS(evolved_folio_evicted, struct folio *folio)
     if (!is_folio_relevant(folio))
         return;
 
+    // Remove from the list FIRST, before metadata is gone.
+    // Without this, the eviction iterator holds a dangling folio pointer
+    // in main_list, causing kernel memory corruption (GPF in userspace).
     bpf_cache_ext_list_del(folio);
 
     u64 key = (u64)folio;
@@ -479,9 +365,9 @@ void BPF_STRUCT_OPS(evolved_folio_evicted, struct folio *folio)
 
 // EVOLVE-BLOCK-END
 
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 // NETWORK MONITORING (fixed — not evolved)
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 
 SEC("kprobe/tcp_recvmsg")
 int trace_tcp_recvmsg(struct pt_regs *ctx)
@@ -490,62 +376,39 @@ int trace_tcp_recvmsg(struct pt_regs *ctx)
     if (!sk) return 0;
 
     u16 sport = BPF_CORE_READ(sk, __sk_common.skc_num);
-    if (sport != 9100 && sport != 9001 && sport != 9002)
-        return 0;
 
-    // Update raw globals
-    net_prev_packet_ts = last_packet_ts;
-    last_packet_ts     = bpf_ktime_get_ns();
-    net_recv_count    += 1;
+    // Monitor the net_leveldb_server port (9100) and common DB ports
+    if (sport == 9100 || sport == 9001 || sport == 9002) {
+        // Basic identification
+        net_prev_packet_ts = last_packet_ts;
+        last_packet_ts = bpf_ktime_get_ns();
+        net_recv_count += 1;
 
-    struct tcp_sock *tp = (struct tcp_sock *)sk;
+        // Read TCP metrics from tcp_sock (sock is embedded at offset 0)
+        struct tcp_sock *tp = (struct tcp_sock *)sk;
 
-    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
-    net_mdev_us        = BPF_CORE_READ(tp, mdev_us);
-    net_bytes_received = BPF_CORE_READ(tp, bytes_received);
-    net_bytes_acked    = BPF_CORE_READ(tp, bytes_acked);
-    net_segs_in        = BPF_CORE_READ(tp, segs_in);
-    net_segs_out       = BPF_CORE_READ(tp, segs_out);
-    net_delivered      = BPF_CORE_READ(tp, delivered);
-    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
-    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
-    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
-    net_packets_out    = BPF_CORE_READ(tp, packets_out);
-    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
-    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
-    net_lost           = BPF_CORE_READ(tp, lost);
+        // Connection quality
+        net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+        net_mdev_us        = BPF_CORE_READ(tp, mdev_us);
 
-    // Feed raw values into vulcan listener pipeline.
-    // Fallback defaults if the LLM removed the #defines.
-#ifndef VULCAN_EWMA_ALPHA
-#define VULCAN_EWMA_ALPHA 100
-#endif
-#ifndef VULCAN_RW_SIZE
-#define VULCAN_RW_SIZE 8
-#endif
+        // Throughput counters
+        net_bytes_received = BPF_CORE_READ(tp, bytes_received);
+        net_bytes_acked    = BPF_CORE_READ(tp, bytes_acked);
+        net_segs_in        = BPF_CORE_READ(tp, segs_in);
+        net_segs_out       = BPF_CORE_READ(tp, segs_out);
+        net_delivered      = BPF_CORE_READ(tp, delivered);
 
-    vulcan_update_global(GF_SRTT_US,        (s64)net_srtt_us,        VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_MDEV_US,        (s64)net_mdev_us,        VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_SND_CWND,       (s64)net_snd_cwnd,       VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_SND_SSTHRESH,   (s64)net_snd_ssthresh,   VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_RCV_WND,        (s64)net_rcv_wnd,        VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_PACKETS_OUT,    (s64)net_packets_out,    VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_TOTAL_RETRANS,  (s64)net_total_retrans,  VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_RETRANS_OUT,    (s64)net_retrans_out,    VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_LOST,           (s64)net_lost,           VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_SEGS_IN,        (s64)net_segs_in,        VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_SEGS_OUT,       (s64)net_segs_out,       VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_DELIVERED,      (s64)net_delivered,      VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_BYTES_RECEIVED, (s64)net_bytes_received, VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_BYTES_ACKED,    (s64)net_bytes_acked,    VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-    vulcan_update_global(GF_RECV_COUNT,     (s64)net_recv_count,     VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
+        // Congestion / flow control
+        net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
+        net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
+        net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
+        net_packets_out    = BPF_CORE_READ(tp, packets_out);
 
-    // Derived feature: inter-packet arrival time
-    s64 inter_arrival = 0;
-    if (net_prev_packet_ts > 0)
-        inter_arrival = (s64)(last_packet_ts - net_prev_packet_ts);
-    vulcan_update_global(GF_INTER_ARRIVAL, inter_arrival, VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE);
-
+        // Error / loss
+        net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
+        net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
+        net_lost           = BPF_CORE_READ(tp, lost);
+    }
     return 0;
 }
 

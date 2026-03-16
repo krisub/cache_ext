@@ -1,0 +1,22 @@
+{
+  "combined_score": 1729.318947178994,
+  "public": {
+    "dual_small_vs_large_throughput": 1365.3899999999999,
+    "dual_small_vs_large_read_p99_ns": 71623753.1,
+    "dual_congested_throughput": 2357.75,
+    "dual_congested_read_p99_ns": 50413307.26,
+    "combined_score_harmonic_mean": 1729.318947178994,
+    "traces_passed": 2,
+    "traces_total": 2
+  },
+  "private": {
+    "dual_small_vs_large": {
+      "total_throughput": 1365.3899999999999,
+      "read_latency_p99_ns": 71623753.1
+    },
+    "dual_congested": {
+      "total_throughput": 2357.75,
+      "read_latency_p99_ns": 50413307.26
+    }
+  }
+}
