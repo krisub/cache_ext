@@ -1,0 +1,14 @@
+{
+  "generation": 54,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "access_count_scaled_cold_penalty",
+  "patch_description": "The current program uses exponential time-decay for loss protection and multiplies access_count by a recency_factor, which adds unnecessary complexity. The best-performing program (2184.76) uses a simpler additive recency boost and MinMax-based loss detection.\n\nThe key improvement is to refine the cold folio penalty with access-count-scaled asymmetry. Currently, all cold folios (interval_ewma > 10s) receive a fixed -100 penalty. This over-penalizes long-lived but infrequently-accessed metadata structures like LevelDB index blocks that have high access_count but long inter-access intervals.\n\nThe proposed change:\n- Keep the simple additive recency boost (+50 for <1s, linearly decaying to 0 at 10s)\n- For cold folios (interval_ewma > 10s), scale the penalty based on access history:\n  - access_count < 5: apply -100 (genuinely cold, one-shot accesses)\n  - access_count < 20: apply -50 (moderately used over time)\n  - access_count >= 20: apply -25 (long-lived, proven utility)\n\nThis preserves folios with demonstrated utility while still preferring cold pages as victims, reducing variance in dual_small_vs_large (std: 217.25 in best program) by avoiding premature eviction of valuable long-lived pages.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T20:33:39.127487",
+  "llm_cost": 0.231591,
+  "llm_model": null
+}

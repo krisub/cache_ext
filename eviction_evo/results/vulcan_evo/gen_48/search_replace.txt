@@ -1,0 +1,118 @@
+<NAME>
+adaptive_recency_decay_per_folio_burstiness
+</NAME>
+
+<DESCRIPTION>
+The current program uses a simple fixed recency bonus (+50 points if accessed within 5 seconds), which doesn't distinguish between different folio access patterns. Generation 39's fine-grained recency weighting (50% boost within 1s, decaying to 0% at 10s) achieved the best combined score (2184.76) by making recency a first-class component of the scoring function.
+
+This edit extends that proven approach by implementing adaptive per-folio recency decay calibration. Instead of applying the same decay curve to all folios, we compute a "burstiness" metric from the per-folio interval_minmax listeners (max_val / min_val ratio) to characterize each folio's access pattern:
+- High burstiness (ratio > 10): folios accessed in bursts with long gaps between → apply stronger recency boost (70%) to catch working-set transitions
+- Low burstiness (ratio < 3): folios with steady, predictable access → apply moderate recency boost (30%) to avoid over-protecting
+- Medium burstiness: interpolated boost (30-70%)
+
+The recency weighting uses a smooth decay curve similar to Gen 39 but scaled by per-folio burstiness:
+- Base formula: recency_factor = burstiness_adjusted_boost * (1 - time_since_access / 10s)
+- Applied as: base_score * (100 + recency_factor) / 100
+
+This should improve dual_small_vs_large throughput (currently 1601.83 mean with std 138.46) by better adapting to the mixed access patterns (fast reader with small values vs slow writer with large values), while maintaining strong dual_congested performance through the existing network-aware protection.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    }
+
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated to avoid
+     * stale loss signals causing sustained over-protection. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;
+    }
+=======
+    /* Adaptive recency decay calibration based on per-folio burstiness.
+     * Compute burstiness metric from interval_minmax to characterize access pattern:
+     * - High burstiness (bursty access with gaps) → stronger recency boost
+     * - Low burstiness (steady access) → moderate recency boost */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+
+    s64 recency_factor = 0;
+    if (time_since_access < 10000000000ULL) {  /* Within 10 seconds */
+        /* Compute per-folio burstiness: ratio of max to min inter-access intervals */
+        s64 burstiness_boost_pct = 50;  /* Default: 50% boost for unknown patterns */
+
+        s64 min_interval = meta->interval_minmax.min_val;
+        s64 max_interval = meta->interval_minmax.max_val;
+
+        if (min_interval > 0 && max_interval > 0) {
+            /* Burstiness ratio: max_interval / min_interval */
+            s64 burstiness_ratio = max_interval / min_interval;
+
+            if (burstiness_ratio > 10) {
+                /* High burstiness: bursty access pattern (e.g., working-set transitions) */
+                burstiness_boost_pct = 70;  /* 70% boost for burst-prone folios */
+            } else if (burstiness_ratio < 3) {
+                /* Low burstiness: steady, predictable access */
+                burstiness_boost_pct = 30;  /* 30% boost for steady folios */
+            } else {
+                /* Medium burstiness: interpolate between 30% and 70% */
+                /* ratio 3-10 maps to boost 30-70% linearly */
+                burstiness_boost_pct = 30 + ((burstiness_ratio - 3) * 40 / 7);
+            }
+        }
+
+        /* Apply smooth decay: linear from burstiness_boost_pct at 0s to 0% at 10s */
+        s64 elapsed_seconds = time_since_access / 1000000000ULL;
+        recency_factor = burstiness_boost_pct - (elapsed_seconds * burstiness_boost_pct / 10);
+        if (recency_factor < 0) recency_factor = 0;
+    }
+
+    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+
+    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    }
+
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated to avoid
+     * stale loss signals causing sustained over-protection. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+>>>>>>> REPLACE
+
+</DIFF>

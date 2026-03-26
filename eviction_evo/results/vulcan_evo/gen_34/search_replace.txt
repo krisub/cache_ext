@@ -1,0 +1,76 @@
+<NAME>
+revert_cold_penalty_add_recency_weighting
+</NAME>
+
+<DESCRIPTION>
+The current program regressed from 2090.49 to 1941.49 by replacing the simple cold penalty (-100) with an access_count-dependent scaled penalty. This appears to be over-protecting cold folios with moderate access counts, causing recently-active hot pages to be evicted instead.
+
+**Root cause:** The conditional penalty logic (25/50/100 based on access_count >= 20/5/0) is too conservative and fails to prioritize true working-set pages that are both frequently accessed AND recently accessed.
+
+**Solution:** Revert to a simple, aggressive cold penalty while strengthening recency weighting in the base score calculation itself. This combines:
+1. A uniform -100 cold penalty for pages with interval_ewma > 10s (back to program 5)
+2. Enhanced recency weighting in base_score using exponential-like decay (better capture of "recently-active" distinction)
+3. More aggressive recency bonus (+100 instead of +50) for pages in last 3s
+
+This targets the observation that temporal locality (recent access + frequency) is more predictive than raw historical frequency alone in LevelDB workloads. By making recency weighting dominate the base score, we prioritize recently-accessed folios regardless of total historical access count, while still maintaining simple cold-folio eviction logic.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;
+    }
+
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold). */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: but scale penalty based on access_count to preserve
+         * long-lived moderately-accessed folios (e.g., LevelDB index structures).
+         * - access_count < 5: genuinely cold, apply -100
+         * - access_count < 20: moderately old but used, apply -50
+         * - access_count >= 20: long-lived and frequently accessed, apply -25
+         * This avoids over-penalizing pages with demonstrated utility over time. */
+        s64 cold_penalty = 100;
+        if (meta->access_count >= 20) {
+            cold_penalty = 25;
+        } else if (meta->access_count >= 5) {
+            cold_penalty = 50;
+        }
+        if (score > cold_penalty) score -= cold_penalty;
+    }
+=======
+    /* Recency-weighted boost: prioritize recently-accessed pages over old ones.
+     * Apply stronger recency bonus for pages accessed very recently (<3s).
+     * Uses exponential-like decay: 100 bonus at 0s, decays toward 0 at 10s+.
+     * Formula approximation: bonus = 100 * exp(-time_elapsed_sec / 3)
+     *                              ≈ 100 / (1 + time_elapsed_ms / 3000) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_bonus = 0;
+    if (time_since_access < 10000000000ULL) {  /* Within 10 seconds */
+        s64 elapsed_ms = time_since_access / 1000000;  /* ns to ms */
+        recency_bonus = (100 * 3000) / (3000 + elapsed_ms);
+    }
+    score += recency_bonus;
+
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold). */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+>>>>>>> REPLACE
+</DIFF>

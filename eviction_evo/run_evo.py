@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run_evo.py — Launch ShinkaEvolve to evolve cache_ext eviction policies.
+run_evo.py - Launch ShinkaEvolve to evolve cache_ext eviction policies.
 
 Usage:
     PYTHONPATH=/mydata/ShinkaEvolve python run_evo.py
@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import shutil
+import signal
 import sys
 import os
 import subprocess
@@ -25,10 +26,34 @@ SHINKA_ENV = os.path.join(SHINKA_DIR, ".env")
 if os.path.exists(ENV_TEMPLATE):
     shutil.copy2(ENV_TEMPLATE, SHINKA_ENV)
 
+MGLRU_PATH = "/sys/kernel/mm/lru_gen/enabled"
+
 import yaml
 from shinka.core import EvolutionRunner, EvolutionConfig
 from shinka.database import DatabaseConfig
 from shinka.launch import LocalJobConfig
+
+
+def _restore_mglru():
+    """Ensure MGLRU is re-enabled regardless of how we exit."""
+    try:
+        if os.path.exists(MGLRU_PATH):
+            val = open(MGLRU_PATH).read().strip()
+            if val in ("0x0000", "0"):
+                subprocess.run(
+                    ["sudo", "sh", "-c", f"echo 0x0007 > {MGLRU_PATH}"],
+                    timeout=10, check=False, capture_output=True,
+                )
+                print("run_evo.py: MGLRU was disabled - restored to 0x0007", flush=True)
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            ["sudo", "cgdelete", "memory:cache_ext_test"],
+            timeout=10, check=False, capture_output=True,
+        )
+    except Exception:
+        pass
 
 
 def main(config_path: str):
@@ -46,8 +71,17 @@ def main(config_path: str):
         db_config=db_config,
         verbose=True,
     )
-    evo_runner.run()
-    
+    try:
+        evo_runner.run()
+    except (KeyboardInterrupt, SystemExit):
+        print("\nrun_evo.py: Interrupted - restoring system state...", flush=True)
+    finally:
+        _restore_mglru()
+        subprocess.run(
+        ["sudo", "chown", "-R", "krisub", "/mydata/cache_ext"],
+        check=True
+        )   
+
     subprocess.run(
         ["sudo", "chown", "-R", "krisub", "/mydata/cache_ext"],
         check=True

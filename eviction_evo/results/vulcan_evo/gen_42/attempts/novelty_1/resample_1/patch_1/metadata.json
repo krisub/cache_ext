@@ -1,0 +1,14 @@
+{
+  "generation": 42,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "integrate_congestion_window_saturation_detection",
+  "patch_description": "This edit implements the recommended congestion window saturation detection as a secondary network factor. The current program already tracks PACKETS_OUT via EWMA but doesn't leverage it for congestion detection. By enabling SND_CWND EWMA tracking and computing the saturation ratio (packets_out / snd_cwnd), we can detect when the TCP window is approaching saturation and apply additional cache protection during these periods.\n\nThe implementation uses safe unsigned arithmetic to avoid signed division failures:\n1. Enable GF_SND_CWND EWMA listener with alpha=200 (matching PACKETS_OUT for consistency)\n2. In bpf_score_fn, compute congestion_ratio = (packets_out_ewma * 100) / snd_cwnd_ewma using u64 casts\n3. Apply scaled secondary boosts: +5 to network_factor if ratio > 70%, +10 if ratio > 90%\n\nThis addresses the congested workload scenario where the current program scores 3781.21 MB/s vs baseline 3456.26 MB/s. Window saturation is a strong indicator that cache misses will be especially expensive due to queuing delays, independent of RTT. The modest additive boosts (5-10 points) provide a complementary signal to the existing RTT-based protection without overwhelming the base scoring logic.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T14:16:09.161284",
+  "llm_cost": 0.199521,
+  "llm_model": null
+}

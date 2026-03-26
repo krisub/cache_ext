@@ -1,0 +1,112 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Network-Aware LFU Page Cache Eviction with Vulcan Monitoring**
+
+- **Implementation**: Implements a Least-Frequently-Used (LFU) eviction policy for LevelDB page cache using BPF, with infrastructure for network-aware scoring via the Vulcan listener framework. The baseline disables all network monitoring (kprobe returns early when no listeners enabled) to match zero-overhead sampling, while the architecture allows evolution to enable per-feature listeners (MinMax, EWMA, RollingWindow, Average) for TCP metrics and per-folio interval tracking. Protects dirty/writeback folios and the last page of files (LevelDB index blocks) with S64_MAX scores; uses access_count as the primary LFU metric with optional network-derived adjustments.
+
+- **Performance**: Achieves combined harmonic score of 1965.52 with dual_small_vs_large throughput of 1373.23 ops/sec and dual_congested throughput of 3456.26 ops/sec, passing all 2 validation traces across 5 runs each.
+
+- **Feedback**: The design successfully separates fixed infrastructure (maps, kprobe, struct_ops registration) from evolved policy logic (gf_configs, folio_cfg, bpf_score_fn), enabling safe evolution without modifying networking code. The early-exit optimization in the kprobe (checking if any listeners are enabled before reading TCP state) is critical—it maintains baseline performance parity with non-network-aware sampling while preserving the ability to add network signals. The current baseline achieves strong performance by keeping the scoring function simple (pure LFU + file-structure awareness), suggesting that network metrics may provide marginal gains that must be carefully tuned to avoid overhead.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Network-Aware LFU Page Cache Eviction with Vulcan Monitoring**
+
+- **Implementation**: Implements an LFU-based page cache eviction policy enhanced with network-aware protection mechanisms. Enables EWMA listeners for RTT (GF_SRTT_US) and packets-in-flight (GF_PACKETS_OUT), plus MinMax tracking for packet loss (GF_LOST). The scoring function applies dynamic protection factors (1.0x–1.5x multipliers) based on RTT thresholds (>5ms, >10ms) and loss detection, combines per-folio access counts with recency bonuses (5-second window), interval-based heat detection, and special protection for LevelDB index blocks (last file page). Per-folio metadata tracks access patterns via EWMA and MinMax listeners on inter-access intervals.
+
+- **Performance**: Achieves combined harmonic mean score of 1977.84 with dual-workload throughput of 1452.39 MB/s (small vs. large) and 3098.97 MB/s (congested), p99 read latencies of 39.2ms and 44.7ms respectively, passing all 2 validation traces.
+
+- **Feedback**: The network-aware protection strategy effectively balances cache efficiency with latency sensitivity—elevated RTT triggers conservative eviction to reduce miss penalties in high-latency conditions, while loss detection provides additional safeguards. The multi-factor scoring (access count + recency + interval heat + network state + structural hints) demonstrates that combining temporal locality, frequency, and network conditions yields robust performance across heterogeneous workloads without incurring kprobe overhead when listeners are disabled.
+**Program Identifier:** Generation 1 - Patch Name network_aware_adaptive_protection - Correct Program: True
+
+**Program Name: Network-Aware LFU Cache Eviction with Burst Detection**
+
+- **Implementation**: Implements an enhanced Least Frequently Used (LFU) eviction policy in eBPF that combines access frequency with recency penalties (via per-folio inter-access interval EWMA tracking) and burst-aware protection. The policy monitors TCP network metrics (inter-packet arrival times) through a kprobe on tcp_recvmsg, using the libvulcan listener framework (MinMax, EWMA, RollingWindow) to detect low inter-arrival patterns (<100µs) that trigger working-set protection. Scoring function prioritizes: base frequency × 100, minus recency penalty (interval_ewma / 100000), plus burst boost (+5000 when inter_arrival_ewma < 100µs), and special protection for LevelDB index blocks (last file page).
+
+- **Performance**: Achieved combined harmonic mean score of 1480.42 across dual workload scenarios (small vs. large throughput: 1088.83 MB/s, congested throughput: 2311.86 MB/s) with consistent stability (std ~67-69 MB/s), passing all 2 validation traces.
+
+- **Feedback**: The burst detection mechanism effectively protects active working sets during network congestion phases, balancing frequency-based eviction with temporal locality. The per-folio EWMA tracking of inter-access intervals provides fine-grained recency signals without excessive overhead, while the early-exit check in the kprobe (returning immediately when no listeners are enabled) ensures baseline performance matches the non-instrumented sampling policy when network features are disabled.
+**Program Identifier:** Generation 2 - Patch Name adaptive_burst_aware_lfu - Correct Program: True
+
+**Program Name: Network-Aware LFU Page Cache Eviction with Vulcan Monitoring**
+
+- **Implementation**: Implements an LFU-based page cache eviction policy enhanced with network-aware protection logic using the Vulcan monitoring library. The scoring function combines access frequency with RTT trend detection (protecting pages when network degrades), packet loss awareness, recency bonuses (2-second window), per-folio access interval tracking via EWMA, and LevelDB-specific index block protection. Enables selective listeners on SRTT (EWMA + rolling window), packets-out (EWMA), and lost packets (MinMax) to minimize overhead while capturing network conditions.
+
+- **Performance**: Achieves a combined harmonic mean score of 1868.97 across dual workload scenarios, with dual_small_vs_large throughput of 1397.02 ops/sec and dual_congested throughput of 2822.50 ops/sec, demonstrating balanced performance under mixed and congested conditions.
+
+- **Feedback**: The network-aware protection strategy successfully prevents eviction of cache pages during network degradation (RTT increase >1ms triggers 1.2x protection boost), and the per-folio interval EWMA effectively identifies hot vs. cold pages for smarter victim selection. The early-exit optimization in the kprobe (checking if any listeners are enabled) ensures zero overhead when network monitoring is disabled, matching baseline performance while enabling dynamic network-aware adaptation when needed.
+**Program Identifier:** Generation 3 - Patch Name adaptive_rtt_trend_protection - Correct Program: True
+
+**Program Name: Network-Aware BPF Page Cache Eviction Policy**
+
+- **Implementation**: Implements an adaptive LFU-based eviction policy for LevelDB page cache using eBPF with network-aware scoring. The scoring function combines access frequency (primary signal), burst detection via inter-packet arrival EWMA, congestion detection via packets-out/cwnd ratio, loss-based penalties, and per-folio heat tracking. Adaptive sample size increases selectivity under high network congestion (>85% window utilization).
+
+- **Performance**: Compilation failed with score 0.00; program does not execute.
+
+- **Feedback**: Critical blocker: BPF compiler (LLVM 14) rejects signed division at line 413 in `evolved_evict_folios()` during the congestion ratio calculation `(packets_out_ewma * 100) / cwnd_ewma`. BPF backend does not support signed integer division; the fix requires converting to unsigned arithmetic or using alternative computation methods (e.g., bit shifts, lookup tables, or restructuring the ratio calculation). This is a fundamental BPF ISA limitation, not a logic error—the algorithm design is sound but cannot be compiled in its current form.
+**Program Identifier:** Generation 4 - Patch Name adaptive_burst_and_congestion_aware_eviction - Correct Program: False
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+# Program Evaluation Analysis
+
+## Successful Algorithmic Patterns
+
+- **Multi-factor scoring with network-aware protection thresholds**: The current best program (Generation 1, score 1977.84) combines access frequency with RTT-based protection multipliers (1.0x–1.5x) triggered at specific thresholds (>5ms, >10ms). This outperforms the pure LFU baseline (Generation 0, score 1965.52) by +12.32 points and significantly exceeds the burst-detection variant (Generation 2, score 1480.42, -497.42 points). The RTT threshold approach provides measurable protection without excessive overhead—the early-exit kprobe check ensures zero cost when listeners are disabled, matching baseline performance while enabling dynamic adaptation.
+
+- **Selective listener enablement with minimal overhead**: Generation 1 enables only three listeners (EWMA for GF_SRTT_US and GF_PACKETS_OUT, MinMax for GF_LOST) rather than attempting comprehensive network monitoring. This targeted approach achieves the highest combined score (1977.84) while maintaining stability (dual_congested std: 66.84 MB/s). In contrast, Generation 2's burst-detection mechanism (which adds inter-packet arrival tracking) drops to 1480.42, suggesting that overly granular network signals introduce noise without proportional benefit.
+
+- **Recency bonuses with fixed time windows**: The current best program applies a 5-second recency window bonus (+50 points) to recently accessed pages, combined with per-folio EWMA interval tracking. This temporal locality signal complements frequency-based scoring and protects working sets during congestion. Generation 3 (score 1868.97) uses a 2-second window and achieves lower performance (-109 points vs. Generation 1), indicating that the 5-second window better captures LevelDB's access patterns.
+
+- **LevelDB-specific structural protection**: All successful programs (Gen 0–3) protect the last page of files (index blocks) with S64_MAX or high bonus scores (+100000 in Gen 1). This structural hint is critical for LevelDB workloads and contributes to consistent performance across all passing variants. The protection is lightweight (single conditional check) and provides semantic awareness without network overhead.
+
+## Ineffective Approaches
+
+- **Burst detection via inter-packet arrival times**: Generation 2 (score 1480.42) implements burst protection by detecting low inter-arrival patterns (<100µs) and applying +5000 boost when triggered. This approach underperforms by -497.42 points vs. the best program, suggesting that packet-level granularity introduces false positives or misses the actual congestion signal. The feedback notes that "burst detection effectively protects active working sets," yet the score decline indicates the mechanism either fires too frequently (evicting useful pages) or too rarely (missing protection opportunities). The inter-packet arrival EWMA may be too noisy for cache eviction decisions.
+
+- **Aggressive congestion ratio calculations with unsigned division constraints**: Generation 4 attempted to calculate a congestion ratio via `(packets_out_ewma * 100) / cwnd_ewma` but failed compilation due to BPF's lack of signed division support. This reveals a fundamental constraint: complex ratio-based scoring requires either unsigned arithmetic, lookup tables, or restructured logic. The failure (score 0.00) demonstrates that algorithmic sophistication must respect BPF ISA limitations; the design was sound but uncompilable.
+
+- **Excessive per-folio metadata tracking without clear scoring benefit**: Generation 2 and 3 both enable per-folio MinMax and EWMA listeners for interval tracking, yet Generation 1 (which also enables these) achieves higher scores. The difference suggests that enabling listeners alone is insufficient—the scoring function must effectively translate interval signals into eviction decisions. Generation 2's attempt to use interval_ewma as a recency penalty (subtracting `interval_ewma / 100000`) may have been too aggressive or poorly calibrated, leading to suboptimal victim selection.
+
+- **Loss-based penalties without threshold tuning**: Generation 1 applies an additional 30% boost when `max_lost > 0`, but this binary trigger may be overly sensitive. Generation 3's approach (which also detects loss) achieves 1868.97 vs. 1977.84, suggesting that loss detection alone provides marginal benefit unless carefully integrated with other signals. The lack of loss-rate thresholds or decay mechanisms may cause sustained over-protection even after transient loss events.
+
+## Implementation Insights
+
+- **Early-exit kprobe optimization is critical for baseline parity**: The current best program (and all passing variants) include an early-exit check in the tcp_recvmsg kprobe that returns immediately if no listeners are enabled. This ensures zero overhead when network monitoring is disabled, matching the non-instrumented baseline (Generation 0, score 1965.52). The kprobe is conditionally compiled (`#if 1` in the provided code) and can be disabled entirely for pure LFU behavior. This architectural separation allows safe evolution—the infrastructure is fixed, but the policy (gf_configs, folio_cfg, bpf_score_fn) can be evolved without modifying networking code.
+
+- **Fixed-point arithmetic for network factor calculations**: Generation 1 uses fixed-point multiplication/division (e.g., `(base_score * network_factor) / 100`) to apply protection multipliers without floating-point operations. This is BPF-compatible and avoids the signed division trap that caught Generation 4. The network_factor variable (100 = 1.0x, 150 = 1.5x) is computed via conditional branches on RTT thresholds, making the logic transparent and debuggable. This pattern is replicated in all passing programs and appears essential for reliable BPF compilation.
+
+- **Per-folio metadata initialization and lazy loading**: The current best program initializes per-folio metadata via `vulcan_folio_init(bpf_ktime_get_ns())` in both `folio_added` and `folio_accessed` callbacks, with lazy initialization if metadata is missing. This ensures that every tracked folio has valid timestamps and listener state, preventing null-pointer dereferences or stale data. The metadata map uses folio pointer as key (`u64 key = (u64)folio`), enabling O(1) lookups during eviction scoring.
+
+- **Vulcan listener dispatch layer abstracts feature complexity**: The code includes `#include "vulcan_bpf/vulcan_feature.h"` which provides `vulcan_update_feature()` and accessor functions (`vulcan_get_ewma()`, `vulcan_get_max()`, etc.). This abstraction allows the scoring function to call `vulcan_get_ewma(GF_SRTT_US)` without knowing which map or listener state to access. The dispatch is controlled by `gf_configs[]` array, enabling per-feature listener configuration. This design allows evolution of scoring logic without modifying the listener infrastructure, reducing the risk of introducing bugs in the fixed networking code.
+
+## Performance Analysis
+
+- **Current best program achieves 1977.84 harmonic score with balanced dual-workload performance**: Generation 1 delivers dual_small_vs_large throughput of 1452.39 MB/s (std: 154.26) and dual_congested throughput of 3098.97 MB/s (std: 66.84). The congested workload shows lower variability (66.84 vs. 154.26), indicating stable behavior under network stress. This is the highest score across all evaluated programs and represents a +12.32 point improvement over the baseline (Generation 0, 1965.52), demonstrating that selective network-aware protection provides measurable benefit.
+
+- **Baseline (Generation 0) achieves 1965.52 with pure LFU, establishing a strong reference point**: The non-network-aware variant passes all validation traces and delivers dual_small_vs_large throughput of 1373.23 MB/s and dual_congested throughput of 3456.26 MB/s. Notably, the congested throughput is higher than Generation 1 (3456.26 vs. 3098.97), suggesting that network-aware protection may reduce throughput in some scenarios by being overly conservative. However, the harmonic mean (which balances both metrics) favors Generation 1, indicating better overall performance across mixed workloads.
+
+- **Burst detection (Generation 2) significantly underperforms at 1480.42 (-497.42 vs. best)**: Despite passing validation, Generation 2's dual_small_vs_large throughput (1088.83 MB/s) and dual_congested throughput (2311.86 MB/s) are substantially lower than the best program. The burst detection mechanism appears to introduce either false positives (over-protecting pages, reducing cache efficiency) or false negatives (missing actual bursts). The inter-packet arrival EWMA signal may be too fine-grained for cache eviction decisions, or the +5000 boost may be poorly calibrated relative to the base frequency score.
+
+- **RTT trend protection (Generation 3) achieves 1868.97, intermediate performance (-109 vs. best)**: Generation 3 uses a 2-second recency window instead of 5 seconds and detects RTT increases (>1ms triggers 1.2x boost). The score is 109 points below Generation 1, suggesting that the shorter recency window misses some working-set protection opportunities. The RTT trend detection (increase-based rather than absolute threshold) may be less effective than Generation 1's absolute RTT thresholds (>5ms, >10ms), indicating that absolute network state is a better signal than relative changes for cache eviction.
+
+- **Compilation failure (Generation 4) demonstrates BPF ISA constraints**: Generation 4's attempt to calculate `(packets_out_ewma * 100) / cwnd_ewma` failed due to BPF's lack of signed division support, resulting in score 0.00. This reveals that algorithmic sophistication must respect BPF limitations. The design was sound (congestion ratio as a scoring signal), but the implementation violated BPF constraints. Successful programs avoid complex arithmetic and use fixed-point or conditional logic instead, suggesting that BPF-compatible scoring functions are inherently simpler but more reliable.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+# Actionable Recommendations for Future Program Mutations
+
+1. **Refine RTT threshold granularity with intermediate protection levels**: The current best program uses two RTT thresholds (5ms and 10ms) with fixed multipliers (1.25x and 1.5x). Experiment with adding a third threshold at 7-8ms with a 1.35x multiplier, or test non-linear scaling (e.g., `network_factor = 100 + (srtt_ewma / 10000)` capped at 150) to better capture the continuous relationship between RTT and cache miss cost. This builds on the proven RTT-threshold approach while exploring whether finer granularity yields better harmonic scores across mixed workloads.
+
+2. **Integrate packets-in-flight (PACKETS_OUT EWMA) as a congestion signal into the network factor calculation**: The current program enables PACKETS_OUT EWMA but does not use it in the scoring function. Add a secondary congestion check: if `packets_out_ewma > cwnd_ewma * 0.8` (indicating high utilization), apply an additional 1.1x boost to the network_factor. This leverages the already-enabled listener and provides a complementary signal to RTT for detecting network stress without adding new kprobe overhead.
+
+3. **Calibrate the recency window and interval-based heat scoring with adaptive thresholds**: The 5-second recency window and interval EWMA thresholds (1s for hot, 10s for cold) are fixed. Test a data-driven approach: compute the median inter-access interval from the per-folio EWMA listener and use it as a dynamic threshold (e.g., hot if `interval_ewma < 2 * median`, cold if `interval_ewma > 10 * median`). This could improve working-set protection by adapting to workload-specific access patterns rather than using fixed time windows.
+
+4. **Explore loss-rate decay to avoid sustained over-protection after transient loss events**: The current program applies a 30% boost whenever `max_lost > 0`, which may persist long after a brief loss spike. Implement a time-decay mechanism: track the timestamp of the last loss event and only apply the boost if loss occurred within the last 100ms (or scale the boost by `exp(-time_since_loss / decay_constant)`). This prevents the loss signal from stale-locking the cache into overly conservative eviction after transient congestion.
+
+5. **Test per-folio access-count normalization to reduce bias toward long-lived folios**: The current base_score is simply `access_count`, which favors folios that have been in cache longer regardless of recent activity. Normalize by dividing by `(now - folio_creation_time)` to compute an access rate, or use a recency-weighted access count: `access_count * exp(-(now - last_access_ts) / time_constant)`. This could improve victim selection by prioritizing recently-active folios over old, infrequently-accessed ones, especially under memory pressure.

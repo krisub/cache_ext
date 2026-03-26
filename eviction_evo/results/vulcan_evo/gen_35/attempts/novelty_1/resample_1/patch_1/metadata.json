@@ -1,0 +1,14 @@
+{
+  "generation": 35,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "loss_decay_adaptive_protection",
+  "patch_description": "The current loss-based protection applies a uniform 15% boost whenever packet loss is detected (via MaxMin listener on GF_LOST), but the loss counter in kernel TCP state can persist long after network conditions improve, causing sustained over-protection that hurts throughput especially under high-frequency workloads (dual_small_vs_large).\n\nThe proposed change implements time-decay for the loss boost:\n1. Track a global timestamp when packet loss was most recently detected\n2. In the scoring function, calculate elapsed time since last loss event\n3. Decay the 15% boost gradually over 150ms (full boost for 0-50ms, then linear decay to negligible by 150ms)\n4. This maintains responsiveness to transient congestion while preventing stale loss signals from locking the cache into overly conservative eviction\n\nThis addresses the observation that the dual_congested trace (where loss is more persistent) performs better than dual_small_vs_large (where loss is transient). By allowing the boost to naturally decay, we can improve small_vs_large performance without sacrificing congested-scenario protection.\n\nThe implementation uses a simple BPF map to store the last loss event timestamp and applies integer arithmetic for the decay calculation, remaining fully BPF-compatible.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: 'struct {'\nAt position: 8908\n\nContext around found text:\n     Line 206:     __type(value, struct vulcan_avg);\n     Line 207: } vulcan_gavg SEC(\".maps\");\n     Line 208: \n >>> Line 209: struct {\n     Line 210:     __uint(type, BPF_MAP_TYPE_ARRAY);\n     Line 211:     __uint(max_entries, 16);\n     Line 212:     __type(key, u32);\n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 10421-18803):\n    // =============================================================================\n    // EVICTION POLICY -- everything below (until the closing marker) is evolved\n    // =============================================================================\n    ... (209 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-22T06:22:36.949379",
+  "llm_cost": 0.07123199999999999,
+  "llm_model": null
+}

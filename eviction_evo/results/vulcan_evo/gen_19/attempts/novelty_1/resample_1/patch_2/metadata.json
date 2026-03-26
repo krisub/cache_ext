@@ -1,0 +1,14 @@
+{
+  "generation": 19,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_rtt_rolling_window",
+  "patch_description": "Implement adaptive RTT detection using a RollingWindow listener (instead of trying to maintain external state). By enabling both EWMA (alpha=150 for current RTT) and RollingWindow (size=8 for history), we can detect RTT elevation by comparing recent values against older values within the window.\n\nThe scoring logic:\n- Compare latest SRTT (current) vs kth_recent(5) (older baseline estimate)\n- If current > older*1.2: apply 1.25x protection\n- If current > older*1.5: apply 1.5x protection\n- Loss boost only when both loss detected AND current > older*1.1\n\nThis avoids over-protection during naturally low-RTT workloads while focusing protection during actual network degradation, all without external baseline state.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T01:38:30.937110",
+  "llm_cost": 0.079263,
+  "llm_model": null
+}

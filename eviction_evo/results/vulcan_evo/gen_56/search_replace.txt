@@ -1,0 +1,92 @@
+<NAME>
+time_decay_loss_and_finer_recency
+</NAME>
+
+<DESCRIPTION>
+The current program suffers from sustained over-protection when using MINMAX for GF_LOST, as the maximum loss value persists indefinitely even after network conditions recover. This causes the cache to remain overly conservative long after transient congestion events resolve, hurting throughput.
+
+This edit implements two complementary improvements:
+
+1. **Time-decay for loss signal**: Switch GF_LOST from MINMAX to RollingWindow (size 5) to provide natural time-based decay. The rolling window automatically ages out old loss events as new samples arrive, allowing the policy to recover more quickly when network conditions improve. With a window size of 5, loss protection decays over approximately 5 tcp_recvmsg samples, providing ~100-150ms decay time at typical packet rates.
+
+2. **Fine-grained recency tracking**: Replace the coarse 5-second recency bonus with a multi-tier approach that provides:
+   - 80% boost for extremely recent accesses (< 100ms): captures active working set
+   - Linear decay from 80% to 50% over 100ms-1s: distinguishes hot from warm
+   - Linear decay from 50% to 0% over 1-10s: smooth transition to cold
+
+This fine-grained temporal resolution better captures working-set dynamics across multiple time scales, providing stronger protection for the active working set while avoiding over-protection of stale pages. The combination addresses the core issue: loss events trigger appropriate protection during congestion but don't cause sustained over-protection afterward.
+
+The approach mirrors Generation 39's successful recency strategy (2184.76 combined score) while adding the time-decay loss mechanism recommended in the prompt.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+=======
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_RW,
+                            .rw_size = 5 },
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: apply conservative protection boost */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+=======
+    /* Packet loss with time-decay: recent loss triggers boost, older loss
+     * provides reduced boost, giving natural decay without sustained over-protection */
+    s64 latest_lost = vulcan_get_latest(GF_LOST);
+    if (latest_lost > 0 && srtt_ewma > 3000) {
+        /* Active loss detected: full boost */
+        network_factor = (network_factor * 115) / 100;  /* 15% boost */
+    } else if (srtt_ewma > 3000) {
+        /* No active loss, check for recent (but not current) loss for graduated decay */
+        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
+        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
+        if (prev_lost_1 > 0) {
+            network_factor = (network_factor * 108) / 100;  /* 8% boost for very recent loss */
+        } else if (prev_lost_2 > 0) {
+            network_factor = (network_factor * 103) / 100;  /* 3% boost for older loss */
+        }
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Recency bonus: protect pages accessed very recently (< 5 seconds) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+=======
+    /* Fine-grained recency tracking: multi-tier temporal resolution captures
+     * working-set dynamics across multiple time scales */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_bonus = 0;
+
+    if (time_since_access < 100000000ULL) {  /* < 100ms: extremely hot */
+        recency_bonus = (base_score * 80) / 100;  /* 80% bonus for active working set */
+    } else if (time_since_access < 1000000000ULL) {  /* 100ms - 1s: hot */
+        /* Linear decay from 80% to 50% over 900ms */
+        s64 elapsed_deciseconds = (time_since_access - 100000000ULL) / 100000000ULL;  /* 0-9 range */
+        s64 decay_pct = 80 - (elapsed_deciseconds * 3);  /* Decreases by ~3% per 100ms */
+        if (decay_pct < 50) decay_pct = 50;
+        recency_bonus = (base_score * decay_pct) / 100;
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds: warm, decaying */
+        /* Linear decay from 50% to 0% over 9 seconds */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        s64 decay_pct = 50 - (elapsed_seconds * 50 / 9);
+        if (decay_pct < 0) decay_pct = 0;
+        recency_bonus = (base_score * decay_pct) / 100;
+    }
+    /* else: time_since_access >= 10s, recency_bonus remains 0 */
+
+    score += recency_bonus;
+>>>>>>> REPLACE
+</DIFF>

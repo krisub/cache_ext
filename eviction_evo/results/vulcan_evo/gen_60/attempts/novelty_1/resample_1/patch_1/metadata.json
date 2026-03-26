@@ -1,0 +1,14 @@
+{
+  "generation": 60,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "packets_out_saturation_boost",
+  "patch_description": "The current program uses PACKETS_OUT EWMA (alpha=200) but doesn't actively utilize it in scoring decisions. This edit adds window saturation detection by comparing the smoothed packets_out value against snd_cwnd. When the congestion window is highly utilized (>80% or >95% saturation), we apply a secondary protection boost (+15 or +25 points) independent of the existing RTT-based network_factor. This addresses the recommendation to leverage the enabled PACKETS_OUT listener with conservative fixed-point arithmetic, helping protect the working set during periods of high network utilization without the complexity that caused Generation 42's underperformance (-101.28 points). The boost is small and only applied when window saturation is detected, avoiding sustained over-protection while improving dual_congested performance.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T22:38:44.877450",
+  "llm_cost": 0.183174,
+  "llm_model": null
+}

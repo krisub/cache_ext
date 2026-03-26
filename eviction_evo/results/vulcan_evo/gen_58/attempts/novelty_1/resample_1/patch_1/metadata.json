@@ -1,0 +1,14 @@
+{
+  "generation": 58,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "time_decaying_loss_protection_via_ewma",
+  "patch_description": "The current implementation uses MINMAX listener for GF_LOST, which tracks the maximum loss value ever observed. Once loss occurs, `vulcan_get_max(GF_LOST)` remains elevated indefinitely, causing sustained over-protection even after network conditions improve. This prevents the cache from adapting when congestion resolves.\n\nThis change switches GF_LOST from MINMAX to EWMA listener, which provides natural time-decay behavior. The EWMA smooths loss observations and automatically decays toward zero when loss events stop, achieving the recommended time-decay without requiring explicit timestamp tracking (which would violate the architectural constraint against modifying the kprobe).\n\nWith alpha=150, the EWMA provides ~100ms time constant, so loss protection naturally reduces within 200-300ms after conditions improve. The scoring function then applies graduated protection based on EWMA magnitude rather than a binary max_lost > 0 check, providing more nuanced responses to varying congestion levels.\n\nThis addresses the observation that dual_congested throughput (3781.21 MB/s) has room for improvement by enabling faster recovery when network conditions improve after transient loss events.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T22:07:23.675765",
+  "llm_cost": 0.210321,
+  "llm_model": null
+}

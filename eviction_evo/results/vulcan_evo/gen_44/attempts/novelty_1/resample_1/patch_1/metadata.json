@@ -1,0 +1,14 @@
+{
+  "generation": 44,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "restore_recency_weighted_base_score",
+  "patch_description": "The current program applies recency as an additive bonus after network adjustments, which may not adequately distinguish between folios with similar historical access counts but different temporal locality. The best-performing prior program (score 2184.76) integrates recency multiplicatively into the base score itself via `base_score = (access_count * (100 + recency_factor)) / 100`, where recency_factor decays linearly from 50% at <1s to 0% at 10s.\n\nThis recency-weighted base score approach makes temporal locality a first-class component of the scoring function, allowing the network-aware protection factors to amplify the distinction between recently-active and stale folios. A folio with 10 accesses accessed 2 seconds ago will score higher than one with 10 accesses accessed 9 seconds ago, even before network adjustments are applied.\n\nI propose restoring this proven recency-weighted base score computation, replacing the current exponential-like additive bonus with the linear decay multiplicative approach that directly weights access_count by recency.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T15:19:20.339547",
+  "llm_cost": 0.199476,
+  "llm_model": null
+}

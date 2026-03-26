@@ -1,0 +1,9 @@
+{
+  "combined_score": 0.0,
+  "public": {
+    "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:297:1: error: expected identifier or '('\n>>>>>>> REPLACE\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:389:1: error: expected identifier or '('\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:522:37: error: use of undeclared identifier 'last_loss_ts'\n        u64 time_since_loss = now - last_loss_ts;\n                                    ^\n3 errors generated.\n"
+  },
+  "private": {
+    "traceback": "Traceback (most recent call last):\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 882, in evaluate\n    loader_path = compile_bpf_policy(program_path, BUILD_DIR)\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 238, in compile_bpf_policy\n    raise RuntimeError(f\"BPF compilation failed:\\nSTDOUT: {result.stdout}\\nSTDERR: {result.stderr}\")\nRuntimeError: BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:297:1: error: expected identifier or '('\n>>>>>>> REPLACE\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:389:1: error: expected identifier or '('\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:522:37: error: use of undeclared identifier 'last_loss_ts'\n        u64 time_since_loss = now - last_loss_ts;\n                                    ^\n3 errors generated.\n\n"
+  }
+}

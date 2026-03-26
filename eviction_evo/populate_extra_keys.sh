@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# populate_extra_keys.sh — Pre-populate LevelDB with additional key formats
+# populate_extra_keys.sh - Pre-populate LevelDB with additional key formats
 # needed by dual-client benchmark traces (e.g., dual_mixed_keys.yaml uses key_size=32).
 #
 # Run this ONCE before starting evolution that includes dual_mixed_keys trace.

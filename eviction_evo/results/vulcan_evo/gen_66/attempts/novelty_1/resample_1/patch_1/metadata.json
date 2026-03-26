@@ -1,0 +1,14 @@
+{
+  "generation": 66,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "time_decay_loss_protection",
+  "patch_description": "Implement explicit time-decay for loss signal protection to prevent sustained over-protection from stale loss events while maintaining responsiveness to transient congestion. \n\nThe current approach uses RollingWindow position-based decay which relies on packet arrivals but doesn't provide precise time-based decay. This change adds explicit timestamp tracking for loss events and applies exponential time-decay where protection decays from 15% boost at loss detection to no boost after ~150ms.\n\nThis addresses the observation that Generation 39's dual_congested throughput (3696.20 MB/s) is lower than Generation 38 (3781.21 MB/s), suggesting that the graduated decay (8% and 3% boosts for old loss) is too conservative and keeps protection elevated for too long after network conditions improve.\n\nThe new approach:\n1. Tracks the timestamp of the last loss event using global state\n2. Applies exponential decay: full boost (115%) when loss is active, decaying linearly to no boost over 150ms\n3. Provides faster recovery when network conditions improve while maintaining protection during active congestion",
+  "error_msg": null,
+  "timestamp": "2026-03-24T01:45:41.518876",
+  "llm_cost": 0.203163,
+  "llm_model": null
+}

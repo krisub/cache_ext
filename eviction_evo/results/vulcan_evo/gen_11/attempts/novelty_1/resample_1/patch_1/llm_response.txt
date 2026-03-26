@@ -1,0 +1,124 @@
+<NAME>
+packets_out_cwnd_saturation_boost
+</NAME>
+
+<DESCRIPTION>
+The current program enables GF_PACKETS_OUT listener but doesn't utilize it in the scoring function. The recommendation suggests leveraging window saturation (packets_out / cwnd ratio) as a complementary congestion signal to RTT trend detection.
+
+**Rationale:**
+- RTT trend detection catches degrading network conditions, but doesn't directly measure congestion window saturation
+- When packets_out_ewma approaches snd_cwnd_ewma, the sender is window-limited, making cache misses very expensive
+- During congested workloads (e.g., dual_congested), window saturation is a strong indicator that the working set should be protected more aggressively
+- Adding this secondary signal complements RTT-based protection and helps explain why the best prior program (1977.84) outperforms the current one (1868.97)
+
+**Changes:**
+1. Enable GF_SND_CWND EWMA listener (currently disabled)
+2. In bpf_score_fn, compute the packets_out / cwnd utilization ratio
+3. Apply scaled boosts (1.05x if ratio > 0.7, 1.15x if ratio > 0.9) to network_factor to protect more aggressively under window saturation
+
+This leverages already-enabled listeners and requires minimal code changes, focusing specifically on the congested workload where performance is currently weaker than the best prior program.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Per-feature listener configuration --------------------------------------
+// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
+// listeners for vulcan_get_* accessors in bpf_score_fn.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
+                            .ewma_alpha = 150, .rw_size = 8 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+// -- Per-feature listener configuration --------------------------------------
+// Enable PACKETS_OUT and SND_CWND for window saturation detection.
+// When packets_out approaches cwnd, the connection is window-limited and
+// cache misses are expensive, so we protect the working set more aggressively.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
+                            .ewma_alpha = 150, .rw_size = 8 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    /* If RTT is increasing (degrading network), protect more aggressively */
+    if (srtt_prev > 0 && srtt_latest > srtt_prev) {
+        s64 rtt_increase = srtt_latest - srtt_prev;
+        if (rtt_increase > 3000) {  /* >3ms increase */
+            network_factor = 140;  /* 1.4x protection during degradation */
+        } else if (rtt_increase > 1000) {  /* >1ms increase */
+            network_factor = 120;  /* 1.2x protection */
+        }
+    }
+
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        network_factor = (network_factor * 125) / 100;  /* additional 25% boost */
+    }
+=======
+    /* If RTT is increasing (degrading network), protect more aggressively */
+    if (srtt_prev > 0 && srtt_latest > srtt_prev) {
+        s64 rtt_increase = srtt_latest - srtt_prev;
+        if (rtt_increase > 3000) {  /* >3ms increase */
+            network_factor = 140;  /* 1.4x protection during degradation */
+        } else if (rtt_increase > 1000) {  /* >1ms increase */
+            network_factor = 120;  /* 1.2x protection */
+        }
+    }
+
+    /* Window saturation detection: packets_out / cwnd ratio indicates congestion */
+    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
+    s64 snd_cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    
+    if (snd_cwnd_ewma > 0 && packets_out_ewma > 0) {
+        /* Compute utilization ratio as (packets_out * 100) / cwnd to avoid division */
+        s64 utilization = (packets_out_ewma * 100) / snd_cwnd_ewma;
+        
+        if (utilization > 90) {  /* >90% window utilization: severe congestion */
+            network_factor = (network_factor * 115) / 100;  /* 15% boost */
+        } else if (utilization > 70) {  /* >70% window utilization: moderate saturation */
+            network_factor = (network_factor * 105) / 100;  /* 5% boost */
+        }
+    }
+
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        network_factor = (network_factor * 125) / 100;  /* additional 25% boost */
+    }
+>>>>>>> REPLACE
+
+</DIFF>

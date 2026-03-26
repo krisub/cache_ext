@@ -1,0 +1,14 @@
+{
+  "generation": 35,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 5,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "loss_decay_adaptive_protection",
+  "patch_description": "The current loss-based protection applies a uniform 15% boost whenever packet loss is detected (via MaxMin listener on GF_LOST), but the loss counter in kernel TCP state can persist long after network conditions improve, causing sustained over-protection that hurts throughput especially under high-frequency workloads (dual_small_vs_large). \n\nThe proposed change implements adaptive loss protection by:\n1. Reducing the base loss boost from 15% to 12% to allow more eviction flexibility\n2. Raising the RTT threshold for loss protection from 3000\u00b5s to 5000\u00b5s, ensuring loss boost only triggers during genuine congestion (both high RTT AND loss detected)\n3. This creates natural decay: as network conditions improve and RTT normalizes below 5ms, the loss protection automatically relaxes, even if the kernel's loss counter hasn't reset yet\n4. During congestion, prioritize protecting genuinely hot folios (low interval_ewma) by applying stronger heat-based protection\n\nThis maintains responsiveness to transient congestion while preventing stale loss signals from locking the cache into overly conservative eviction.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T06:23:29.360804",
+  "llm_cost": 0.067363,
+  "llm_model": null
+}

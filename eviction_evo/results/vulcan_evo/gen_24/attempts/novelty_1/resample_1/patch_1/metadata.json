@@ -1,0 +1,14 @@
+{
+  "generation": 24,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "loss_decay_timestamp_based",
+  "patch_description": "The current program uses a RollingWindow(5) listener for GF_LOST with multi-tiered position-based decay (15% boost for latest, 8% for 1 sample back, 3% for 2 samples back). This approach has a weakness: it decays based on how many newer samples arrive, not wall-clock time, leading to sustained over-protection when traffic is sparse.\n\nThe recommendation proposes switching to explicit **timestamp-based decay** for the loss boost. We track `last_loss_ts` globally (updated whenever net_lost > 0 is observed), then apply a linear time-decay formula: `boost = max(100, 115 - elapsed_ms / 10)`. This naturally decays the 15% boost to ~5% after 100ms and becomes negligible after 150ms, regardless of sampling cadence.\n\nThis achieves two benefits:\n1. **Prevent stale loss signals from locking the cache into overly conservative eviction** \u2014 after ~150ms with no new loss events, we revert to baseline protection even if the rolling window still contains old values.\n2. **Simpler, more predictable decay** \u2014 time-based decay is easier to reason about and tune than position-based history.\n\nImplementation:\n- Add a global `last_loss_ts` variable to track when loss was last observed\n- Update it in the kprobe when `net_lost > 0`\n- Replace the multi-tiered RollingWindow queries in bpf_score_fn with a single time-decay computation\n- Simplify GF_LOST config from RW to MINMAX (we no longer use the rolling window data)",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: '    net_lost           = BPF_CORE_READ(tp, lost);'\nAt position: 21202\n\nContext around found text:\n     Line 529:     net_packets_out    = BPF_CORE_READ(tp, packets_out);\n     Line 530:     net_total_retrans  = BPF_CORE_READ(tp, total_retrans);\n     Line 531:     net_retrans_out    = BPF_CORE_READ(tp, retrans_out);\n >>> Line 532:     net_lost           = BPF_CORE_READ(tp, lost);\n     Line 533: \n     Line 534:     s64 inter_arrival = 0;\n     Line 535:     if (net_prev_packet_ts > 0)\n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 10421-19063):\n    // =============================================================================\n    // EVICTION POLICY -- everything below (until the closing marker) is evolved\n    // =============================================================================\n    ... (219 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-22T02:43:01.380239",
+  "llm_cost": 0.06956799999999999,
+  "llm_model": null
+}

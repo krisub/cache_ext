@@ -1,0 +1,14 @@
+{
+  "generation": 32,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "adaptive_rtt_baseline_threshold",
+  "patch_description": "The current program uses fixed RTT thresholds (5ms, 10ms) that don't adapt to workload-specific network characteristics. This proposal implements adaptive RTT baseline tracking entirely within the EVOLVE-BLOCK to dynamically calibrate protection multipliers based on long-term network conditions.\n\n**Rationale:** \n- In dual_small_vs_large, RTT varies naturally; fixed thresholds may trigger protection prematurely during normal operation, hurting the fast reader workload (currently 1529.57 MB/s vs best 1601.83 MB/s).\n- A long-term baseline (updated with ultra-low alpha ~50) captures \"normal\" RTT, separate from the reactive SRTT_US listener (alpha 150).\n- Dynamic threshold scaling: compare current RTT to baseline, apply proportional protection boost only on significant deviations (>1.2x baseline), preserving normal-case performance while guarding against congestion.\n- This extends Generation 14's fixed-threshold approach (score 2090.49) with adaptive calibration to diverse network conditions.\n\n**Implementation:**\n1. Add a static `rtt_baseline_value` variable to track long-term RTT baseline.\n2. Update baseline in `evolved_evict_folios` with ultra-low alpha (50) to smooth long-term trend.\n3. Modify `bpf_score_fn` to compute dynamic thresholds based on (current_srtt - baseline) ratio.\n4. Scale network_factor only when RTT exceeds baseline by meaningful margin (>20%), reducing unnecessary protection during normal operation.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T05:51:03.681324",
+  "llm_cost": 0.07833,
+  "llm_model": null
+}

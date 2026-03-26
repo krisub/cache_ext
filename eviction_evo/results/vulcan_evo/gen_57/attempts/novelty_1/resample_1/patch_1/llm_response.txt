@@ -1,0 +1,55 @@
+<NAME>
+simplify_congestion_detection_with_raw_cwnd
+</NAME>
+
+<DESCRIPTION>
+The current congestion window saturation detection compares EWMA of packets_out against EWMA of snd_cwnd, which introduces complexity and potential instability (division by potentially small EWMA values). The recommendation suggests a simpler approach: compare the smoothed packets_out_ewma directly against thresholds based on the raw net_snd_cwnd value.
+
+This change:
+1. Removes the division operation and percentage calculation
+2. Compares packets_out_ewma directly against raw net_snd_cwnd thresholds (80% and 95%)
+3. Applies more aggressive additive boosts (+15 and +25 instead of +5 and +10)
+4. Uses simpler, more conservative fixed-point arithmetic
+
+This addresses the dual_congested throughput regression by providing a more stable congestion signal that doesn't depend on EWMA of cwnd, which can be noisy or lag behind actual conditions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Congestion window saturation detection: secondary network factor.
+     * High packets_out/snd_cwnd ratio indicates window saturation, where
+     * cache misses incur queuing delays independent of RTT. Use safe unsigned
+     * arithmetic to compute saturation percentage and apply modest additive boost. */
+    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
+    s64 snd_cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+
+    if (snd_cwnd_ewma > 0 && packets_out_ewma > 0) {
+        u64 congestion_ratio = ((u64)packets_out_ewma * 100) / (u64)snd_cwnd_ewma;
+        if (congestion_ratio > 90) {
+            network_factor += 10;  /* 10% additional boost for very high saturation */
+        } else if (congestion_ratio > 70) {
+            network_factor += 5;   /* 5% additional boost for moderate saturation */
+        }
+    }
+=======
+    /* Congestion window saturation detection: secondary network factor.
+     * Compare smoothed packets_out against raw snd_cwnd thresholds.
+     * High saturation (>95%): apply +25 boost
+     * Moderate saturation (>80%): apply +15 boost
+     * This simpler approach avoids division and uses raw cwnd for more responsive detection. */
+    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
+    
+    if (net_snd_cwnd > 0 && packets_out_ewma > 0) {
+        /* Use fixed-point arithmetic: multiply packets_out_ewma by 100, compare against cwnd * threshold */
+        u64 packets_scaled = (u64)packets_out_ewma * 100;
+        u64 threshold_95 = (u64)net_snd_cwnd * 95;
+        u64 threshold_80 = (u64)net_snd_cwnd * 80;
+        
+        if (packets_scaled > threshold_95) {
+            network_factor += 25;  /* 25% additional boost for very high saturation (>95%) */
+        } else if (packets_scaled > threshold_80) {
+            network_factor += 15;  /* 15% additional boost for moderate saturation (>80%) */
+        }
+    }
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,14 @@
+{
+  "generation": 25,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "adaptive_rtt_baseline_scaling",
+  "patch_description": "The current program uses fixed RTT thresholds (5ms and 10ms) for protection scaling, which may be suboptimal across diverse network conditions. The recommendation is to implement adaptive RTT baseline tracking with dynamic threshold scaling.\n\n**Key insight**: Instead of fixed absolute thresholds, track a long-term EWMA of RTT with very low alpha (50) as a workload-specific \"baseline,\" then scale protection dynamically based on deviation from baseline. This approach:\n\n1. **Adapts to workload characteristics**: Each workload (fast direct reader vs. congested dual clients) establishes its own normal RTT baseline\n2. **Relative scaling is more robust**: Protection scales based on stress deviation from normal, not absolute values\n3. **Smoother transitions**: Uses low-alpha EWMA (alpha=50) for baseline to avoid over-reaction to transient RTT spikes while still tracking long-term trends\n\nThe protection factor becomes: `100 + (current_rtt - baseline_rtt) * multiplier`, where the multiplier is tuned to provide 25% extra protection when current RTT is 50% above baseline, and 50% extra protection when it's 100% above baseline.\n\nThis replaces the hard-coded threshold checks (>5ms \u2192 1.25x, >10ms \u2192 1.5x) with a principled adaptive model that inherently normalizes for workload-specific network conditions.\n\nThe baseline is stored in a single-entry BPF map and updated with fixed-point arithmetic in the kprobe (following the established pattern), ensuring minimal overhead while providing powerful adaptive behavior.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: 'struct {'\nAt position: 8908\n\nContext around found text:\n     Line 206:     __type(value, struct vulcan_avg);\n     Line 207: } vulcan_gavg SEC(\".maps\");\n     Line 208: \n >>> Line 209: struct {\n     Line 210:     __uint(type, BPF_MAP_TYPE_ARRAY);\n     Line 211:     __uint(max_entries, 16);\n     Line 212:     __type(key, u32);\n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 10421-19926):\n    // =============================================================================\n    // EVICTION POLICY -- everything below (until the closing marker) is evolved\n    // =============================================================================\n    ... (237 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-22T03:13:53.013006",
+  "llm_cost": 0.071823,
+  "llm_model": null
+}

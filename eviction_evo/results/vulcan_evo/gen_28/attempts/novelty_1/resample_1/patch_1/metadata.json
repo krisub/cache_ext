@@ -1,0 +1,14 @@
+{
+  "generation": 28,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "recency_weighted_access_normalization",
+  "patch_description": "The current program applies a flat recency bonus (+50) for folios accessed within the last 5 seconds, which doesn't effectively distinguish between cold folios with low historical access counts and hot folios with high access counts that were both recently accessed. This creates suboptimal eviction decisions under memory pressure, particularly in the dual workload scenarios where we need to prioritize genuinely hot, recently-active folios.\n\nThe recommended improvement implements recency-weighted access rate normalization by multiplying the base access_count by a time-decay factor rather than adding a flat bonus. This approach:\n\n1. **Scales protection with hotness**: A folio with access_count=100 accessed 1s ago gets 150 points, while one with access_count=10 gets only 15 points, properly reflecting their relative value.\n\n2. **Gradual decay**: Uses linear interpolation from 150% multiplier (<1s) down to 100% (>10s), providing smooth transitions that avoid cliff effects in eviction decisions.\n\n3. **Better cold/hot separation**: The multiplicative approach amplifies differences between hot and cold folios when they were both recently accessed, whereas the flat +50 bonus treats them similarly.\n\n4. **Maintains BPF compatibility**: Uses only integer arithmetic with simple conditional branches, avoiding division in hot paths and staying within verifier constraints.\n\nThe implementation computes `base_score = access_count * recency_factor / 100` where recency_factor ranges from 150 (fresh) to 100 (stale), replacing the current flat recency bonus. This better captures the true \"heat\" of folios by combining frequency and recency multiplicatively rather than additively.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T03:47:13.072650",
+  "llm_cost": 0.20774700000000001,
+  "llm_model": null
+}

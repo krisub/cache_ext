@@ -1,0 +1,14 @@
+{
+  "generation": 1,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "network_aware_adaptive_protection",
+  "patch_description": "This edit transforms the baseline LFU policy into a network-aware adaptive eviction strategy. The key insight is that under network congestion (high RTT, packet loss), cache misses become significantly more expensive, so we should protect the working set more aggressively.\n\nThe changes include:\n\n1. **Enable network listeners**: Activate EWMA for SRTT_US (smoothed RTT) and PACKETS_OUT, plus MinMax for LOST to detect network degradation. These give us a real-time view of network conditions.\n\n2. **Enable per-folio interval tracking**: Use EWMA and MinMax listeners on per-folio inter-access intervals to distinguish genuinely hot folios (low interval) from one-shot accesses.\n\n3. **Network-adaptive scoring**: The core innovation is making the eviction decision network-aware:\n   - When RTT is elevated, multiply access_count by a protection factor (making hot pages harder to evict)\n   - Use per-folio interval EWMA to identify truly hot pages (low interval = frequent accesses)\n   - Combine frequency and recency: pages with high access_count AND recent activity get extra protection\n   - Detect packet loss and become more conservative when network is degrading\n\n4. **Recency-aware protection**: Pages accessed within the last 5 seconds get a recency bonus, ensuring we don't evict the active working set even under memory pressure.\n\nThe strategy adapts to both workloads:\n- For dual_small_vs_large (mixed fast/slow clients): protects the frequently accessed small objects while allowing infrequent large objects to be evicted\n- For dual_congested (high latency): detects elevated RTT and protects working set more aggressively to minimize expensive cache misses\n\nThis maintains the LFU baseline while adding intelligent network-awareness that should improve throughput under both workload scenarios.",
+  "error_msg": null,
+  "timestamp": "2026-03-21T19:53:12.603949",
+  "llm_cost": 0.081078,
+  "llm_model": null
+}

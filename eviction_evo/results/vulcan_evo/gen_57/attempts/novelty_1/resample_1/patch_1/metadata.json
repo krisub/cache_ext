@@ -1,0 +1,14 @@
+{
+  "generation": 57,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "simplify_congestion_detection_with_raw_cwnd",
+  "patch_description": "The current congestion window saturation detection compares EWMA of packets_out against EWMA of snd_cwnd, which introduces complexity and potential instability (division by potentially small EWMA values). The recommendation suggests a simpler approach: compare the smoothed packets_out_ewma directly against thresholds based on the raw net_snd_cwnd value.\n\nThis change:\n1. Removes the division operation and percentage calculation\n2. Compares packets_out_ewma directly against raw net_snd_cwnd thresholds (80% and 95%)\n3. Applies more aggressive additive boosts (+15 and +25 instead of +5 and +10)\n4. Uses simpler, more conservative fixed-point arithmetic\n\nThis addresses the dual_congested throughput regression by providing a more stable congestion signal that doesn't depend on EWMA of cwnd, which can be noisy or lag behind actual conditions.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T21:36:21.541384",
+  "llm_cost": 0.194268,
+  "llm_model": null
+}

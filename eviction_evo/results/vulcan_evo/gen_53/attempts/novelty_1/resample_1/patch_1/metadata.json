@@ -1,0 +1,14 @@
+{
+  "generation": 53,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_recency_decay_with_burstiness",
+  "patch_description": "The current program uses a simple flat recency bonus (< 5s gets +50), which underperforms compared to Generation 39's proven multi-scale temporal protection. This edit implements adaptive recency decay calibration based on per-folio access burstiness, extending Generation 39's successful 50% boost within 1s pattern.\n\nThe key improvements:\n1. Replace flat recency bonus with multi-scale temporal decay (< 1s: 50% boost, decaying linearly to 0% at 10s)\n2. Compute per-folio burstiness from interval_minmax listeners (already enabled): burstiness = max_interval / min_interval\n3. Adaptively scale recency boost based on burstiness:\n   - Bursty folios (burstiness > 10): 70% boost - these have sporadic access patterns and need stronger protection during active periods\n   - Normal folios (3 <= burstiness <= 10): 50% boost - standard working-set protection\n   - Steady-access folios (burstiness < 3): 30% boost - regular access patterns need less aggressive protection\n\nThis directly addresses the recommendation to make decay rates responsive to individual folio access patterns, which should reduce dual_small_vs_large throughput variance (currently std: 105.38) by better handling heterogeneous workloads.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T20:02:29.903632",
+  "llm_cost": 0.201399,
+  "llm_model": null
+}

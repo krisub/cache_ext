@@ -1,0 +1,14 @@
+{
+  "generation": 63,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "restore_fine_grained_recency_and_remove_adaptive_complexity",
+  "patch_description": "The current program added adaptive interval threshold complexity that introduced overhead without improving performance. The best-performing Generation 39 used a simpler approach with fine-grained recency weighting. This edit:\n\n1. Removes the interval_stats_map and all adaptive threshold logic - this complexity degraded performance\n2. Restores Generation 39's proven fine-grained recency-weighted base score calculation with multi-tier decay (50% boost at <1s, linear decay to 0% at 10s)\n3. Simplifies the per-folio heat logic back to fixed thresholds that worked well in Generation 39\n4. Keeps the proven network-aware protection mechanisms (RTT EWMA, loss detection)\n\nThe key insight from the recommendation is that the recency-weighted access count formula from Generation 39 (`(access_count * (100 + recency_factor)) / 100`) already provides good normalization by making temporal locality a multiplicative component of the base score. The current program's regression came from abandoning this proven approach in favor of untested adaptive complexity.",
+  "error_msg": null,
+  "timestamp": "2026-03-24T00:11:57.986897",
+  "llm_cost": 0.245085,
+  "llm_model": null
+}

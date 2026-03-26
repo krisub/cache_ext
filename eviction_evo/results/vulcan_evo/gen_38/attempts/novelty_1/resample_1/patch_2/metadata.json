@@ -1,0 +1,14 @@
+{
+  "generation": 38,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_rtt_baseline_tracking",
+  "patch_description": "Implement adaptive RTT baseline tracking with dynamic threshold scaling to calibrate protection multipliers to workload-specific network conditions. This addresses the current program's weakness (score 1868.97 vs best 2090.49) where trend-based detection is too noisy.\n\nThe modification adds:\n1. A static variable within EVOLVE-BLOCK to store long-term RTT baseline (EWMA with alpha=50)\n2. Baseline update logic in bpf_score_fn using fixed-point arithmetic  \n3. Dynamic protection scaling based on current RTT vs baseline ratio\n4. Graduated multipliers: 1.0x (normal), 1.25x (elevated by 20%), 1.5x (elevated by 50%)\n\nThis combines stability (fixed thresholds worked well in prior programs scoring >2000) with adaptivity (adjusts to each workload's typical network conditions automatically). Since we can only modify EVOLVE-BLOCK content, we track baseline as a static variable updated during scoring.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T12:53:53.585809",
+  "llm_cost": 0.18879300000000002,
+  "llm_model": null
+}

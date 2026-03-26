@@ -1,0 +1,14 @@
+{
+  "generation": 36,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_rtt_baseline_scaling",
+  "patch_description": "The current program regressed from the peak performance of 2090.49 (dual_small_vs_large: 1601.83 MB/s) to 1916.59 (dual_small_vs_large: 1421.78 MB/s). The recent change from fixed recency bonuses to an exponential decay formula appears to be causing over-protection, leading to cache thrashing.\n\nFollowing the recommendation to implement adaptive RTT baseline tracking with dynamic threshold scaling:\n\n1. **Root cause**: Fixed thresholds (5ms, 10ms for RTT) don't adapt to workload-specific baselines. In high-RTT environments (dual_congested), we might be over-protecting pages compared to their baseline; in low-RTT environments, we might be under-protecting.\n\n2. **Solution**: \n   - Add a long-term EWMA of SRTT_US with very low alpha (50) stored as a static variable to track the \"normal\" baseline RTT for the current workload\n   - In bpf_score_fn, compute the relative elevation: `ratio = current_srtt_ewma / baseline_srtt_ewma`\n   - Scale network protection dynamically: if ratio > 1.2, apply 1.25x boost; if ratio > 1.5, apply 1.5x boost\n   - This calibrates thresholds to workload-specific conditions without manual tuning\n   - Simplify recency bonus back to fixed thresholds (proven in Generation 5: 2090.49) to avoid over-aggressive decay\n\n3. **Expected benefit**: \n   - Better handling of dual_small_vs_large workload (fast reader + slow writer with varied RTT)\n   - Adaptive protection prevents thrashing in both normal and congested regimes\n   - Restores ~170 MB/s throughput on dual_small_vs_large by using proven recency logic\n\n4. **Implementation**:\n   - Add `baseline_rtt_ewma` static variable (stores baseline EWMA with alpha=50)\n   - Update it in bpf_score_fn with very sticky EWMA formula\n   - Use ratio-based thresholding in score_fn instead of fixed ms values\n   - Restore simpler recency (+50 if <5s) from Generation 5",
+  "error_msg": null,
+  "timestamp": "2026-03-22T06:55:45.191036",
+  "llm_cost": 0.070761,
+  "llm_model": null
+}

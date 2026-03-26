@@ -1,0 +1,14 @@
+{
+  "generation": 24,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "loss_decay_timestamp_based",
+  "patch_description": "The current program uses a RollingWindow(5) listener for GF_LOST with multi-tiered position-based decay (15% boost for latest, 8% for 1 sample back, 3% for 2 samples back). This approach has a weakness: it decays based on how many newer samples arrive, not wall-clock time, leading to sustained over-protection when traffic is sparse.\n\nThe recommendation proposes switching to explicit **timestamp-based decay** for the loss boost. Within the EVOLVE-BLOCK, we track `last_loss_ts` (updated whenever we observe `net_lost > 0`), then apply a linear time-decay formula: `boost = max(100, 115 - elapsed_ms / 10)`. This naturally decays the 15% boost to ~5% after 100ms and becomes negligible after 150ms, regardless of sampling cadence.\n\nThis achieves two benefits:\n1. **Prevent stale loss signals from locking the cache into overly conservative eviction** \u2014 after ~150ms with no new loss events, we revert to baseline protection.\n2. **Simpler, more predictable decay** \u2014 time-based decay is easier to reason about and tune than position-based history.\n\nImplementation:\n- Add a global `last_loss_ts` variable in EVOLVE-BLOCK\n- In `bpf_score_fn`, track when `net_lost > 0` and update the timestamp\n- Replace the multi-tiered RollingWindow queries with a single time-decay computation\n- Simplify GF_LOST config from RW to MINMAX (we use raw `net_lost` directly now)",
+  "error_msg": null,
+  "timestamp": "2026-03-22T02:43:24.888450",
+  "llm_cost": 0.068418,
+  "llm_model": null
+}

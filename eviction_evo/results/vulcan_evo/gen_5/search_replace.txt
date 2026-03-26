@@ -1,0 +1,133 @@
+<NAME>
+burst_aware_with_optimized_thresholds
+</NAME>
+
+<DESCRIPTION>
+The current program (1977.84) performs well but can be improved by:
+
+1. **Enable burst detection via GF_INTER_ARRIVAL**: Add EWMA + RollingWindow listeners to detect when the workload transitions into high-frequency bursts (low inter-arrival time). During bursts, the working set should be protected more aggressively since cache misses are costly under load.
+
+2. **Reduce recency protection window from 5s to 2s**: For the dual_small_vs_large trace (fast reader), shorter recency windows better capture the actual read pattern. Very old accesses (>2s) are less predictive of reuse.
+
+3. **Lower hot folio threshold from 1s to 500ms**: Detect truly hot pages (frequently accessed within sub-second intervals) earlier and protect them more aggressively, improving hit rates for bursty workloads.
+
+4. **Increase SAMPLE_SIZE from 20 to 24**: More candidates per eviction batch means better victim selection, especially important when burst detection triggers stronger protection of hot pages.
+
+5. **Add MDEV_US listener**: Track RTT variance to detect volatile/congested network conditions and strengthen protection during high-variance periods.
+
+6. **Boost PACKETS_OUT EWMA alpha from 200 to 250**: React faster to changes in flight packets, improving congestion-aware protection.
+
+These changes synergize: burst detection identifies when to be aggressive, lower thresholds identify hot pages faster, and increased sample size + higher EWMA alpha enable more responsive eviction decisions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Per-feature listener configuration --------------------------------------
+// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
+// listeners for vulcan_get_* accessors in bpf_score_fn.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+// -- Per-feature listener configuration --------------------------------------
+// Enable burst detection via INTER_ARRIVAL, network volatility via MDEV_US,
+// and reactive congestion tracking. Enhanced EWMA alphas for faster response.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 180 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 250 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
+                             .ewma_alpha = 180, .rw_size = 8 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+=======
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 24  // Increased from 20 for better victim selection under burst
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+=======
+    /* Recency bonus: protect pages accessed in last 2 seconds (more aggressive) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 2000000000ULL) {  /* 2 seconds in ns */
+        score += 75;  /* stronger recency boost for recent accesses */
+    }
+
+    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 500000000) {  /* < 500ms (more aggressive) */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 150;
+    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+
+    /* Burst detection: protect working set during high-frequency arrivals */
+    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
+    if (inter_arrival_ewma > 0 && inter_arrival_ewma < 50000) {  /* < 50us avg = intense burst */
+        score += 80;  /* significant protection during burst */
+    } else if (inter_arrival_ewma > 50000 && inter_arrival_ewma < 150000) {  /* 50-150us = moderate burst */
+        score += 30;  /* moderate protection */
+    }
+
+    /* Network volatility: high MDEV indicates jitter/congestion, protect more */
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    if (mdev_ewma > 2000) {  /* High jitter (>2ms stddev) */
+        score = (score * 110) / 100;  /* 10% boost for volatility */
+    }
+>>>>>>> REPLACE
+</DIFF>

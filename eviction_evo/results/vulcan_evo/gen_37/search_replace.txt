@@ -1,0 +1,274 @@
+<NAME>
+recency_weighted_access_rate
+</NAME>
+
+<DESCRIPTION>
+The current program's adaptive threshold mechanism adds complexity and overhead without improving performance (1874.82 vs 2090.49 best). The recommendation suggests integrating recency directly into the access rate calculation rather than as an additive bonus. This change:
+
+1. Removes the adaptive threshold complexity (interval_stats_map) that caused regression
+2. Implements recency-weighted access rate: `base_score = access_count * (1.0 + recency_factor)` where recency_factor decays from +50% (if <1s) to 0% (if >10s) linearly
+3. Reverts to proven fixed hot/cold thresholds (<1s hot, >10s cold) from best program
+4. Reduces recency bonus from +50 flat to 0 since it's now integrated into base_score
+5. Maintains proven network-aware protection (RTT-based, loss-based)
+
+This distinguishes recently-active frequent pages from historically-frequent but now-cold pages at the fundamental scoring level, improving victim selection granularity under memory pressure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+
+// Statistics map for adaptive interval thresholds
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct {
+        u64 interval_min;      // minimum observed interval_ewma
+        u64 interval_max;      // maximum observed interval_ewma
+        u64 interval_sum;      // sum for computing mean
+        u32 interval_count;    // count of samples
+        u32 eviction_cycles;   // counter for first-pass statistics gathering
+    });
+} interval_stats_map SEC(".maps");
+=======
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+/*
+ * Simplified LFU with workload-adaptive interval thresholds and network-aware protection.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Thresholds adapt based on observed per-folio interval_ewma distribution.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+=======
+/*
+ * Recency-weighted LFU with fixed hot/cold thresholds and network-aware protection.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Base score integrates recency: access_count * (1.0 + recency_factor) where
+ * recency_factor decays linearly from +50% (<1s) to 0% (>10s).
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    /* Recency-weighted access count: integrate temporal locality into base score.
+     * Linear decay from 50% boost (<1s) to 0% boost (>10s).
+     * Formula: base_score = access_count * (100 + recency_factor) / 100 */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_factor = 0;
+
+    if (time_since_access < 10000000000ULL) {  /* Within 10 seconds */
+        if (time_since_access < 1000000000ULL) {  /* < 1 second */
+            recency_factor = 50;  /* Full 50% boost */
+        } else {
+            /* Linear decay from 50% to 0% over 9 seconds (1s to 10s) */
+            u64 elapsed_s = (time_since_access / 1000000000ULL) - 1;  /* seconds beyond 1s */
+            recency_factor = 50 - (elapsed_s * 6);  /* 50/9 ≈ 6 per second */
+            if (recency_factor < 0) recency_factor = 0;
+        }
+    }
+
+    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        network_factor = (network_factor * 130) / 100;  /* additional 30% boost */
+    }
+=======
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: boost pages accessed very recently (< 3 seconds) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 3000000000ULL) {  /* 3 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: use interval EWMA with adaptive thresholds based on workload.
+     * Compute dynamic hot/cold thresholds from observed interval_ewma statistics.
+     * Default fallback if no statistics yet: hot if < 1s, cold if > 10s.
+     */
+    s64 interval_ewma = meta->interval_ewma.value;
+
+    u32 stats_key = 0;
+    struct {
+        u64 interval_min;
+        u64 interval_max;
+        u64 interval_sum;
+        u32 interval_count;
+        u32 eviction_cycles;
+    } *stats = bpf_map_lookup_elem(&interval_stats_map, &stats_key);
+
+    s64 hot_threshold = 1000000000;      /* Default: < 1 second */
+    s64 cold_threshold = 10000000000;    /* Default: > 10 seconds */
+
+    if (stats && stats->interval_count > 10) {
+        /* Compute adaptive thresholds from observed distribution */
+        s64 mean_interval = stats->interval_sum / stats->interval_count;
+        /* Hot threshold: 0.5x median/mean (more frequent than average) */
+        hot_threshold = (mean_interval / 2);
+        if (hot_threshold < 500000000) hot_threshold = 500000000;  /* Floor at 0.5s */
+        /* Cold threshold: 5x median/mean (less frequent than average) */
+        cold_threshold = (mean_interval * 5);
+        if (cold_threshold > 15000000000ULL) cold_threshold = 15000000000ULL;  /* Cap at 15s */
+    }
+
+    if (interval_ewma > 0 && interval_ewma < hot_threshold) {
+=======
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold).
+     * Use fixed thresholds proven effective in prior programs. */
+    s64 interval_ewma = meta->interval_ewma.value;
+
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    } else if (interval_ewma > cold_threshold) {
+=======
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+
+    /* Update interval statistics during first 100 eviction cycles for adaptive thresholds */
+    u32 stats_key = 0;
+    struct {
+        u64 interval_min;
+        u64 interval_max;
+        u64 interval_sum;
+        u32 interval_count;
+        u32 eviction_cycles;
+    } *stats = bpf_map_lookup_elem(&interval_stats_map, &stats_key);
+
+    if (stats) {
+        __sync_fetch_and_add(&stats->eviction_cycles, 1);
+    }
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    vulcan_folio_on_access(meta, bpf_ktime_get_ns(), &folio_cfg);
+
+    /* Collect interval statistics during first 100 eviction cycles */
+    u32 stats_key = 0;
+    struct {
+        u64 interval_min;
+        u64 interval_max;
+        u64 interval_sum;
+        u32 interval_count;
+        u32 eviction_cycles;
+    } *stats = bpf_map_lookup_elem(&interval_stats_map, &stats_key);
+
+    if (stats && stats->eviction_cycles < 100) {
+        s64 interval_val = meta->interval_ewma.value;
+        if (interval_val > 0) {
+            if (stats->interval_count == 0) {
+                stats->interval_min = interval_val;
+                stats->interval_max = interval_val;
+            } else {
+                if ((u64)interval_val < stats->interval_min)
+                    stats->interval_min = interval_val;
+                if ((u64)interval_val > stats->interval_max)
+                    stats->interval_max = interval_val;
+            }
+            stats->interval_sum += interval_val;
+            stats->interval_count += 1;
+        }
+    }
+
+    bump_counter(4);
+=======
+    /* Update per-folio listeners (interval_ewma and minmax) to track access heat */
+    vulcan_folio_on_access(meta, bpf_ktime_get_ns(), &folio_cfg);
+    bump_counter(4);
+>>>>>>> REPLACE
+</DIFF>

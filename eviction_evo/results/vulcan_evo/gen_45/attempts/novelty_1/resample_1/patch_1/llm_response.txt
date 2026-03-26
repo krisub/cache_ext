@@ -1,0 +1,75 @@
+<NAME>
+calibrate_recency_weighted_scoring
+</NAME>
+
+<DESCRIPTION>
+The current recency-weighted base score computation uses a multiplicative factor that may not adequately distinguish folios with similar historical access counts but different recency. A folio with access_count=10 accessed 2 seconds ago versus one accessed 9 seconds ago only differs by ~3.8 points in base score, which can be overshadowed by network factors and other adjustments.
+
+The recommendation suggests calibrating the recency weighting to better capture temporal locality. I propose enhancing the recency impact by:
+
+1. **Strengthening recency factor influence**: Double the recency_factor's contribution (from 50% max to 100% max boost) to make temporal locality more dominant relative to historical access counts. This ensures that a recently-accessed folio (< 1s) gets up to 2x the base score compared to the same folio if accessed 10+ seconds ago.
+
+2. **Adjusting per-folio heat thresholds**: Tighten the "hot" threshold from 1s to 2s and reduce the "cold" threshold from 10s to 5s. This matches the successful parameters from Generation 39 (score 2184.76) and better aligns with the recency decay window (0-10s), creating more coherent temporal locality detection across both the base score and heat-based adjustments.
+
+These changes make the scoring function more responsive to working-set dynamics by ensuring that recent activity is prioritized more aggressively, especially in the dual_small_vs_large workload where distinguishing between the fast reader's working set and the slow writer's access patterns is critical.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = 50;  /* 50% boost for very recent accesses */
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        /* Linear decay: 50% at 1s, 0% at 10s */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 50 - (elapsed_seconds * 50 / 9);  /* decay over 9 seconds */
+        if (recency_factor < 0) recency_factor = 0;
+    }
+    /* else: time_since_access >= 10s, recency_factor remains 0 */
+
+    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+=======
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = 100;  /* 100% boost for very recent accesses */
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        /* Linear decay: 100% at 1s, 0% at 10s */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 100 - (elapsed_seconds * 100 / 9);  /* decay over 9 seconds */
+        if (recency_factor < 0) recency_factor = 0;
+    }
+    /* else: time_since_access >= 10s, recency_factor remains 0 */
+
+    /* Recency-normalized access count: stronger temporal locality bias */
+    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold). */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+=======
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold).
+     * Thresholds calibrated to align with recency decay window. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+>>>>>>> REPLACE
+
+</DIFF>

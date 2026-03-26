@@ -1,0 +1,144 @@
+2026-03-21 22:28:57,978 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate_0.lock ...
+2026-03-21 22:28:57,978 INFO Acquired evaluation lock.
+2026-03-21 22:28:58,025 INFO === Step 0: Drop page cache ===
+2026-03-21 22:28:58,044 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping copy
+2026-03-21 22:28:58,044 INFO CMD: sudo sync
+2026-03-21 22:28:58,132 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:28:58,241 INFO Page cache dropped.
+2026-03-21 22:28:58,242 INFO === Step 1: Compile evolved policy ===
+2026-03-21 22:28:58,251 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-21 22:28:58,571 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-21 22:29:01,307 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-21 22:29:01,489 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-21 22:29:02,432 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-21 22:29:02,432 INFO === Step 2: Disable MGLRU ===
+2026-03-21 22:29:02,433 INFO MGLRU watchdog started (PID 49929, will restore in 7800 s)
+2026-03-21 22:29:02,433 INFO MGLRU current state: 0x0007 — disabling
+2026-03-21 22:29:02,433 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-21 22:29:02,521 INFO MGLRU disabled.
+2026-03-21 22:29:02,521 INFO === Step 3: Create cgroup ===
+2026-03-21 22:29:02,589 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-21 22:29:02,688 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-21 22:29:02,703 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-21 22:29:02,703 INFO === Step 4: Load BPF policy ===
+2026-03-21 22:29:02,703 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-21 22:29:12,714 INFO Policy loaded (PID 49950)
+2026-03-21 22:29:12,714 INFO === Step 5: Start server ===
+2026-03-21 22:29:12,714 INFO Starting server: sudo cgexec -g memory:cache_ext_test /mydata/cache_ext/net_leveldb_server 9100 /mydata/leveldb_temp
+2026-03-21 22:29:12,715 INFO Waiting for server on port 9100 ...
+2026-03-21 22:29:15,771 INFO Server ready (PID 49965) on port 9100
+2026-03-21 22:29:15,771 INFO === Step 6: Run 2 traces x 5 runs = 10 total benchmarks ===
+2026-03-21 22:29:15,825 INFO --- Trace 1/2 (dual_small_vs_large) run 1/5  [1/10 overall] ---
+2026-03-21 22:29:15,825 INFO CMD: sudo sync
+2026-03-21 22:29:16,002 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:29:16,258 INFO Page cache dropped.
+2026-03-21 22:29:19,008 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_agfod9iz.yaml'
+2026-03-21 22:29:19,253 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_n22ha250.yaml'
+2026-03-21 22:32:17,729 INFO Client reader_fast: throughput=896.70
+2026-03-21 22:32:20,552 INFO Client writer_slow: throughput=269.02
+2026-03-21 22:32:20,552 INFO Dual-client combined throughput: 1165.72 ops/sec
+2026-03-21 22:32:21,033 INFO Trace dual_small_vs_large run 1: throughput=1165.72 ops/sec
+2026-03-21 22:32:21,033 INFO --- Trace 1/2 (dual_small_vs_large) run 2/5  [2/10 overall] ---
+2026-03-21 22:32:21,033 INFO CMD: sudo sync
+2026-03-21 22:32:21,290 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:32:21,848 INFO Page cache dropped.
+2026-03-21 22:32:24,633 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_1skujgf4.yaml'
+2026-03-21 22:32:24,885 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_zk4yvgid.yaml'
+2026-03-21 22:35:22,863 INFO Client reader_fast: throughput=809.90
+2026-03-21 22:35:26,438 INFO Client writer_slow: throughput=270.26
+2026-03-21 22:35:26,438 INFO Dual-client combined throughput: 1080.16 ops/sec
+2026-03-21 22:35:26,913 INFO Trace dual_small_vs_large run 2: throughput=1080.16 ops/sec
+2026-03-21 22:35:26,913 INFO --- Trace 1/2 (dual_small_vs_large) run 3/5  [3/10 overall] ---
+2026-03-21 22:35:26,913 INFO CMD: sudo sync
+2026-03-21 22:35:27,143 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:35:27,632 INFO Page cache dropped.
+2026-03-21 22:35:30,441 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_fvrcvyrc.yaml'
+2026-03-21 22:35:30,687 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_m9ophpyl.yaml'
+2026-03-21 22:38:28,967 INFO Client reader_fast: throughput=696.27
+2026-03-21 22:38:28,969 INFO Client writer_slow: throughput=304.80
+2026-03-21 22:38:28,969 INFO Dual-client combined throughput: 1001.07 ops/sec
+2026-03-21 22:38:29,437 INFO Trace dual_small_vs_large run 3: throughput=1001.07 ops/sec
+2026-03-21 22:38:29,437 INFO --- Trace 1/2 (dual_small_vs_large) run 4/5  [4/10 overall] ---
+2026-03-21 22:38:29,437 INFO CMD: sudo sync
+2026-03-21 22:38:29,750 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:38:30,199 INFO Page cache dropped.
+2026-03-21 22:38:32,970 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_azo426yt.yaml'
+2026-03-21 22:38:33,212 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_gagrp1jc.yaml'
+2026-03-21 22:41:31,394 INFO Client reader_fast: throughput=768.05
+2026-03-21 22:41:32,262 INFO Client writer_slow: throughput=150.03
+2026-03-21 22:41:32,262 INFO Dual-client combined throughput: 918.08 ops/sec
+2026-03-21 22:41:32,725 INFO Trace dual_small_vs_large run 4: throughput=918.08 ops/sec
+2026-03-21 22:41:32,725 INFO --- Trace 1/2 (dual_small_vs_large) run 5/5  [5/10 overall] ---
+2026-03-21 22:41:32,725 INFO CMD: sudo sync
+2026-03-21 22:41:32,999 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:41:33,446 INFO Page cache dropped.
+2026-03-21 22:41:36,201 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_k44stp_w.yaml'
+2026-03-21 22:41:36,447 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_a5p3niz0.yaml'
+2026-03-21 22:44:34,574 INFO Client reader_fast: throughput=764.58
+2026-03-21 22:44:34,690 INFO Client writer_slow: throughput=277.77
+2026-03-21 22:44:34,690 INFO Dual-client combined throughput: 1042.35 ops/sec
+2026-03-21 22:44:35,153 INFO Trace dual_small_vs_large run 5: throughput=1042.35 ops/sec
+2026-03-21 22:44:35,154 INFO Trace dual_small_vs_large summary: mean=1041.48 std=91.91 min=918.08 max=1165.72 (CV=8.8%)
+2026-03-21 22:44:35,177 INFO --- Trace 2/2 (dual_congested) run 1/5  [6/10 overall] ---
+2026-03-21 22:44:35,178 INFO CMD: sudo sync
+2026-03-21 22:44:35,471 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:44:35,785 INFO Page cache dropped.
+2026-03-21 22:44:38,545 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_ksknlzf1.yaml'
+2026-03-21 22:44:38,816 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_j4l0ytc1.yaml'
+2026-03-21 22:47:36,838 INFO Client wan_reader: throughput=1271.55
+2026-03-21 22:47:37,154 INFO Client wan_writer: throughput=1594.54
+2026-03-21 22:47:37,154 INFO Dual-client combined throughput: 2866.09 ops/sec
+2026-03-21 22:47:37,653 INFO Trace dual_congested run 1: throughput=2866.09 ops/sec
+2026-03-21 22:47:37,653 INFO --- Trace 2/2 (dual_congested) run 2/5  [7/10 overall] ---
+2026-03-21 22:47:37,653 INFO CMD: sudo sync
+2026-03-21 22:47:37,886 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:47:38,186 INFO Page cache dropped.
+2026-03-21 22:47:40,973 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_k43m8l21.yaml'
+2026-03-21 22:47:41,217 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_4en3hjb3.yaml'
+2026-03-21 22:50:39,436 INFO Client wan_reader: throughput=1303.60
+2026-03-21 22:50:50,282 INFO Client wan_writer: throughput=1738.24
+2026-03-21 22:50:50,282 INFO Dual-client combined throughput: 3041.84 ops/sec
+2026-03-21 22:50:50,757 INFO Trace dual_congested run 2: throughput=3041.84 ops/sec
+2026-03-21 22:50:50,757 INFO --- Trace 2/2 (dual_congested) run 3/5  [8/10 overall] ---
+2026-03-21 22:50:50,757 INFO CMD: sudo sync
+2026-03-21 22:50:50,953 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:50:51,250 INFO Page cache dropped.
+2026-03-21 22:50:53,988 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_dpvb_ndy.yaml'
+2026-03-21 22:50:54,240 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_j0mzvew7.yaml'
+2026-03-21 22:53:52,356 INFO Client wan_reader: throughput=1188.65
+2026-03-21 22:53:52,472 INFO Client wan_writer: throughput=1598.47
+2026-03-21 22:53:52,472 INFO Dual-client combined throughput: 2787.12 ops/sec
+2026-03-21 22:53:52,929 INFO Trace dual_congested run 3: throughput=2787.12 ops/sec
+2026-03-21 22:53:52,929 INFO --- Trace 2/2 (dual_congested) run 4/5  [9/10 overall] ---
+2026-03-21 22:53:52,929 INFO CMD: sudo sync
+2026-03-21 22:53:53,136 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:53:53,441 INFO Page cache dropped.
+2026-03-21 22:53:56,226 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_k3do854z.yaml'
+2026-03-21 22:53:56,475 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_3vv7y9uy.yaml'
+2026-03-21 22:56:54,597 INFO Client wan_reader: throughput=1168.46
+2026-03-21 22:56:54,712 INFO Client wan_writer: throughput=1670.90
+2026-03-21 22:56:54,713 INFO Dual-client combined throughput: 2839.36 ops/sec
+2026-03-21 22:56:55,173 INFO Trace dual_congested run 4: throughput=2839.36 ops/sec
+2026-03-21 22:56:55,173 INFO --- Trace 2/2 (dual_congested) run 5/5  [10/10 overall] ---
+2026-03-21 22:56:55,173 INFO CMD: sudo sync
+2026-03-21 22:56:55,392 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-21 22:56:55,699 INFO Page cache dropped.
+2026-03-21 22:56:58,469 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_k3wpvww9.yaml'
+2026-03-21 22:56:58,729 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_a0h106zz.yaml'
+2026-03-21 22:59:56,850 INFO Client wan_reader: throughput=1145.85
+2026-03-21 22:59:56,965 INFO Client wan_writer: throughput=1645.95
+2026-03-21 22:59:56,965 INFO Dual-client combined throughput: 2791.80 ops/sec
+2026-03-21 22:59:57,413 INFO Trace dual_congested run 5: throughput=2791.80 ops/sec
+2026-03-21 22:59:57,413 INFO Trace dual_congested summary: mean=2865.24 std=104.11 min=2787.12 max=3041.84 (CV=3.6%)
+2026-03-21 22:59:57,441 INFO === Evaluation complete (5 runs per trace) ===
+2026-03-21 22:59:57,441 INFO Combined score (harmonic mean of means): 1527.67  (2/2 traces passed)
+2026-03-21 22:59:57,441 INFO   dual_small_vs_large: mean=1041.48 std=91.91 [918.08 .. 1165.72]
+2026-03-21 22:59:57,441 INFO   dual_congested: mean=2865.24 std=104.11 [2787.12 .. 3041.84]
+2026-03-21 22:59:57,441 INFO Stopping net_leveldb_server (PID 49965)
+2026-03-21 22:59:57,441 INFO CMD: sudo kill 49965
+2026-03-21 22:59:57,568 INFO Unloading BPF policy (PID 49950)
+2026-03-21 22:59:57,568 INFO CMD: sudo kill -2 49950
+2026-03-21 22:59:57,899 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
+2026-03-21 22:59:57,989 INFO CMD: sudo sh -c echo 0x0007 > /sys/kernel/mm/lru_gen/enabled
+2026-03-21 22:59:58,056 INFO MGLRU re-enabled (restored to 0x0007).
+2026-03-21 22:59:58,056 INFO MGLRU watchdog stopped (PID 49929)

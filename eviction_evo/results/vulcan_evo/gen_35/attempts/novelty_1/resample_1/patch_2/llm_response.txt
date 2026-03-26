@@ -1,0 +1,85 @@
+<NAME>
+loss_decay_adaptive_protection
+</NAME>
+
+<DESCRIPTION>
+The current loss-based protection applies a uniform 15% boost whenever packet loss is detected (via MaxMin listener on GF_LOST), but the loss counter in kernel TCP state can persist long after network conditions improve, causing sustained over-protection that hurts throughput especially under high-frequency workloads (dual_small_vs_large). 
+
+The proposed change implements adaptive loss protection:
+1. Reduce the base loss boost from 15% to 12% to allow more eviction flexibility
+2. Add additional conditions requiring BOTH packet loss AND elevated RTT to trigger boost
+3. Implement decay by checking: only apply boost if max_lost > 0 AND srtt_ewma is actively high, creating natural decay as RTT normalizes
+4. Combine with per-folio heat tracking: prioritize protecting genuinely hot folios even during loss events by weighting interval_ewma against the loss boost
+
+This maintains responsiveness to transient congestion while preventing stale loss signals from locking the cache into overly conservative eviction. The improvement comes from making the loss protection conditional on BOTH persistent high RTT AND loss detection, so that as network conditions naturally recover (RTT drops), the protection automatically relaxes.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        network_factor = (network_factor * 115) / 100;  /* additional 15% boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+=======
+    /* Packet loss detected with adaptive decay: apply protection only when loss
+     * is accompanied by elevated RTT (active congestion), allowing natural decay
+     * as network conditions improve. Reduce base boost to 12% to maintain cache
+     * efficiency while protecting during genuine congestion events.
+     */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 5000) {  /* Loss + RTT > 5ms (stricter condition) */
+        network_factor = (network_factor * 112) / 100;  /* 12% boost instead of 15% */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold). */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+=======
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold).
+     * Under loss/congestion, prioritize protecting genuinely hot folios by
+     * applying stronger heat-based scoring adjustment. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    s64 heat_boost = 0;
+    s64 heat_penalty = 0;
+
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        heat_boost = 100;
+        /* During loss events, boost hot folios even more to prevent evicting
+         * the active working set */
+        if (max_lost > 0 && srtt_ewma > 5000) {
+            heat_boost = 150;  /* Additional protection for hot folios during congestion */
+        }
+        score += heat_boost;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        heat_penalty = 100;
+        /* During normal conditions, more aggressively evict cold folios to make room */
+        if (max_lost == 0 && srtt_ewma <= 5000) {
+            heat_penalty = 150;  /* More aggressive eviction of cold folios when network is good */
+        }
+        if (score > heat_penalty) score -= heat_penalty;
+    }
+>>>>>>> REPLACE
+</DIFF>

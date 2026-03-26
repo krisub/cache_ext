@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""tcp_delay_proxy.py — Userspace TCP proxy for simulating network conditions.
+"""tcp_delay_proxy.py - Userspace TCP proxy for simulating network conditions.
 
 Sits between My-YCSB benchmark clients and net_leveldb_server, adding
 configurable delay and bandwidth limits.
 
 The proxy creates real effects observable by the BPF kprobe on port 9100:
-- Request delay → larger gaps between tcp_recvmsg calls (last_packet_ts)
-- Bandwidth limits → slower data flow, backpressure
+- Request delay -> larger gaps between tcp_recvmsg calls (last_packet_ts)
+- Bandwidth limits -> slower data flow, backpressure
 - Both affect net_recv_count growth rate, net_bytes_received, etc.
 
 Usage:

@@ -1,0 +1,200 @@
+<NAME>
+loss_decay_timestamp
+</NAME>
+
+<DESCRIPTION>
+The current program implements recency-aware loss detection via RollingWindow (rw_size=5) for GF_LOST, but this can be further refined by explicitly tracking the timestamp of the last loss event and applying time-decay to the loss boost factor. This prevents stale loss signals from causing sustained over-protection of the cache after network conditions recover.
+
+The key insight from the recommendation is that loss signals should naturally decay over time. We currently apply full 15% boost whenever max_lost > 0, but we should decay this boost exponentially based on how long ago the last loss occurred. This way:
+- Recent loss (< 10ms ago): full 15% boost (boost_factor = 115)
+- Moderately old loss (10-50ms): partial boost decaying toward baseline (105% down to 100%)
+- Stale loss (> 50ms): no boost (clamped to 100%)
+
+This prevents the conservative over-protection that lingers after transient network events, allowing the cache to resume normal eviction once the network stabilizes.
+
+Changes:
+1. Add a global `last_loss_ts` variable to track the most recent loss detection timestamp
+2. Update `last_loss_ts` in the kprobe when loss is observed
+3. In `bpf_score_fn`, replace the multi-tier loss boost logic with a single exponential-decay formula that naturally transitions from full protection to normal operation
+4. Revert the asymmetric penalty scaling logic (cold_penalty) that appears to have degraded performance compared to the simpler version
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// =============================================================================
+// RAW NETWORK GLOBALS (updated by kprobe)
+// =============================================================================
+
+u64 last_packet_ts     = 0;
+u64 net_prev_packet_ts = 0;
+u64 net_recv_count     = 0;
+u32 net_srtt_us        = 0;
+u32 net_mdev_us        = 0;
+u64 net_bytes_received = 0;
+u64 net_bytes_acked    = 0;
+u32 net_segs_in        = 0;
+u32 net_segs_out       = 0;
+u32 net_delivered      = 0;
+u32 net_snd_cwnd       = 0;
+u32 net_snd_ssthresh   = 0;
+u32 net_rcv_wnd        = 0;
+u32 net_packets_out    = 0;
+u32 net_total_retrans  = 0;
+u32 net_retrans_out    = 0;
+u32 net_lost           = 0;
+=======
+// =============================================================================
+// RAW NETWORK GLOBALS (updated by kprobe)
+// =============================================================================
+
+u64 last_packet_ts     = 0;
+u64 net_prev_packet_ts = 0;
+u64 net_recv_count     = 0;
+u64 last_loss_ts       = 0;  // Timestamp of last detected loss (for time-decay)
+u32 net_srtt_us        = 0;
+u32 net_mdev_us        = 0;
+u64 net_bytes_received = 0;
+u64 net_bytes_acked    = 0;
+u32 net_segs_in        = 0;
+u32 net_segs_out       = 0;
+u32 net_delivered      = 0;
+u32 net_snd_cwnd       = 0;
+u32 net_snd_ssthresh   = 0;
+u32 net_rcv_wnd        = 0;
+u32 net_packets_out    = 0;
+u32 net_total_retrans  = 0;
+u32 net_retrans_out    = 0;
+u32 net_lost           = 0;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected with recency-aware decay via RollingWindow.
+     * Recent loss → full 15% boost; stale loss → gradually decay to no boost.
+     * Check most recent loss value; if zero (network recovered), apply reduced boost
+     * based on how recent the earlier loss was. */
+    s64 latest_lost = vulcan_get_latest(GF_LOST);
+    s64 loss_boost = 0;
+
+    if (latest_lost > 0 && srtt_ewma > 3000) {
+        /* Most recent sample shows active loss: apply full boost */
+        loss_boost = 115;
+    } else if (srtt_ewma > 3000) {
+        /* No active loss, but check if loss was recent (window position 2-4)
+         * Apply partial decay-based boost */
+        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
+        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
+
+        if (prev_lost_1 > 0) {
+            loss_boost = 108;  /* 8% boost for very recent loss */
+        } else if (prev_lost_2 > 0) {
+            loss_boost = 103;  /* 3% boost for moderately old loss */
+        }
+    }
+
+    if (loss_boost > 100) {
+        network_factor = (network_factor * loss_boost) / 100;
+    }
+=======
+    /* Packet loss detected with explicit time-decay via last_loss_ts.
+     * Recent loss (< 10ms ago): full 15% boost (boost_factor = 115).
+     * Stale loss (> 50ms ago): decayed to baseline (boost_factor ≈ 100).
+     * This prevents sustained over-protection after network conditions recover. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    s64 loss_boost = 100;  /* baseline: no boost */
+
+    if (max_lost > 0 && srtt_ewma > 3000) {
+        /* Loss detected and RTT elevated: apply time-decayed boost */
+        u64 now = bpf_ktime_get_ns();
+        s64 time_since_loss_ns = (s64)(now - last_loss_ts);
+        
+        /* Exponential decay: boost_factor = 115 - (time_since_loss / 10ms)
+         * Clamped to [100, 115] to ensure smooth transition */
+        s64 decay_amount = time_since_loss_ns / 10000000LL;  /* convert 10ms to ns */
+        loss_boost = 115 - decay_amount;
+        if (loss_boost < 100) loss_boost = 100;
+        if (loss_boost > 115) loss_boost = 115;
+        
+        network_factor = (network_factor * loss_boost) / 100;
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold).
+     * Asymmetric penalty scaling: folios with higher access_count are more
+     * valuable (long-lived, proven useful), so apply gentler penalty. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, but scale penalty by access history
+         * to avoid over-evicting valuable long-lived pages */
+        s64 cold_penalty = 100;  /* default for truly cold pages */
+        if (meta->access_count < 5) {
+            cold_penalty = 100;  /* truly unused: full penalty */
+        } else if (meta->access_count < 20) {
+            cold_penalty = 50;   /* moderately used over lifetime: 50% penalty */
+        } else {
+            cold_penalty = 25;   /* frequently used historically: 25% penalty */
+        }
+        if (score > cold_penalty) score -= cold_penalty;
+    }
+=======
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold). */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+    net_mdev_us        = BPF_CORE_READ(tp, mdev_us);
+    net_bytes_received = BPF_CORE_READ(tp, bytes_received);
+    net_bytes_acked    = BPF_CORE_READ(tp, bytes_acked);
+    net_segs_in        = BPF_CORE_READ(tp, segs_in);
+    net_segs_out       = BPF_CORE_READ(tp, segs_out);
+    net_delivered      = BPF_CORE_READ(tp, delivered);
+    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
+    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
+    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
+    net_packets_out    = BPF_CORE_READ(tp, packets_out);
+    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
+    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
+    net_lost           = BPF_CORE_READ(tp, lost);
+=======
+    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+    net_mdev_us        = BPF_CORE_READ(tp, mdev_us);
+    net_bytes_received = BPF_CORE_READ(tp, bytes_received);
+    net_bytes_acked    = BPF_CORE_READ(tp, bytes_acked);
+    net_segs_in        = BPF_CORE_READ(tp, segs_in);
+    net_segs_out       = BPF_CORE_READ(tp, segs_out);
+    net_delivered      = BPF_CORE_READ(tp, delivered);
+    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
+    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
+    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
+    net_packets_out    = BPF_CORE_READ(tp, packets_out);
+    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
+    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
+    net_lost           = BPF_CORE_READ(tp, lost);
+    
+    /* Update last_loss_ts when loss is detected for time-decay mechanism */
+    if (net_lost > 0) {
+        last_loss_ts = bpf_ktime_get_ns();
+    }
+>>>>>>> REPLACE
+</DIFF>

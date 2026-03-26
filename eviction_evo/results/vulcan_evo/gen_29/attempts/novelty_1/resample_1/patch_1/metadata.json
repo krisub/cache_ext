@@ -1,0 +1,14 @@
+{
+  "generation": 29,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "add_packets_out_congestion_ratio_secondary_boost",
+  "patch_description": "This change implements the recommended PACKETS_OUT congestion signal integration as a secondary network factor. The key improvements:\n\n1. Enable SND_CWND EWMA listener to track congestion window alongside PACKETS_OUT\n2. Compute a congestion ratio using safe unsigned arithmetic: (packets_out * 100) / max(snd_cwnd, 1)\n3. Apply graduated secondary boost to network_factor:\n   - +5 to network_factor if congestion ratio > 70% (window nearly saturated)\n   - +10 to network_factor if congestion ratio > 90% (window fully saturated)\n4. Simplify loss handling by removing complex time-decay logic and reverting to Generation 5's simpler approach (which achieved 2090.49 score)\n\nThe congestion ratio provides a complementary signal to RTT for detecting network pressure. During window saturation, protecting the working set prevents expensive cache misses from compounding congestion. Using unsigned arithmetic avoids division-by-zero issues and signed overflow problems.\n\nThis approach combines the proven Gen 5 logic with the new congestion detection, providing multi-dimensional network awareness without the complexity that hurt the current program's performance.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T04:18:24.844529",
+  "llm_cost": 0.237147,
+  "llm_model": null
+}

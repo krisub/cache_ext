@@ -1,0 +1,198 @@
+<NAME>
+adaptive_rtt_baseline_scaling
+</NAME>
+
+<DESCRIPTION>
+The current program regressed from the peak performance of 2090.49 (dual_small_vs_large: 1601.83 MB/s) to 1916.59 (dual_small_vs_large: 1421.78 MB/s). The recent change from fixed recency bonuses to an exponential decay formula appears to be causing over-protection, leading to cache thrashing.
+
+Following the recommendation to implement adaptive RTT baseline tracking with dynamic threshold scaling:
+
+1. **Root cause**: Fixed thresholds (5ms, 10ms for RTT) don't adapt to workload-specific baselines. In high-RTT environments (dual_congested), we might be over-protecting pages compared to their baseline; in low-RTT environments, we might be under-protecting.
+
+2. **Solution**: 
+   - Add a long-term EWMA of SRTT_US with very low alpha (50) to track the "normal" baseline RTT for the current workload
+   - In bpf_score_fn, compute the relative elevation: `ratio = current_srtt_ewma / baseline_srtt_ewma`
+   - Scale network protection dynamically: if ratio > 1.2, apply 1.25x boost; if ratio > 1.5, apply 1.5x boost
+   - This calibrates thresholds to workload-specific conditions without manual tuning
+   - Simplify recency bonus back to fixed thresholds (proven in Generation 5: 2090.49) to avoid over-aggressive decay
+
+3. **Expected benefit**: 
+   - Better handling of dual_small_vs_large workload (fast reader + slow writer with varied RTT)
+   - Adaptive protection prevents thrashing in both normal and congested regimes
+   - Restores ~170 MB/s throughput on dual_small_vs_large by using proven recency logic
+
+4. **Implementation**:
+   - Add `vulcan_baseline_rtt` map (single-entry, stores baseline EWMA)
+   - Update it in kprobe with alpha=50 (very sticky baseline)
+   - Use ratio-based thresholding in score_fn instead of fixed ms values
+   - Restore simpler recency (+50 if <5s) from Generation 5
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, u32);
+    __type(value, u64);
+} debug_counters SEC(".maps");
+
+// Include feature dispatch layer (needs maps declared above)
+#include "vulcan_bpf/vulcan_feature.h"
+=======
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, u32);
+    __type(value, u64);
+} debug_counters SEC(".maps");
+
+// Adaptive RTT baseline tracking: single-entry map storing long-term EWMA of SRTT_US
+// Updated with alpha=50 (very low) to establish stable baseline for the current workload
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, s64);
+} vulcan_baseline_rtt SEC(".maps");
+
+// Include feature dispatch layer (needs maps declared above)
+#include "vulcan_bpf/vulcan_feature.h"
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    }
+
+    /* Packet loss detected with recency-aware decay via RollingWindow.
+     * Recent loss → full 15% boost; stale loss → gradually decay to no boost.
+     * Check most recent loss value; if zero (network recovered), apply reduced boost
+     * based on how recent the earlier loss was. */
+    s64 latest_lost = vulcan_get_latest(GF_LOST);
+    s64 loss_boost = 0;
+
+    if (latest_lost > 0 && srtt_ewma > 3000) {
+        /* Most recent sample shows active loss: apply full boost */
+        loss_boost = 115;
+    } else if (srtt_ewma > 3000) {
+        /* No active loss, but check if loss was recent (window position 2-4)
+         * Apply partial decay-based boost */
+        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
+        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
+
+        if (prev_lost_1 > 0) {
+            loss_boost = 108;  /* 8% boost for very recent loss */
+        } else if (prev_lost_2 > 0) {
+            loss_boost = 103;  /* 3% boost for moderately old loss */
+        }
+    }
+
+    if (loss_boost > 100) {
+        network_factor = (network_factor * loss_boost) / 100;
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency-weighted boost: prioritize recently-accessed pages over old ones.
+     * Apply stronger recency bonus for pages accessed very recently (<3s).
+     * Uses exponential-like decay: 100 bonus at 0s, decays toward 0 at 10s+.
+     * Formula approximation: bonus = 100 * exp(-time_elapsed_sec / 3)
+     *                              ≈ 100 / (1 + time_elapsed_ms / 3000) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_bonus = 0;
+    if (time_since_access < 10000000000ULL) {  /* Within 10 seconds */
+        s64 elapsed_ms = time_since_access / 1000000;  /* ns to ms */
+        recency_bonus = (100 * 3000) / (3000 + elapsed_ms);
+    }
+    score += recency_bonus;
+=======
+    /* Network-aware protection with adaptive RTT baseline scaling.
+     * Compute relative RTT elevation from baseline to adapt thresholds to workload.
+     * This prevents over-protection in high-RTT workloads and under-protection in low-RTT.
+     */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Compute dynamic threshold based on RTT elevation ratio relative to baseline */
+    u32 baseline_key = 0;
+    s64 *baseline_rtt_ptr = bpf_map_lookup_elem(&vulcan_baseline_rtt, &baseline_key);
+    s64 baseline_rtt = baseline_rtt_ptr ? *baseline_rtt_ptr : srtt_ewma;
+    if (baseline_rtt == 0) baseline_rtt = 1;  /* Avoid division by zero */
+
+    /* Compute elevation ratio: current / baseline (in fixed-point ÷100) */
+    s64 rtt_ratio = (srtt_ewma * 100) / baseline_rtt;
+
+    /* Scale protection based on relative RTT elevation, not absolute values */
+    if (rtt_ratio > 150) {  /* Current RTT is 1.5x baseline */
+        network_factor = 150;  /* 1.5x protection */
+    } else if (rtt_ratio > 120) {  /* Current RTT is 1.2x baseline */
+        network_factor = 125;  /* 1.25x protection */
+    }
+
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated to avoid
+     * stale loss signals causing sustained over-protection. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && rtt_ratio > 105) {  /* Loss + 5% elevation */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed in last 5 seconds (proven pattern from Gen 5).
+     * Fixed bonus avoids over-aggressive decay formulas that caused regression. */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;
+    }
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    net_prev_packet_ts = last_packet_ts;
+    last_packet_ts     = bpf_ktime_get_ns();
+    net_recv_count    += 1;
+
+    struct tcp_sock *tp = (struct tcp_sock *)sk;
+
+    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+=======
+    net_prev_packet_ts = last_packet_ts;
+    last_packet_ts     = bpf_ktime_get_ns();
+    net_recv_count    += 1;
+
+    struct tcp_sock *tp = (struct tcp_sock *)sk;
+
+    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+
+    /* Update adaptive baseline RTT with very low alpha (50) for stability.
+     * This establishes a long-term "normal" RTT for the current workload.
+     * Formula: baseline = baseline * (1000-50)/1000 + srtt_us * 50/1000
+     *        = baseline * 0.95 + srtt_us * 0.05
+     */
+    {
+        u32 baseline_key = 0;
+        s64 *baseline_ptr = bpf_map_lookup_elem(&vulcan_baseline_rtt, &baseline_key);
+        if (!baseline_ptr) {
+            s64 init_baseline = (s64)net_srtt_us;
+            bpf_map_update_elem(&vulcan_baseline_rtt, &baseline_key, &init_baseline, BPF_ANY);
+        } else {
+            s64 current_baseline = *baseline_ptr;
+            s64 updated_baseline = (current_baseline * 950 + (s64)net_srtt_us * 50) / 1000;
+            bpf_map_update_elem(&vulcan_baseline_rtt, &baseline_key, &updated_baseline, BPF_ANY);
+        }
+    }
+>>>>>>> REPLACE
+</DIFF>

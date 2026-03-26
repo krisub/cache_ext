@@ -1,0 +1,178 @@
+<NAME>
+network_aware_adaptive_protection
+</NAME>
+
+<DESCRIPTION>
+This edit transforms the baseline LFU policy into a network-aware adaptive eviction strategy. The key insight is that under network congestion (high RTT, packet loss), cache misses become significantly more expensive, so we should protect the working set more aggressively.
+
+The changes include:
+
+1. **Enable network listeners**: Activate EWMA for SRTT_US (smoothed RTT) and PACKETS_OUT, plus MinMax for LOST to detect network degradation. These give us a real-time view of network conditions.
+
+2. **Enable per-folio interval tracking**: Use EWMA and MinMax listeners on per-folio inter-access intervals to distinguish genuinely hot folios (low interval) from one-shot accesses.
+
+3. **Network-adaptive scoring**: The core innovation is making the eviction decision network-aware:
+   - When RTT is elevated, multiply access_count by a protection factor (making hot pages harder to evict)
+   - Use per-folio interval EWMA to identify truly hot pages (low interval = frequent accesses)
+   - Combine frequency and recency: pages with high access_count AND recent activity get extra protection
+   - Detect packet loss and become more conservative when network is degrading
+
+4. **Recency-aware protection**: Pages accessed within the last 5 seconds get a recency bonus, ensuring we don't evict the active working set even under memory pressure.
+
+The strategy adapts to both workloads:
+- For dual_small_vs_large (mixed fast/slow clients): protects the frequently accessed small objects while allowing infrequent large objects to be evicted
+- For dual_congested (high latency): detects elevated RTT and protects working set more aggressively to minimize expensive cache misses
+
+This maintains the LFU baseline while adding intelligent network-awareness that should improve throughput under both workload scenarios.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = 0 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = 0 },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+static const struct vulcan_folio_config folio_cfg = {
+    .listener_mask = 0,
+    .ewma_alpha    = 200,
+};
+=======
+static const struct vulcan_folio_config folio_cfg = {
+    .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+    .ewma_alpha    = 250,
+};
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 score = (s64)meta->access_count;
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+=======
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+    
+    /* Network-aware protection: when RTT is high, cache misses are expensive */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+    
+    /* Elevated RTT (>10ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection */
+    } else if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        network_factor = (network_factor * 130) / 100;  /* additional 30% boost */
+    }
+    
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+    
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+    
+    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+>>>>>>> REPLACE
+</DIFF>

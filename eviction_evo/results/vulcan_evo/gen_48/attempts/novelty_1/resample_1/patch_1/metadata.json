@@ -1,0 +1,14 @@
+{
+  "generation": 48,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "adaptive_recency_decay_per_folio_burstiness",
+  "patch_description": "The current program uses a simple fixed recency bonus (+50 points if accessed within 5 seconds), which doesn't distinguish between different folio access patterns. Generation 39's fine-grained recency weighting (50% boost within 1s, decaying to 0% at 10s) achieved the best combined score (2184.76) by making recency a first-class component of the scoring function.\n\nThis edit extends that proven approach by implementing adaptive per-folio recency decay calibration. Instead of applying the same decay curve to all folios, we compute a \"burstiness\" metric from the per-folio interval_minmax listeners (max_val / min_val ratio) to characterize each folio's access pattern:\n- High burstiness (ratio > 10): folios accessed in bursts with long gaps between \u2192 apply stronger recency boost (70%) to catch working-set transitions\n- Low burstiness (ratio < 3): folios with steady, predictable access \u2192 apply moderate recency boost (30%) to avoid over-protecting\n- Medium burstiness: interpolated boost (30-70%)\n\nThe recency weighting uses a smooth decay curve similar to Gen 39 but scaled by per-folio burstiness:\n- Base formula: recency_factor = burstiness_adjusted_boost * (1 - time_since_access / 10s)\n- Applied as: base_score * (100 + recency_factor) / 100\n\nThis should improve dual_small_vs_large throughput (currently 1601.83 mean with std 138.46) by better adapting to the mixed access patterns (fast reader with small values vs slow writer with large values), while maintaining strong dual_congested performance through the existing network-aware protection.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T17:21:19.511368",
+  "llm_cost": 0.200526,
+  "llm_model": null
+}

@@ -38,8 +38,8 @@ evo_config:
   patch_type_probs:
     - 1.0
 
-  num_generations: 50
-  max_api_costs: 5.0
+  num_generations: 100
+  max_api_costs: 12.0
   max_patch_resamples: 5
   max_patch_attempts: 5
   max_novelty_attempts: 2
@@ -50,7 +50,6 @@ evo_config:
 
   llm_models:
     - "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
   llm_kwargs:
     temperatures:
       - 0
@@ -111,24 +110,42 @@ evo_config:
       pages stay in the constrained page cache and which get evicted.
 
     ## Kernel-LibVulcan Design
-    This template uses a *score-based* eviction model instead of boolean
-    evict/keep callbacks. You write a SCORING FUNCTION that assigns an s64
-    value to each folio candidate. The kernel samples candidates and evicts
-    those with the LOWEST scores.
+    **BASELINE**: The initial policy mimics `cache_ext_sampling.bpf.c` (LFU).
+    Evolution starts from pure LFU (score = access_count; protect dirty/
+    writeback/uptodate/lru; LevelDB last-page bonus). You EVOLVE from there.
 
-    The infrastructure provides **listener abstractions** that maintain
-    running statistics over global network metrics and per-folio features.
-    You do NOT need to manually track min/max, averages, or histories — use
-    the accessor functions described below.
+    The template uses **score-based sampling** (`bpf_cache_ext_list_sample`).
+    Implement `bpf_score_fn(node) -> s64`: lower score = evict first;
+    S64_MAX = protect. For each reclaim slot, the kernel picks the minimum
+    among `sample_size` candidates.
+
+    **Networking infrastructure** (kprobe, maps, includes, dir_watcher) is
+    FIXED - do NOT modify code outside the EVOLVE-BLOCK. The infrastructure
+    provides listener abstractions for network metrics; you enable them via
+    gf_configs[] and use vulcan_get_* accessors in bpf_score_fn.
+
+    ### CRITICAL: Use network features and listeners
+    You MUST enable network listeners in gf_configs and use them in
+    bpf_score_fn. Pure LFU (access_count only, all listeners disabled)
+    underperforms the MGLRU baseline. Enable at least RTT (GF_SRTT_US) and
+    ideally loss (GF_LOST), cwnd (GF_SND_CWND), or inter-arrival
+    (GF_INTER_ARRIVAL). Call vulcan_get_ewma, vulcan_get_max, etc. in your
+    scoring logic. The workloads are network-bound, so eviction decisions
+    should adapt to RTT, congestion, and request patterns.
 
     ### What you evolve
-    1. **Configuration constants** (VULCAN_EWMA_ALPHA, VULCAN_RW_SIZE,
-       VULCAN_FOLIO_EWMA_ALPHA, SAMPLE_SIZE)
-    2. **The scoring function** `bpf_score_fn(node) → s64`
-       - HIGHER score = more valuable, keep longer
-       - LOWER score  = less valuable, evict first
-       - Return S64_MAX for unevictable folios (dirty/writeback)
-    3. **Struct_ops callbacks** (init, evict_folios, folio_added,
+    1. **Per-feature listener configuration** — the `gf_configs[]` array
+       selects which listeners are active for each global feature and sets
+       per-listener parameters (EWMA alpha, rolling window size).
+    2. **Per-folio listener configuration** — `folio_cfg` selects which
+       listeners track per-folio inter-access intervals.
+    3. **Tunable constants** — time windows, thresholds, etc.
+    4. **The scoring function** `bpf_score_fn(node) -> s64`
+       - **Lower score** = preferred victim (evicted when it is the minimum in a sample batch)
+       - **S64_MAX** = do not prefer this folio vs others (same pattern as LFU policy for dirty / bad folios)
+       - Optionally combine `meta->access_count` with network-driven rules via vulcan_get_* accessors
+       - `SAMPLE_SIZE` — candidates per victim slot (see `struct sampling_options`)
+    5. **Struct_ops callbacks** (init, evict_folios, folio_added,
        folio_accessed, folio_evicted) — sensible defaults are provided;
        customize only if needed.
 
@@ -146,18 +163,58 @@ evo_config:
     2. **dual_congested**: both clients behind delay proxies (2ms/5ms delay,
        100/50 Mbps)
 
-    ## Global Feature Accessor API
-    Use these inside bpf_score_fn to query listener state for any global
-    feature. All return s64.
+    ## Listener Configuration API
+    You configure listeners per-feature using `gf_configs[]`, an array of
+    `struct vulcan_feature_config` with one entry per global feature:
 
-      vulcan_get_min(GF_xxx)           — minimum observed value
-      vulcan_get_max(GF_xxx)           — maximum observed value
-      vulcan_get_ewma(GF_xxx)          — EWMA (smoothed by VULCAN_EWMA_ALPHA)
-      vulcan_get_avg(GF_xxx)           — running arithmetic average
-      vulcan_get_latest(GF_xxx)        — most recent value in rolling window
-      vulcan_get_kth_recent(GF_xxx, k) — k-th most recent (0 = latest)
-      vulcan_get_window_avg(GF_xxx)    — rolling-window average
-      vulcan_get_window_count(GF_xxx)  — number of entries in window
+    ```c
+    struct vulcan_feature_config {
+        u32 listener_mask;  // OR of VULCAN_LISTENER_* flags
+        u32 ewma_alpha;     // [0..1000], only used if EWMA enabled
+        u32 rw_size;        // [1..16],   only used if RW enabled
+    };
+    ```
+
+    Listener bitmask flags (OR together in .listener_mask):
+      VULCAN_LISTENER_MINMAX  — enable MinMax (tracks min/max over time)
+      VULCAN_LISTENER_EWMA    — enable EWMA (set .ewma_alpha)
+      VULCAN_LISTENER_AVG     — enable running Average
+      VULCAN_LISTENER_RW      — enable RollingWindow (set .rw_size)
+      VULCAN_LISTENER_ALL     — shorthand for all four
+
+    Example configuration:
+    ```c
+    static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+        [GF_SRTT_US]     = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
+                             .ewma_alpha = 200, .rw_size = 8 },
+        [GF_LOST]        = { .listener_mask = VULCAN_LISTENER_MINMAX },
+        [GF_SND_CWND]    = { .listener_mask = VULCAN_LISTENER_EWMA, .ewma_alpha = 100 },
+        // features with .listener_mask = 0 have no listeners (zero overhead)
+    };
+    ```
+
+    Per-folio configuration (struct vulcan_folio_config):
+    ```c
+    static const struct vulcan_folio_config folio_cfg = {
+        .listener_mask = VULCAN_LISTENER_MINMAX | VULCAN_LISTENER_EWMA,
+        .ewma_alpha    = 200,  // smoothing for per-folio interval tracking
+    };
+    ```
+    Call vulcan_folio_on_access(meta, now, &folio_cfg) in folio_accessed.
+
+    ## Global Feature Accessor API
+    Use these inside bpf_score_fn to query listener state. An accessor
+    returns 0 if the corresponding listener is not enabled for that feature.
+    All return s64.
+
+      vulcan_get_min(GF_xxx)           — minimum observed value  (needs MINMAX)
+      vulcan_get_max(GF_xxx)           — maximum observed value  (needs MINMAX)
+      vulcan_get_ewma(GF_xxx)          — EWMA smoothed value     (needs EWMA)
+      vulcan_get_avg(GF_xxx)           — running arithmetic avg  (needs AVG)
+      vulcan_get_latest(GF_xxx)        — most recent value       (needs RW)
+      vulcan_get_kth_recent(GF_xxx, k) — k-th most recent        (needs RW)
+      vulcan_get_window_avg(GF_xxx)    — rolling-window average  (needs RW)
+      vulcan_get_window_count(GF_xxx)  — entries in window        (needs RW)
 
     ### Global Feature IDs
       GF_SRTT_US        — smoothed RTT in usec (kernel stores srtt<<3)
@@ -190,15 +247,8 @@ evo_config:
       interval_ewma.value     — EWMA of inter-access intervals (s64 ns)
 
     Per-folio helper (call from folio hooks):
-      vulcan_folio_on_access(meta, now, VULCAN_FOLIO_EWMA_ALPHA)
-        — updates all per-folio listener state in one call
-
-    ## Configuration Constants
-      VULCAN_EWMA_ALPHA       — [0..1000] EWMA alpha for global features
-                                 (100=slow/smooth, 500=fast/reactive)
-      VULCAN_RW_SIZE          — [1..16] rolling window size for globals
-      VULCAN_FOLIO_EWMA_ALPHA — [0..1000] EWMA alpha for per-folio intervals
-      SAMPLE_SIZE             — candidates sampled per eviction slot (e.g. 20)
+      vulcan_folio_on_access(meta, now, &folio_cfg)
+        — updates only the per-folio listeners enabled in folio_cfg
 
     ## Available BPF APIs
     - bpf_cache_ext_list_add(list, folio) / _add_tail
@@ -211,11 +261,11 @@ evo_config:
     - folio_nr_pages(folio), folio_index(folio)
     - bpf_ktime_get_ns()
 
-    ## How to use network metrics for scoring
+    ## How to use network metrics in eviction decisions
     The listener accessors give you processed views of real-time metrics:
     - **Smoothed RTT**: `vulcan_get_ewma(GF_SRTT_US)` is more stable than
-      raw `net_srtt_us`. When elevated, each cache miss is expensive — boost
-      scores of frequently accessed folios.
+      raw `net_srtt_us`. When elevated, each cache miss is expensive —
+      protect frequently accessed folios more aggressively.
     - **RTT trend**: compare `vulcan_get_latest(GF_SRTT_US)` vs
       `vulcan_get_kth_recent(GF_SRTT_US, 3)` to detect improving/degrading
       network conditions.
@@ -230,30 +280,42 @@ evo_config:
       `meta->interval_ewma.value` — low interval EWMA = hot (frequent).
 
     ## Constraints
+    - **Baseline is LFU** — start from it; evolve eviction logic only.
+    - **Do NOT modify** code outside EVOLVE-BLOCK (kprobe, network globals,
+      map definitions, struct_ops registration, includes).
     - No floating point in BPF. Use integer arithmetic only.
-    - bpf_score_fn receives `struct cache_ext_list_node *node` where
-      `node->folio` is the folio pointer. Look up metadata via
-      `bpf_map_lookup_elem(&folio_metadata_map, &key)`.
+    - `bpf_score_fn` receives `struct cache_ext_list_node *node` with `node->folio`.
+    - Kernel minimizes score per batch — low score = evict, S64_MAX = protect.
+    - Call `bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts, ctx)`
+      from `evict_folios` (reference: `policies/cache_ext_sampling.bpf.c`).
     - BPF verifier limits loop iterations and stack size (512 bytes).
     - Do not use UINT64_MAX. Use S64_MAX or (~0ULL) instead.
     - Output ONLY valid C code for the EVOLVE-BLOCK. Never emit conflict
       markers or search/replace markers.
-    - You MUST keep the four #define constants (VULCAN_EWMA_ALPHA,
-      VULCAN_RW_SIZE, VULCAN_FOLIO_EWMA_ALPHA, SAMPLE_SIZE) defined,
-      because the kprobe (outside EVOLVE-BLOCK) references them.
+    - You MUST keep `gf_configs[VULCAN_NUM_GLOBAL_FEATURES]` and `folio_cfg`
+      defined, because the kprobe (outside EVOLVE-BLOCK) references them.
+    - Only call accessors (e.g. vulcan_get_ewma) for listeners you have
+      enabled in gf_configs — disabled listeners return 0 safely but the
+      values are meaningless.
 
-    ## Scoring strategies to explore
-    - **LFU-weighted**: score ∝ access_count — evict least frequently used
-    - **Recency + frequency**: score = access_count * weight - age_ns / divisor
-    - **Network-adaptive**: boost scores when RTT/loss is high to protect
-      the working set more aggressively under congestion
+    ## Eviction strategies to explore
+    - **Recency + frequency**: protect folios with high access_count AND
+      recent access; evict cold, infrequent folios
+    - **Network-adaptive thresholds**: widen protection windows when
+      RTT/loss is high (each miss is expensive under congestion)
     - **Burst-aware**: detect request bursts via inter-arrival time and
       temporarily raise protection of working-set folios
     - **Per-folio heat map**: use interval EWMA (lower = hotter) to
       distinguish genuinely hot folios from one-shot accesses
-    - **Congestion penalty**: when cwnd is small relative to packets_out,
-      reduce eviction aggressiveness (each miss is costly)
-    - **Adaptive smoothing**: try different VULCAN_EWMA_ALPHA values to
-      trade off responsiveness vs stability
-    - **Multi-list + scoring**: allocate separate lists, score differently,
-      sample from the cold list first
+    - **Adaptive decay**: use access_count decay or tier demotion for
+      folios that were hot but have gone cold
+    - **Selective listeners**: only enable listeners you actually use -
+      fewer listeners = less per-packet overhead
+    - **Per-feature tuning**: different EWMA alphas for different metrics
+      (e.g. fast-reactive for RTT, slow-smooth for cwnd)
+    - **Multi-list**: allocate separate hot/cold lists; run sampling on the
+      cold list or use list_move to promote/demote folios
+    - **MGLRU-inspired (adapt to score fn)**: multi-generation aging (young
+      vs old by recency), tier-based protection by access_count (order_base_2
+      or thresholds), refault-aware scoring (protect folios likely to be
+      re-accessed soon).

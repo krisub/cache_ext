@@ -1,0 +1,83 @@
+<NAME>
+adaptive_rtt_baseline_scaling_v2
+</NAME>
+
+<DESCRIPTION>
+The current program uses fixed RTT thresholds (5ms and 10ms) for protection scaling, which may be suboptimal across diverse network conditions. The recommendation is to implement adaptive RTT baseline tracking with dynamic threshold scaling, entirely within the EVOLVE-BLOCK.
+
+**Key insight**: Track a long-term EWMA of RTT with very low alpha (50) as a workload-specific "baseline" using a static variable, then scale protection dynamically based on deviation from baseline. This approach:
+
+1. **Adapts to workload characteristics**: Each workload establishes its own normal RTT baseline
+2. **Relative scaling is more robust**: Protection scales based on stress deviation from normal
+3. **Within EVOLVE-BLOCK**: Uses only static variables for baseline tracking, avoiding external map overhead
+
+Instead of hard-coded thresholds (>5ms → 1.25x, >10ms → 1.5x), protection becomes: `100 + (current_rtt - baseline_rtt) * multiplier`, providing 25% extra protection when 2ms above baseline, 50% protection when 4ms above, etc. This normalizes for workload-specific network conditions without manual tuning.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+=======
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+
+// RTT baseline tracking for adaptive threshold scaling.
+// Uses fixed-point arithmetic (microseconds) with very low EWMA alpha (50)
+// for slow convergence to workload-specific "normal" RTT.
+static s64 rtt_baseline_us = 0;  /* 0 = uninitialized, updated from bpf_score_fn */
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    }
+=======
+    s64 base_score = (s64)meta->access_count;
+
+    /* Adaptive RTT-based protection using baseline tracking.
+     * Scale protection based on deviation from long-term baseline RTT. */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    if (srtt_ewma > 0) {
+        /* Initialize baseline on first call (set equal to current EWMA) */
+        if (rtt_baseline_us == 0) {
+            rtt_baseline_us = srtt_ewma;
+        }
+
+        /* Compute relative stress: (current - baseline) as percentage of baseline.
+         * For each 2ms above baseline, add 25 to network_factor (0.25x multiplier per 2ms).
+         * This means: +2ms → 1.25x, +4ms → 1.50x, +6ms → 1.75x, etc. */
+        s64 rtt_diff = srtt_ewma - rtt_baseline_us;
+        if (rtt_diff > 1000) {  /* At least 1ms above baseline to trigger adjustment */
+            s64 stress_units = (rtt_diff * 125) / 2000;  /* (rtt_diff_us * 125) / 2000_us */
+            network_factor = 100 + stress_units;
+            if (network_factor > 200) network_factor = 200;  /* Cap at 2.0x */
+        } else if (rtt_diff < -500) {  /* RTT improved: relax protection slightly */
+            network_factor = 100;  /* Return to baseline protection */
+        }
+
+        /* Gradually decay baseline toward current EWMA with very low alpha (50).
+         * new_baseline = baseline * 950/1000 + current * 50/1000
+         * This ensures baseline slowly adapts to sustained changes in network conditions. */
+        rtt_baseline_us = (rtt_baseline_us * 950 + srtt_ewma * 50) / 1000;
+    }
+>>>>>>> REPLACE
+</DIFF>

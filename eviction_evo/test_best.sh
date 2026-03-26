@@ -6,7 +6,7 @@ echo "=== Testing best Policy (${#TRACE_NAMES[@]} traces, harmonic mean) ==="
 TRACES_DIR=/mydata/cache_ext/eviction_evo/traces
 BENCH=/mydata/cache_ext/My-YCSB/build/run_net_leveldb
 DUAL_RUNNER="python3 /mydata/cache_ext/eviction_evo/run_dual_trace.py"
-# Single-client traces (commented out — dual-client only mode)
+# Single-client traces (commented out - dual-client only mode)
 #TRACE_NAMES=(ycsb_a ycsb_b ycsb_c ycsb_d ycsb_e ycsb_f uniform uniform_rw dual_small_vs_large dual_congested)
 #TRACE_FILES=(ycsb_a.yaml ycsb_b.yaml ycsb_c.yaml ycsb_d.yaml ycsb_e.yaml ycsb_f.yaml uniform.yaml uniform_read_write.yaml dual_small_vs_large.yaml dual_congested.yaml)
 # Dual-client traces only
@@ -57,7 +57,7 @@ cd ..
 echo "Generating skeleton..."
 /usr/local/sbin/bpftool gen skeleton build_best/best.bpf.o name cache_ext_evolved_bpf > build_best/best.skel.h
 
-# Compile loader (using best skeleton) — flags match evaluate.py exactly
+# Compile loader (using best skeleton) - flags match evaluate.py exactly
 echo "Building loader..."
 cp cache_ext_evolved.c build_best/best_loader.c
 # Update include to use best.skel.h

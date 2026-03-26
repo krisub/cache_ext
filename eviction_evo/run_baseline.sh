@@ -10,11 +10,13 @@ DB=/mydata/leveldb_temp
 TRACES_DIR=/mydata/cache_ext/eviction_evo/traces
 DUAL_RUNNER="python3 /mydata/cache_ext/eviction_evo/run_dual_trace.py"
 CGROUP=cache_ext_test
-MEM_LIMIT=536870912    # 512 MiB — matches evaluate.py cgroup limit
+MEM_LIMIT=536870912    # 512 MiB - matches evaluate.py cgroup limit
 RESULTS_DIR=/mydata/cache_ext/eviction_evo/baseline_results
+LEVELDB_DB=/mydata/leveldb
+RUNS_PER_TRACE=5       # Must match evaluate.py RUNS_PER_TRACE
 
 # Trace configs: name filename (must match TRACE_CONFIGS in evaluate.py)
-# Single-client traces (commented out — dual-client only mode)
+# Single-client traces (commented out - dual-client only mode)
 #TRACE_NAMES=(ycsb_a ycsb_b ycsb_c ycsb_d ycsb_e ycsb_f uniform uniform_rw dual_small_vs_large dual_congested)
 #TRACE_FILES=(ycsb_a.yaml ycsb_b.yaml ycsb_c.yaml ycsb_d.yaml ycsb_e.yaml ycsb_f.yaml uniform.yaml uniform_read_write.yaml dual_small_vs_large.yaml dual_congested.yaml)
 # Dual-client traces only
@@ -39,6 +41,7 @@ if [ -n "$REUSE_DIR" ]; then
     # ── Reuse mode: parse existing logs ──
     echo "=== Reusing existing logs from: $REUSE_DIR ==="
     RESULT_DIR="$REUSE_DIR"
+    TIMESTAMP=$(basename "$REUSE_DIR" | sed 's/^baseline_//' || echo "reuse")
 else
     # ── Normal mode: run benchmarks ──
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -52,6 +55,12 @@ else
     # Clean up any leftovers
     sudo pkill -9 -f "net_leveldb_server" 2>/dev/null || true
     sleep 1
+
+    # Ensure temp DB exists (hardlink from source) - matches evaluate.py reset_database
+    if [ ! -f "$DB/CURRENT" ]; then
+        cp -al "$LEVELDB_DB" "$DB"
+        echo "Database hardlinked: $LEVELDB_DB -> $DB"
+    fi
 
     sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
     sudo cgdelete "memory:$CGROUP" 2>/dev/null || true
@@ -68,7 +77,7 @@ else
     done
     echo "Server ready (PID $SERVER_PID)"
 
-    # Run each trace benchmark
+    # Run each trace benchmark (RUNS_PER_TRACE runs per trace, matching evaluate.py)
     for idx in "${!TRACE_NAMES[@]}"; do
         trace_name="${TRACE_NAMES[$idx]}"
         trace_file="${TRACE_FILES[$idx]}"
@@ -76,27 +85,38 @@ else
         trace_log="$RESULT_DIR/${trace_name}.log"
 
         echo ""
-        echo "--- Trace $((idx+1))/${#TRACE_NAMES[@]}: $trace_name ---"
+        echo "--- Trace $((idx+1))/${#TRACE_NAMES[@]}: $trace_name ($RUNS_PER_TRACE runs) ---"
 
-        # Drop page cache between traces
-        if [ "$idx" -gt 0 ]; then
+        : > "$trace_log"   # truncate for fresh runs
+        RUN_TPS=()
+
+        for run_idx in $(seq 1 "$RUNS_PER_TRACE"); do
+            # Drop page cache before each run - matches evaluate.py
             sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
             sleep 2
-        fi
 
-        # Detect dual-client traces (YAML has 'type: dual_client')
-        if python3 -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); exit(0 if c.get('type')=='dual_client' else 1)" "$trace_config" 2>/dev/null; then
-            # Dual-client: use run_dual_trace.py (server already running)
-            $DUAL_RUNNER "$trace_config" > "$trace_log" 2>&1
-            # Extract throughput from the structured output
-            TP=$(grep "^total_throughput" "$trace_log" | awk '{print $2}')
+            echo "  Run $run_idx/$RUNS_PER_TRACE ..."
+
+            # Detect dual-client traces (YAML has 'type: dual_client')
+            if python3 -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); exit(0 if c.get('type')=='dual_client' else 1)" "$trace_config" 2>/dev/null; then
+                $DUAL_RUNNER "$trace_config" >> "$trace_log" 2>&1
+                TP=$(grep "^total_throughput" "$trace_log" | tail -1 | awk '{print $2}')
+            else
+                "$BENCH" "$trace_config" 2>&1 | tee -a "$trace_log" | tail -5
+                TP=$(grep "overall:.*total throughput" "$trace_log" | tail -1 | grep -oP 'total throughput \K[0-9.]+' || echo "0")
+            fi
             [ -z "$TP" ] && TP=0
-        else
-            "$BENCH" "$trace_config" 2>&1 | tee "$trace_log"
-            TP=$(grep "overall:.*total throughput" "$trace_log" | tail -1 | grep -oP 'total throughput \K[0-9.]+' || echo "0")
-        fi
-        THROUGHPUTS[$idx]="$TP"
-        echo "  $trace_name throughput: $TP ops/sec"
+            RUN_TPS+=("$TP")
+        done
+
+        # Mean of runs (matches evaluate.py: mean per trace, then harmonic mean of means)
+        TP_MEAN=$(printf '%s\n' "${RUN_TPS[@]}" | python3 -c "
+import sys
+vals = [float(x) for x in sys.stdin.read().split() if x]
+print(f'{sum(vals)/len(vals):.4f}' if vals else '0')
+")
+        THROUGHPUTS[$idx]="$TP_MEAN"
+        echo "  $trace_name: mean throughput $TP_MEAN ops/sec (runs: ${RUN_TPS[*]})"
     done
 
     # Cleanup server/cgroup
@@ -105,16 +125,29 @@ else
 fi
 
 # ── Parse throughputs from logs (both modes) ──
+# With RUNS_PER_TRACE>1, each trace log has multiple runs; we take the mean.
 declare -a THROUGHPUTS
 for idx in "${!TRACE_NAMES[@]}"; do
     trace_name="${TRACE_NAMES[$idx]}"
     trace_log="$RESULT_DIR/${trace_name}.log"
-    # Try dual-client format first, then standard format
-    TP=$(grep "^total_throughput" "$trace_log" 2>/dev/null | awk '{print $2}')
-    if [ -z "$TP" ] || [ "$TP" = "0" ]; then
-        TP=$(grep "overall:.*total throughput" "$trace_log" 2>/dev/null | tail -1 | grep -oP 'total throughput \K[0-9.]+' || echo "0")
+    # Try dual-client format (multiple "total_throughput X" lines)
+    TP_LINES=$(grep "^total_throughput" "$trace_log" 2>/dev/null | awk '{print $2}')
+    if [ -n "$TP_LINES" ]; then
+        TP_MEAN=$(echo "$TP_LINES" | python3 -c "
+import sys
+vals = [float(x) for x in sys.stdin.read().split() if x]
+print(f'{sum(vals)/len(vals):.4f}' if vals else '0')
+")
+    else
+        # Standard format: one "overall: total throughput X" per run
+        TP_LINES=$(grep "overall:.*total throughput" "$trace_log" 2>/dev/null | grep -oP 'total throughput \K[0-9.]+' || true)
+        TP_MEAN=$(echo "$TP_LINES" | python3 -c "
+import sys
+vals = [float(x) for x in sys.stdin.read().split() if x]
+print(f'{sum(vals)/len(vals):.4f}' if vals else '0')
+")
     fi
-    THROUGHPUTS[$idx]="$TP"
+    THROUGHPUTS[$idx]="${TP_MEAN:-0}"
 done
 
 # Compute harmonic mean of throughputs (same formula as evaluate.py)
@@ -135,8 +168,9 @@ print(f'{hm:.4f}')
 echo ""
 echo "========================================================"
 echo "  MGLRU BASELINE RESULTS ($TIMESTAMP)"
+echo "  $RUNS_PER_TRACE runs per trace (matches evaluate.py)"
 echo "========================================================"
-printf "  Combined score (harmonic mean): %s ops/sec\n" "$COMBINED_SCORE"
+printf "  Combined score (harmonic mean of trace means): %s ops/sec\n" "$COMBINED_SCORE"
 echo "  ------------------------------------------------"
 for idx in "${!TRACE_NAMES[@]}"; do
     printf "  %-12s  %s ops/sec\n" "${TRACE_NAMES[$idx]}" "${THROUGHPUTS[$idx]}"

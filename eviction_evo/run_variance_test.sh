@@ -130,6 +130,6 @@ fi
 
 echo ""
 echo "================================================================"
-echo "  ALL RUNS COMPLETE — run the summary script next:"
+echo "  ALL RUNS COMPLETE - run the summary script next:"
 echo "  python3 $SCRIPT_DIR/summarize_variance.py"
 echo "================================================================"

@@ -1,0 +1,140 @@
+<NAME>
+loss_decay_adaptive_protection
+</NAME>
+
+<DESCRIPTION>
+The current loss-based protection applies a uniform 15% boost whenever packet loss is detected (via MaxMin listener on GF_LOST), but the loss counter in kernel TCP state can persist long after network conditions improve, causing sustained over-protection that hurts throughput especially under high-frequency workloads (dual_small_vs_large).
+
+The proposed change implements time-decay for the loss boost:
+1. Track a global timestamp when packet loss was most recently detected
+2. In the scoring function, calculate elapsed time since last loss event
+3. Decay the 15% boost gradually over 150ms (full boost for 0-50ms, then linear decay to negligible by 150ms)
+4. This maintains responsiveness to transient congestion while preventing stale loss signals from locking the cache into overly conservative eviction
+
+This addresses the observation that the dual_congested trace (where loss is more persistent) performs better than dual_small_vs_large (where loss is transient). By allowing the boost to naturally decay, we can improve small_vs_large performance without sacrificing congested-scenario protection.
+
+The implementation uses a simple BPF map to store the last loss event timestamp and applies integer arithmetic for the decay calculation, remaining fully BPF-compatible.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, u32);
+    __type(value, u64);
+} debug_counters SEC(".maps");
+=======
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, u32);
+    __type(value, u64);
+} debug_counters SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, u64);
+} loss_event_ts_map SEC(".maps");
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        network_factor = (network_factor * 115) / 100;  /* additional 15% boost */
+    }
+=======
+    /* Packet loss detected with time-decay: apply full protection for recent loss,
+     * then gradually decay to no boost over 150ms. This prevents stale loss signals
+     * from causing sustained over-protection while maintaining responsiveness to
+     * transient congestion events.
+     */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    s64 loss_boost_factor = 100;  /* baseline: 1.0x (no boost) */
+
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss detected + RTT > 3ms */
+        /* Update timestamp of most recent loss event */
+        u32 loss_key = 0;
+        u64 now_ns = bpf_ktime_get_ns();
+        bpf_map_update_elem(&loss_event_ts_map, &loss_key, &now_ns, BPF_ANY);
+
+        /* Read back the timestamp (should be the one we just wrote) */
+        u64 *last_loss_ts_ptr = bpf_map_lookup_elem(&loss_event_ts_map, &loss_key);
+        if (last_loss_ts_ptr) {
+            u64 elapsed_ns = now_ns - *last_loss_ts_ptr;
+            u64 elapsed_ms = elapsed_ns / 1000000;  /* Convert to milliseconds */
+
+            /* Decay formula: full 15% boost for <= 50ms, linear decay to negligible by 150ms
+             * boost_factor = 115 - (elapsed_ms - 50) * 10 / 100, clamped to [100, 115]
+             * For elapsed_ms <= 50: boost_factor = 115
+             * For elapsed_ms == 150: boost_factor = 115 - 100*10/100 = 100 (no boost)
+             */
+            if (elapsed_ms <= 50) {
+                loss_boost_factor = 115;  /* Full boost for recent loss */
+            } else if (elapsed_ms >= 150) {
+                loss_boost_factor = 100;  /* No boost for stale loss (>150ms) */
+            } else {
+                /* Linear decay from 115 to 100 over 50-150ms interval */
+                s64 decay_region = elapsed_ms - 50;  /* 0 to 100 */
+                loss_boost_factor = 115 - (decay_region / 10);  /* Decays by 1 per 10ms */
+            }
+        }
+
+        network_factor = (network_factor * loss_boost_factor) / 100;
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    net_prev_packet_ts = last_packet_ts;
+    last_packet_ts     = bpf_ktime_get_ns();
+    net_recv_count    += 1;
+
+    struct tcp_sock *tp = (struct tcp_sock *)sk;
+
+    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+=======
+    net_prev_packet_ts = last_packet_ts;
+    last_packet_ts     = bpf_ktime_get_ns();
+    net_recv_count    += 1;
+
+    struct tcp_sock *tp = (struct tcp_sock *)sk;
+
+    u32 new_lost = BPF_CORE_READ(tp, lost);
+    
+    /* Detect new loss event: if lost counter increased from zero or was zero, record it */
+    if (new_lost > 0 && new_lost > net_lost) {
+        u32 loss_key = 0;
+        u64 now_ts = bpf_ktime_get_ns();
+        bpf_map_update_elem(&loss_event_ts_map, &loss_key, &now_ts, BPF_ANY);
+    }
+
+    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
+    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
+    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
+    net_packets_out    = BPF_CORE_READ(tp, packets_out);
+    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
+    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
+    net_lost           = BPF_CORE_READ(tp, lost);
+=======
+    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
+    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
+    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
+    net_packets_out    = BPF_CORE_READ(tp, packets_out);
+    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
+    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
+    net_lost           = new_lost;
+>>>>>>> REPLACE
+</DIFF>

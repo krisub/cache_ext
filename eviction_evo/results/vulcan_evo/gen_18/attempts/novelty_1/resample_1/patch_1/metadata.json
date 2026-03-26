@@ -1,0 +1,14 @@
+{
+  "generation": 18,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "congestion_window_saturation_detection",
+  "patch_description": "The recommendation suggests integrating PACKETS_OUT congestion signal with window saturation detection. Currently, the policy only monitors RTT and loss, but doesn't detect when the congestion window is saturated (high in-flight packets relative to cwnd).\n\nWhen PACKETS_OUT EWMA approaches or exceeds SND_CWND EWMA, the network is window-limited. This is particularly valuable during the dual_congested workload where throughput is lower than the best prior version (2090.49).\n\nThe improvement:\n1. Enable GF_SND_CWND EWMA listener (fast-reacting, alpha=200 to match PACKETS_OUT)\n2. Compute congestion ratio: (packets_out_ewma * 100) / max(snd_cwnd_ewma, 1)\n3. Apply scaled secondary boost to network_factor when ratio > 70% (indicating pressure):\n   - 1.05x boost if ratio 70-90%\n   - 1.15x boost if ratio > 90%\n\nThis provides finer-grained network-aware protection without the complexity of exponential decay, focusing on the immediate congestion state.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T01:06:30.841923",
+  "llm_cost": 0.071042,
+  "llm_model": null
+}

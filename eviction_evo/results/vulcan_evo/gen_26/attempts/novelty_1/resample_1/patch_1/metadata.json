@@ -1,0 +1,14 @@
+{
+  "generation": 26,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "loss_boost_time_decay",
+  "patch_description": "The current approach using RollingWindow for GF_LOST has degraded performance from 2090.49 to 2060.76. The recommendation suggests implementing explicit time-decay on loss-triggered protection to prevent stale loss signals from indefinitely over-protecting the cache.\n\nKey insight: Loss detection should provide immediate, strong protection when active, but decay that protection over time as the network recovers. The implementation tracks the timestamp of the most recent loss event and scales the boost factor by exponential decay (decay = 115 - (now - last_loss_ts)/10ms, clamped to 100%).\n\nThis allows:\n- Immediate 15% boost when loss is actively detected\n- Gradual decay to ~5% boost after 100ms  \n- Return to 0% boost (no impact) after 150ms+\n- Natural recovery without sustained over-protection\n\nThe change reverts GF_LOST to MINMAX (which was working well) and implements time-decay logic directly in bpf_score_fn using module-level timestamp tracking.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T03:46:04.550815",
+  "llm_cost": 0.06954,
+  "llm_model": null
+}

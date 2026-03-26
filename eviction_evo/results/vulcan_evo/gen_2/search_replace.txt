@@ -1,0 +1,166 @@
+I see the issue - the kprobe section is outside the EVOLVE-BLOCK and immutable. However, the kprobe already has logic to automatically activate when any listeners are enabled in `gf_configs[]`. I can work entirely within the EVOLVE-BLOCK to enable the listeners and modify the scoring function.
+
+<NAME>
+adaptive_burst_aware_lfu
+</NAME>
+
+<DESCRIPTION>
+Enhance LFU eviction by adding burst detection and per-folio recency tracking.
+
+The improvement works by:
+1. Enabling GF_INTER_ARRIVAL listener (EWMA + RollingWindow) to detect request bursts
+2. Enabling per-folio interval_ewma tracking to distinguish hot (frequently-accessed) vs cold (stale) folios
+3. Modifying the scoring function to:
+   - Keep access_count as primary signal (LFU base)
+   - Subtract penalty based on interval_ewma (high interval = cold = low score = evict first)
+   - During burst patterns (low inter-arrival), add a boost to protect working set
+   - Retain LevelDB index block bonus
+
+The enabled listeners in gf_configs[] automatically trigger the kprobe (which already contains early-exit logic to activate only when listeners are enabled). This balances frequency with recency and adapts protection based on network conditions. Expected to improve both workloads by keeping the working set in cache during bursty phases and evicting genuinely cold folios during steady states.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Per-feature listener configuration --------------------------------------
+// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
+// listeners for vulcan_get_* accessors in bpf_score_fn.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = 0 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = 0 },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+// -- Per-feature listener configuration --------------------------------------
+// Enable GF_INTER_ARRIVAL to detect burst patterns. The kprobe automatically
+// activates when any listener is enabled (early-exit check in trace_tcp_recvmsg).
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = 0 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = 0 },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
+                             .ewma_alpha = 150, .rw_size = 8 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- Per-folio listener configuration ----------------------------------------
+// Baseline: disabled. Evolution can enable for interval-based scoring.
+static const struct vulcan_folio_config folio_cfg = {
+    .listener_mask = 0,
+    .ewma_alpha    = 200,
+};
+=======
+// -- Per-folio listener configuration ----------------------------------------
+// Enable interval_ewma tracking to distinguish hot vs. cold folios
+// based on inter-access time patterns.
+static const struct vulcan_folio_config folio_cfg = {
+    .listener_mask = VULCAN_LISTENER_EWMA,
+    .ewma_alpha    = 200,
+};
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+/*
+ * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Evolution can add vulcan_get_* calls and protection rules.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 score = (s64)meta->access_count;
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+=======
+/*
+ * Enhanced LFU with recency + burst awareness.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Combines access_count (frequency) with interval_ewma (recency) and
+ * burst detection (via inter-arrival) to make smarter eviction decisions.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    /* Base score: frequency (higher access_count = higher score = harder to evict) */
+    s64 score = (s64)meta->access_count * 100;
+
+    /* Recency penalty: folios with high interval_ewma (stale) get lower scores.
+     * If a folio hasn't been accessed for a while (high interval_ewma),
+     * make it easier to evict. Divide by large constant to normalize ns values. */
+    if (meta->interval_ewma.value > 0) {
+        score -= meta->interval_ewma.value / 100000;  /* High interval → low score → evict first */
+    }
+
+    /* Burst detection: if inter-arrival is low, we're in a bursty phase.
+     * During bursts, protect the active working set by boosting scores. */
+    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
+    if (inter_arrival_ewma > 0 && inter_arrival_ewma < 100000) {  /* < 100us avg = burst */
+        score += 5000;  /* Protect working set during burst */
+    }
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+>>>>>>> REPLACE
+</DIFF>

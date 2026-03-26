@@ -1,0 +1,210 @@
+<NAME>
+adaptive_rtt_baseline_scaling
+</NAME>
+
+<DESCRIPTION>
+The current program uses fixed RTT thresholds (5ms and 10ms) for protection scaling, which may be suboptimal across diverse network conditions. The recommendation is to implement adaptive RTT baseline tracking with dynamic threshold scaling.
+
+**Key insight**: Instead of fixed absolute thresholds, track a long-term EWMA of RTT with very low alpha (50) as a workload-specific "baseline," then scale protection dynamically based on deviation from baseline. This approach:
+
+1. **Adapts to workload characteristics**: Each workload (fast direct reader vs. congested dual clients) establishes its own normal RTT baseline
+2. **Relative scaling is more robust**: Protection scales based on stress deviation from normal, not absolute values
+3. **Smoother transitions**: Uses low-alpha EWMA (alpha=50) for baseline to avoid over-reaction to transient RTT spikes while still tracking long-term trends
+
+The protection factor becomes: `100 + (current_rtt - baseline_rtt) * multiplier`, where the multiplier is tuned to provide 25% extra protection when current RTT is 50% above baseline, and 50% extra protection when it's 100% above baseline.
+
+This replaces the hard-coded threshold checks (>5ms → 1.25x, >10ms → 1.5x) with a principled adaptive model that inherently normalizes for workload-specific network conditions.
+
+The baseline is stored in a single-entry BPF map and updated with fixed-point arithmetic in the kprobe (following the established pattern), ensuring minimal overhead while providing powerful adaptive behavior.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, u32);
+    __type(value, u64);
+} debug_counters SEC(".maps");
+
+// Include feature dispatch layer (needs maps declared above)
+#include "vulcan_bpf/vulcan_feature.h"
+=======
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 16);
+    __type(key, u32);
+    __type(value, u64);
+} debug_counters SEC(".maps");
+
+// RTT baseline: single-entry map for adaptive threshold scaling
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct vulcan_ewma);
+} rtt_baseline_map SEC(".maps");
+
+// Include feature dispatch layer (needs maps declared above)
+#include "vulcan_bpf/vulcan_feature.h"
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Per-feature listener configuration --------------------------------------
+// Enable high-performing listeners to track network conditions adaptively.
+// GF_LOST uses RollingWindow instead of MinMax to provide recency-aware loss
+// detection with natural time-decay. Recent loss → full boost; stale loss → reduced/no boost.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+=======
+// -- Per-feature listener configuration --------------------------------------
+// Enable high-performing listeners to track network conditions adaptively.
+// GF_LOST uses RollingWindow instead of MinMax to provide recency-aware loss
+// detection with natural time-decay. Recent loss → full boost; stale loss → reduced/no boost.
+// Note: SRTT listener provides the source for dynamic baseline adaptation.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+/*
+ * Network-aware LFU with sophisticated adaptive protection.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ *
+ * Combines RTT sensitivity, per-folio heat tracking (via interval_ewma),
+ * and recency to make intelligent eviction decisions under varying network
+ * conditions. Loss detection applies modest protection to prevent thrashing.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    }
+=======
+/*
+ * Network-aware LFU with adaptive RTT baseline tracking.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ *
+ * Combines adaptive RTT baseline scaling, per-folio heat tracking (via interval_ewma),
+ * and recency to make intelligent eviction decisions. Protection scales based on
+ * deviation from workload-specific RTT baseline rather than fixed thresholds.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+
+    /* Adaptive RTT-based protection using baseline tracking.
+     * Scale protection based on deviation from long-term baseline RTT. */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    u32 baseline_key = 0;
+    struct vulcan_ewma *baseline = bpf_map_lookup_elem(&rtt_baseline_map, &baseline_key);
+    
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    if (baseline && baseline->value > 0 && srtt_ewma > 0) {
+        /* Compute relative stress: (current - baseline) as percentage of baseline
+         * If current > baseline by 50%, stress is 50 (meaning 50% above baseline)
+         * Apply graduated protection: 0.5x multiplier per 100% stress */
+        s64 rtt_diff = srtt_ewma - baseline->value;
+        if (rtt_diff > 1000) {  /* At least 1ms above baseline to trigger adjustment */
+            /* For each 2ms above baseline, add 25 to network_factor (0.25x multiplier per 2ms)
+             * This means: +2ms → 1.25x, +4ms → 1.50x, +6ms → 1.75x, etc. */
+            s64 stress_units = (rtt_diff * 125) / 2000;  /* (rtt_diff_us * 125) / 2000_us */
+            network_factor = 100 + stress_units;
+            if (network_factor > 200) network_factor = 200;  /* Cap at 2.0x */
+        }
+    } else if (srtt_ewma > 0) {
+        /* Baseline not yet initialized; use simple fixed thresholds as fallback
+         * This only occurs during initial warmup period */
+        if (srtt_ewma > 10000) {
+            network_factor = 150;
+        } else if (srtt_ewma > 5000) {
+            network_factor = 125;
+        }
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    for (u32 i = 0; i < VULCAN_NUM_GLOBAL_FEATURES && i < 16; i++) {
+        if (gf_configs[i].listener_mask)
+            vulcan_update_feature(i, raw_values[i], &gf_configs[i]);
+    }
+
+    return 0;
+}</parameter>
+=======
+    for (u32 i = 0; i < VULCAN_NUM_GLOBAL_FEATURES && i < 16; i++) {
+        if (gf_configs[i].listener_mask)
+            vulcan_update_feature(i, raw_values[i], &gf_configs[i]);
+    }
+
+    /* Update RTT baseline with very low alpha (50) for slow adaptation.
+     * This establishes a long-term "normal" RTT for the workload. */
+    if (raw_values[GF_SRTT_US] > 0) {
+        u32 baseline_key = 0;
+        struct vulcan_ewma *baseline = bpf_map_lookup_elem(&rtt_baseline_map, &baseline_key);
+        if (!baseline) {
+            /* Initialize baseline on first call */
+            struct vulcan_ewma init_baseline = { .value = raw_values[GF_SRTT_US] };
+            bpf_map_update_elem(&rtt_baseline_map, &baseline_key, &init_baseline, BPF_ANY);
+        } else {
+            /* Update baseline with alpha=50 (very slow smoothing) using fixed-point arithmetic.
+             * new_value = (old_value * (1000 - alpha) + new_sample * alpha) / 1000
+             * With alpha=50: new = old * 950/1000 + sample * 50/1000 */
+            struct vulcan_ewma new_baseline;
+            new_baseline.value = (baseline->value * 950 + raw_values[GF_SRTT_US] * 50) / 1000;
+            bpf_map_update_elem(&rtt_baseline_map, &baseline_key, &new_baseline, BPF_ANY);
+        }
+    }
+
+    return 0;
+>>>>>>> REPLACE
+</diff>

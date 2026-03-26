@@ -1,0 +1,14 @@
+{
+  "generation": 25,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_rtt_baseline_scaling_v2",
+  "patch_description": "The current program uses fixed RTT thresholds (5ms and 10ms) for protection scaling, which may be suboptimal across diverse network conditions. The recommendation is to implement adaptive RTT baseline tracking with dynamic threshold scaling, entirely within the EVOLVE-BLOCK.\n\n**Key insight**: Track a long-term EWMA of RTT with very low alpha (50) as a workload-specific \"baseline\" using a static variable, then scale protection dynamically based on deviation from baseline. This approach:\n\n1. **Adapts to workload characteristics**: Each workload establishes its own normal RTT baseline\n2. **Relative scaling is more robust**: Protection scales based on stress deviation from normal\n3. **Within EVOLVE-BLOCK**: Uses only static variables for baseline tracking, avoiding external map overhead\n\nInstead of hard-coded thresholds (>5ms \u2192 1.25x, >10ms \u2192 1.5x), protection becomes: `100 + (current_rtt - baseline_rtt) * multiplier`, providing 25% extra protection when 2ms above baseline, 50% protection when 4ms above, etc. This normalizes for workload-specific network conditions without manual tuning.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T03:14:14.390350",
+  "llm_cost": 0.065381,
+  "llm_model": null
+}

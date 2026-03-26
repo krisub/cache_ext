@@ -1,0 +1,49 @@
+<NAME>
+time_decaying_loss_protection_via_ewma
+</NAME>
+
+<DESCRIPTION>
+The current implementation uses MINMAX listener for GF_LOST, which tracks the maximum loss value ever observed. Once loss occurs, `vulcan_get_max(GF_LOST)` remains elevated indefinitely, causing sustained over-protection even after network conditions improve. This prevents the cache from adapting when congestion resolves.
+
+This change switches GF_LOST from MINMAX to EWMA listener, which provides natural time-decay behavior. The EWMA smooths loss observations and automatically decays toward zero when loss events stop, achieving the recommended time-decay without requiring explicit timestamp tracking (which would violate the architectural constraint against modifying the kprobe).
+
+With alpha=150, the EWMA provides ~100ms time constant, so loss protection naturally reduces within 200-300ms after conditions improve. The scoring function then applies graduated protection based on EWMA magnitude rather than a binary max_lost > 0 check, providing more nuanced responses to varying congestion levels.
+
+This addresses the observation that dual_congested throughput (3781.21 MB/s) has room for improvement by enabling faster recovery when network conditions improve after transient loss events.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+=======
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated to avoid
+     * stale loss signals causing sustained over-protection. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+=======
+    /* Packet loss with EWMA-based time-decay: smoothed loss naturally decays
+     * when loss events stop, preventing sustained over-protection from stale signals.
+     * Apply graduated protection based on EWMA magnitude. EWMA alpha=150 gives
+     * ~100ms time constant, so protection naturally reduces within 200-300ms after
+     * conditions improve. */
+    s64 lost_ewma = vulcan_get_ewma(GF_LOST);
+    if (lost_ewma > 0 && srtt_ewma > 3000) {  /* Smoothed loss + RTT >3ms */
+        /* Graduated protection: higher EWMA = stronger protection.
+         * lost_ewma typically ranges 0-20+ during congestion.
+         * Cap boost at 115% to prevent over-protection. */
+        s64 loss_boost = 100 + (lost_ewma * 15 / 10);  /* +1.5% per unit of EWMA */
+        if (loss_boost > 115) loss_boost = 115;
+        network_factor = (network_factor * loss_boost) / 100;
+    }
+>>>>>>> REPLACE
+</DIFF>

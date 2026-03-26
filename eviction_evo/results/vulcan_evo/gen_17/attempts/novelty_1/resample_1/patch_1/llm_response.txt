@@ -1,0 +1,110 @@
+<NAME>
+loss_decay_with_rolling_window
+</NAME>
+
+<DESCRIPTION>
+The current loss detection uses `vulcan_get_max(GF_LOST)`, which tracks the maximum loss value ever observed. This causes sustained over-protection even after the network recovers and loss clears. 
+
+The recommendation suggests time-decay: stale loss signals should gradually lose their protective effect. Since we cannot add new maps to track timestamps, we use the RollingWindow listener (already available in vulcan_bpf) instead of MinMax for GF_LOST. This naturally provides recency-aware loss tracking:
+
+- Recent loss (latest window entries non-zero) → full 15% boost
+- Older loss (earlier window entries had loss, but latest is zero) → partial/no boost
+- Clean period (no loss in entire window) → no boost
+
+We check both the most recent loss value and earlier entries with partial weight to implement approximate exponential decay using window position as a proxy for age. A window size of 4-6 entries gives us roughly 100-150ms of history depending on packet frequency.
+
+This change shifts from binary (loss ever detected) to continuous (how recent was the loss), preventing stale loss signals from indefinitely locking the cache into overly conservative eviction.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Per-feature listener configuration --------------------------------------
+// Enable high-performing listeners to track network conditions adaptively.
+// These provide real-time network state for adaptive cache protection.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+// -- Per-feature listener configuration --------------------------------------
+// Enable high-performing listeners to track network conditions adaptively.
+// GF_LOST uses RollingWindow instead of MinMax to provide recency-aware loss
+// detection with natural time-decay. Recent loss → full boost; stale loss → reduced/no boost.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_RW,
+                            .rw_size = 5 },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated to avoid
+     * stale loss signals causing sustained over-protection. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+=======
+    /* Packet loss detected with recency-aware decay via RollingWindow.
+     * Recent loss → full 15% boost; stale loss → gradually decay to no boost.
+     * Check most recent loss value; if zero (network recovered), apply reduced boost
+     * based on how recent the earlier loss was. */
+    s64 latest_lost = vulcan_get_latest(GF_LOST);
+    s64 loss_boost = 0;
+    
+    if (latest_lost > 0 && srtt_ewma > 3000) {
+        /* Most recent sample shows active loss: apply full boost */
+        loss_boost = 115;
+    } else if (srtt_ewma > 3000) {
+        /* No active loss, but check if loss was recent (window position 2-4)
+         * Apply partial decay-based boost */
+        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
+        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
+        
+        if (prev_lost_1 > 0) {
+            loss_boost = 108;  /* 8% boost for very recent loss */
+        } else if (prev_lost_2 > 0) {
+            loss_boost = 103;  /* 3% boost for moderately old loss */
+        }
+    }
+    
+    if (loss_boost > 100) {
+        network_factor = (network_factor * loss_boost) / 100;
+    }
+>>>>>>> REPLACE
+</DIFF>

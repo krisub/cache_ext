@@ -3,8 +3,8 @@ set -eu -o pipefail
 
 # Populate test files for the file_workload benchmark.
 # Creates two directories:
-#   /mydata/file_workload_data/small/  — 20,000 files × 4 KB  = ~80 MB
-#   /mydata/file_workload_data/large/  — 5,000  files × 256 KB = ~1.25 GB
+#   /mydata/file_workload_data/small/  - 20,000 files x 4 KB  = ~80 MB
+#   /mydata/file_workload_data/large/  - 5,000  files x 256 KB = ~1.25 GB
 # Total ~1.33 GB, exceeding the 512 MiB cgroup limit to force eviction.
 
 DATA_DIR="/mydata/file_workload_data"

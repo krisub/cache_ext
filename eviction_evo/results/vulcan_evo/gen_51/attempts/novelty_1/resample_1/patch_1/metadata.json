@@ -1,0 +1,14 @@
+{
+  "generation": 51,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "recency_weighted_base_score",
+  "patch_description": "The current program computes base_score as raw access_count, then applies separate additive bonuses for recency (+50 if < 5s) and per-folio heat (+100/-100). This approach doesn't adequately distinguish between folios with similar access counts but vastly different recency profiles.\n\nThe best-performing prior program (Generation 39, score 2184.76) integrated recency directly into the base score calculation: `base_score = access_count * (1.0 + recency_factor)`, where recency_factor provides a 50% multiplicative boost for very recent accesses (<1s), decaying linearly to 0% at 10s.\n\nThis edit implements that proven recency-weighted base score computation. By making recency a multiplier rather than a flat additive bonus, we create a normalized access count that naturally prioritizes recently-active folios over cold ones with similar historical counts. A folio with 10 accesses from 2 seconds ago will score significantly higher than one with 10 accesses from 9 seconds ago, capturing working-set dynamics more effectively.\n\nThe computation uses integer arithmetic: `base_score = (access_count * (100 + recency_factor)) / 100`, where recency_factor ranges from 50 (full boost) to 0 (no boost), providing a 1.5x to 1.0x multiplier.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T19:00:28.538616",
+  "llm_cost": 0.19954200000000002,
+  "llm_model": null
+}

@@ -1,0 +1,83 @@
+<NAME>
+adaptive_rtt_baseline_tracking
+</NAME>
+
+<DESCRIPTION>
+Implement adaptive RTT baseline tracking with dynamic threshold scaling to calibrate protection multipliers to workload-specific network conditions. This addresses the current program's weakness (score 1868.97 vs best 2090.49) where trend-based detection is too noisy.
+
+The modification adds:
+1. A static variable within EVOLVE-BLOCK to store long-term RTT baseline (EWMA with alpha=50)
+2. Baseline update logic in bpf_score_fn using fixed-point arithmetic  
+3. Dynamic protection scaling based on current RTT vs baseline ratio
+4. Graduated multipliers: 1.0x (normal), 1.25x (elevated by 20%), 1.5x (elevated by 50%)
+
+This combines stability (fixed thresholds worked well in prior programs scoring >2000) with adaptivity (adjusts to each workload's typical network conditions automatically). Since we can only modify EVOLVE-BLOCK content, we track baseline as a static variable updated during scoring.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+=======
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+static s64 rtt_baseline = 0;  // Long-term RTT baseline for adaptive thresholds
+static u64 baseline_update_count = 0;  // Counter to rate-limit baseline updates
+=======
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Network-aware protection based on RTT trend, not absolute value */
+    s64 srtt_latest = vulcan_get_latest(GF_SRTT_US);
+    s64 srtt_prev = vulcan_get_kth_recent(GF_SRTT_US, 4);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* If RTT is increasing (degrading network), protect more aggressively */
+    if (srtt_prev > 0 && srtt_latest > srtt_prev) {
+        s64 rtt_increase = srtt_latest - srtt_prev;
+        if (rtt_increase > 3000) {  /* >3ms increase */
+            network_factor = 140;  /* 1.4x protection during degradation */
+        } else if (rtt_increase > 1000) {  /* >1ms increase */
+            network_factor = 120;  /* 1.2x protection */
+        }
+    }
+=======
+    /* Adaptive RTT baseline tracking: scale protection based on current vs baseline ratio */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Update long-term RTT baseline periodically (every 256 score evaluations) */
+    baseline_update_count++;
+    if ((baseline_update_count & 0xFF) == 0 && srtt_ewma > 0) {
+        if (rtt_baseline == 0) {
+            /* Initialize baseline on first update */
+            rtt_baseline = srtt_ewma;
+        } else {
+            /* Slow EWMA update (alpha=50 -> 5% weight on new, 95% on old) */
+            rtt_baseline = (rtt_baseline * 950 + srtt_ewma * 50) / 1000;
+        }
+    }
+
+    /* Dynamic threshold scaling: compare current smoothed RTT vs long-term baseline */
+    if (rtt_baseline > 0) {
+        if (srtt_ewma > (rtt_baseline * 150) / 100) {  /* >1.5x baseline */
+            network_factor = 150;  /* 1.5x protection for severely elevated RTT */
+        } else if (srtt_ewma > (rtt_baseline * 120) / 100) {  /* >1.2x baseline */
+            network_factor = 125;  /* 1.25x protection for moderately elevated RTT */
+        }
+    } else {
+        /* Fallback to absolute thresholds when baseline not yet established */
+        if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
+            network_factor = 150;
+        } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
+            network_factor = 125;
+        }
+    }
+>>>>>>> REPLACE
+</DIFF>

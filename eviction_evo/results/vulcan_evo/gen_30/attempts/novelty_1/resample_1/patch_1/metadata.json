@@ -1,0 +1,14 @@
+{
+  "generation": 30,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "access_count_scaled_cold_penalty",
+  "patch_description": "The current program has regressed significantly from the best performer (2090.49 \u2192 1859.25). The key issue is that the recency_boost_pct logic is overly aggressive in boosting recently-accessed pages regardless of their absolute frequency, and the cold penalty doesn't account for legitimate long-lived but infrequently-accessed folios (like LevelDB index structures).\n\nThe fix implements two targeted improvements:\n\n1. **Revert to simpler recency bonus**: The complex exponential recency_boost_pct was introduced but is competing poorly with network-aware factors. Revert to a simple +50 bonus for recently-accessed pages (which worked well at 2090.49).\n\n2. **Access-count-scaled cold penalties**: Instead of applying a flat -50 penalty to all cold folios, scale the penalty based on access history:\n   - If access_count < 5: Apply -100 (genuinely cold, few accesses)\n   - Else if access_count < 20: Apply -50 (moderately old but used several times)\n   - Else (access_count >= 20): Apply -25 (long-lived, frequently accessed, deserves preservation)\n\nThis preserves the asymmetric dual-threshold approach proven in prior versions while preventing eviction of moderately-accessed pages with legitimate utility (addressing the std of 160.43 in dual_small_vs_large). The access_count scaling distinguishes between truly cold pages and pages that are simply old but valuable.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T04:48:28.373187",
+  "llm_cost": 0.063999,
+  "llm_model": null
+}

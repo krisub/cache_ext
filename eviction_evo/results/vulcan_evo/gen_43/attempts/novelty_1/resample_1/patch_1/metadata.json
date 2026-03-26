@@ -1,0 +1,14 @@
+{
+  "generation": 43,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "add_congestion_window_saturation_detection",
+  "patch_description": "Following the recommendation to integrate PACKETS_OUT congestion signal with safe unsigned arithmetic for window saturation detection. This adds a secondary network factor to improve congested workload performance.\n\nThe approach:\n1. Enable SND_CWND EWMA listener to track congestion window smoothly\n2. Compute congestion ratio as (PACKETS_OUT / SND_CWND) * 100 using safe unsigned arithmetic\n3. Apply graduated secondary boost to network_factor: +5 for ratio > 70%, +10 for ratio > 90%\n4. Use additive boost pattern to avoid compounding effects with existing RTT-based protection\n\nThis provides a complementary signal to RTT for detecting network congestion, particularly valuable during the dual_congested workload where window saturation indicates the need for stronger cache protection.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T14:47:07.363560",
+  "llm_cost": 0.20604899999999998,
+  "llm_model": null
+}

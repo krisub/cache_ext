@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""run_dual_trace.py — Run any trace config (single or dual-client).
+"""run_dual_trace.py - Run any trace config (single or dual-client).
 
 Used by bash scripts (run_baseline.sh, test_best.sh) to handle dual-client
 traces transparently. Assumes the server is ALREADY running on port 9100.

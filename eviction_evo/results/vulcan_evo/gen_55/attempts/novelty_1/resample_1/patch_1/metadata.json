@@ -1,0 +1,14 @@
+{
+  "generation": 55,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "scale_cold_penalty_by_access_count",
+  "patch_description": "The current program applies a fixed -100 penalty to cold folios (interval_ewma > 5 seconds), which may over-penalize long-lived but valuable pages like LevelDB index structures that are accessed infrequently but remain important. This change introduces access-count-scaled asymmetry to the cold folio penalty:\n\n- Truly unused pages (access_count < 5): full -100 penalty\n- Moderately used pages (access_count < 20): reduced -50 penalty  \n- Frequently accessed historically (access_count >= 20): minimal -25 penalty\n\nThis refinement directly addresses the higher variability observed in dual_small_vs_large throughput (std: 148.47) by distinguishing between genuinely cold pages and long-lived but occasionally-accessed valuable folios. The asymmetry preserves strong eviction preference for truly unused pages while providing graduated protection for pages with established access histories, potentially reducing variance and improving the harmonic mean score through more nuanced victim selection.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T20:34:04.340584",
+  "llm_cost": 0.182832,
+  "llm_model": null
+}

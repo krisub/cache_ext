@@ -1,0 +1,14 @@
+{
+  "generation": 2,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "adaptive_burst_aware_lfu",
+  "patch_description": "Enhance LFU eviction by adding burst detection and per-folio recency tracking.\n\nThe improvement works by:\n1. Enabling GF_INTER_ARRIVAL listener (EWMA + RollingWindow) to detect request bursts\n2. Enabling per-folio interval_ewma tracking to distinguish hot (frequently-accessed) vs cold (stale) folios\n3. Modifying the scoring function to:\n   - Keep access_count as primary signal (LFU base)\n   - Subtract penalty based on interval_ewma (high interval = cold = low score = evict first)\n   - During burst patterns (low inter-arrival), add a boost to protect working set\n   - Retain LevelDB index block bonus\n\nThe enabled listeners in gf_configs[] automatically trigger the kprobe (which already contains early-exit logic to activate only when listeners are enabled). This balances frequency with recency and adapts protection based on network conditions. Expected to improve both workloads by keeping the working set in cache during bursty phases and evicting genuinely cold folios during steady states.",
+  "error_msg": null,
+  "timestamp": "2026-03-21T19:54:20.702801",
+  "llm_cost": 0.030085,
+  "llm_model": null
+}

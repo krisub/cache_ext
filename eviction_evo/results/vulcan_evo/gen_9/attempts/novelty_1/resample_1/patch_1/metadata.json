@@ -1,0 +1,14 @@
+{
+  "generation": 9,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "access_rate_normalization_with_recency_decay",
+  "patch_description": "The current baseline uses raw `access_count` as the eviction score, which inherently favors long-lived folios that have accumulated many accesses over time, even if they are no longer active. This creates a bias against recently-accessed folios that haven't had time to accumulate high counts.\n\nThis change implements access rate normalization with recency decay to address this bias:\n\n1. **Enable per-folio interval tracking**: Configure EWMA listener to track inter-access intervals, which provides a measure of folio \"temperature\" (lower interval = hotter).\n\n2. **Recency-weighted scoring**: Apply exponential decay to access_count based on time since last access: `access_count * 1000 / (1000 + time_since_access_ms / decay_constant)`. This ensures recently-active folios are prioritized over stale ones with high historical counts.\n\n3. **Per-folio heat bonus**: Folios with low interval_ewma (frequently accessed) receive additional protection, independent of total access count.\n\n4. **Minimal network awareness**: Enable SRTT EWMA and LOST MINMAX for adaptive protection during high-RTT or lossy network conditions, where cache misses are more expensive.\n\nThis approach shifts from pure frequency-based eviction (LFU) toward a frequency+recency hybrid that better captures current working set, especially under dynamic workloads where access patterns change over time.",
+  "error_msg": null,
+  "timestamp": "2026-03-21T22:28:57.525409",
+  "llm_cost": 0.20771099999999998,
+  "llm_model": null
+}

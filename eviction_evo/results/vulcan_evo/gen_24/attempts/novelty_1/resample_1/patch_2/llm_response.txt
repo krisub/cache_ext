@@ -1,0 +1,126 @@
+<NAME>
+loss_decay_timestamp_based
+</NAME>
+
+<DESCRIPTION>
+The current program uses a RollingWindow(5) listener for GF_LOST with multi-tiered position-based decay (15% boost for latest, 8% for 1 sample back, 3% for 2 samples back). This approach has a weakness: it decays based on how many newer samples arrive, not wall-clock time, leading to sustained over-protection when traffic is sparse.
+
+The recommendation proposes switching to explicit **timestamp-based decay** for the loss boost. Within the EVOLVE-BLOCK, we track `last_loss_ts` (updated whenever we observe `net_lost > 0`), then apply a linear time-decay formula: `boost = max(100, 115 - elapsed_ms / 10)`. This naturally decays the 15% boost to ~5% after 100ms and becomes negligible after 150ms, regardless of sampling cadence.
+
+This achieves two benefits:
+1. **Prevent stale loss signals from locking the cache into overly conservative eviction** — after ~150ms with no new loss events, we revert to baseline protection.
+2. **Simpler, more predictable decay** — time-based decay is easier to reason about and tune than position-based history.
+
+Implementation:
+- Add a global `last_loss_ts` variable in EVOLVE-BLOCK
+- In `bpf_score_fn`, track when `net_lost > 0` and update the timestamp
+- Replace the multi-tiered RollingWindow queries with a single time-decay computation
+- Simplify GF_LOST config from RW to MINMAX (we use raw `net_lost` directly now)
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+static u64 main_list;
+=======
+static u64 main_list;
+static u64 last_loss_ts = 0;  /* Track when packet loss was last observed for time-decay */
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_RW,
+                            .rw_size = 5 },
+=======
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    }
+
+    /* Packet loss detected with recency-aware decay via RollingWindow.
+     * Recent loss → full 15% boost; stale loss → gradually decay to no boost.
+     * Check most recent loss value; if zero (network recovered), apply reduced boost
+     * based on how recent the earlier loss was. */
+    s64 latest_lost = vulcan_get_latest(GF_LOST);
+    s64 loss_boost = 0;
+
+    if (latest_lost > 0 && srtt_ewma > 3000) {
+        /* Most recent sample shows active loss: apply full boost */
+        loss_boost = 115;
+    } else if (srtt_ewma > 3000) {
+        /* No active loss, but check if loss was recent (window position 2-4)
+         * Apply partial decay-based boost */
+        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
+        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
+
+        if (prev_lost_1 > 0) {
+            loss_boost = 108;  /* 8% boost for very recent loss */
+        } else if (prev_lost_2 > 0) {
+            loss_boost = 103;  /* 3% boost for moderately old loss */
+        }
+    }
+
+    if (loss_boost > 100) {
+        network_factor = (network_factor * loss_boost) / 100;
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+    u64 now = bpf_ktime_get_ns();
+=======
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    }
+
+    /* Packet loss detected with time-based decay.
+     * Track last_loss_ts when net_lost > 0 is observed.
+     * Apply time-decay: boost_factor = max(100, 115 - elapsed_ms / 10)
+     * This decays from 115 (15% boost) → 105 (5% boost after 100ms) → 100 (no boost after 150ms)
+     * Prevents stale loss signals from causing sustained over-protection. */
+    u64 now = bpf_ktime_get_ns();
+    if (net_lost > 0 && srtt_ewma > 3000) {
+        last_loss_ts = now;  /* Update timestamp on active loss */
+    }
+
+    s64 loss_boost = 100;
+    if (last_loss_ts > 0 && srtt_ewma > 3000) {
+        u64 elapsed_ns = now - last_loss_ts;
+        u64 elapsed_ms = elapsed_ns / 1000000;  /* Convert ns to ms */
+        s64 decay_factor = 115 - (elapsed_ms / 10);
+        if (decay_factor < 100) decay_factor = 100;
+        loss_boost = decay_factor;
+    }
+
+    if (loss_boost > 100) {
+        network_factor = (network_factor * loss_boost) / 100;
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+>>>>>>> REPLACE
+</DIFF>

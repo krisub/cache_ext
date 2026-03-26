@@ -1,0 +1,14 @@
+{
+  "generation": 15,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 5,
+  "patch_name": "congestion_window_saturation_boost",
+  "patch_description": "The current program uses adaptive interval thresholds collected during early eviction cycles, but this adds complexity and may have race conditions in the statistics updates. Looking at the best prior performer (1977.84 score), it used simpler fixed thresholds and pure network-aware protection.\n\nThe recommendation to integrate PACKETS_OUT congestion signal with dynamic boost scaling based on cwnd utilization ratio is well-motivated: when packets_out approaches snd_cwnd, the congestion window is saturated, indicating network backpressure. In such situations, protecting the working set more aggressively reduces cache misses during periods when each miss is especially expensive.\n\nThis edit:\n1. **Enables GF_SND_CWND EWMA listener** to track congestion window smoothly\n2. **Simplifies scoring** by removing the problematic adaptive threshold collection (which adds BPF state complexity and potential races) and reverting to fixed, proven thresholds\n3. **Adds window saturation boost** in bpf_score_fn: computes packets_out_ewma / snd_cwnd_ewma ratio and scales network_factor by 1.05x (if ratio > 0.7) or 1.15x (if ratio > 0.9)\n4. **Maintains per-folio interval tracking** (which was beneficial in prior programs) to detect hot vs cold folios\n\nThe congestion window saturation ratio is a direct signal of how close we are to TCP send limits\u2014much more precise than static thresholds. Combined with RTT-based and loss-based protection, this provides adaptive, multi-signal eviction decisions that should improve performance on both small-vs-large (fast readers need protection when network is busy) and congested (both clients compete for limited window) workloads.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T00:03:41.915945",
+  "llm_cost": 0.080708,
+  "llm_model": null
+}

@@ -1,0 +1,14 @@
+{
+  "generation": 49,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "recency_normalized_access_count",
+  "patch_description": "Calibrate the recency-weighted base score computation by introducing an explicit normalized access count variable. Instead of directly multiplying access_count by (100 + recency_factor) / 100, we compute a normalized_access_count that adds the recency boost as an additive component: `normalized_access_count = meta->access_count + (meta->access_count * recency_factor / 100)`. This makes the temporal locality contribution more explicit and allows network-aware protection factors to compound more effectively on top of the recency-adjusted value. The change better distinguishes between old cold folios (e.g., access_count=10, last_access=9s ago \u2192 normalized=10) and recently-active folios with similar historical counts (e.g., access_count=10, last_access=0.5s ago \u2192 normalized=15), addressing the working-set dynamics more precisely while maintaining the strong congested performance.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T17:53:25.628056",
+  "llm_cost": 0.181446,
+  "llm_model": null
+}

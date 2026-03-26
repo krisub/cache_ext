@@ -1,0 +1,37 @@
+<NAME>
+recency_normalized_access_count
+</NAME>
+
+<DESCRIPTION>
+Calibrate the recency-weighted base score computation by introducing an explicit normalized access count variable. Instead of directly multiplying access_count by (100 + recency_factor) / 100, we compute a normalized_access_count that adds the recency boost as an additive component: `normalized_access_count = meta->access_count + (meta->access_count * recency_factor / 100)`. This makes the temporal locality contribution more explicit and allows network-aware protection factors to compound more effectively on top of the recency-adjusted value. The change better distinguishes between old cold folios (e.g., access_count=10, last_access=9s ago → normalized=10) and recently-active folios with similar historical counts (e.g., access_count=10, last_access=0.5s ago → normalized=15), addressing the working-set dynamics more precisely while maintaining the strong congested performance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = 50;  /* 50% boost for very recent accesses */
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        /* Linear decay: 50% at 1s, 0% at 10s */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 50 - (elapsed_seconds * 50 / 9);
+        if (recency_factor < 0) recency_factor = 0;
+    }
+
+    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+=======
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = 50;  /* 50% boost for very recent accesses */
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        /* Linear decay: 50% at 1s, 0% at 10s */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 50 - (elapsed_seconds * 50 / 9);
+        if (recency_factor < 0) recency_factor = 0;
+    }
+
+    /* Compute normalized access count: explicitly add recency boost to access_count.
+     * This makes temporal locality a first-class component and allows network factors
+     * to compound more effectively on the recency-adjusted value. */
+    s64 normalized_access_count = (s64)meta->access_count + ((s64)meta->access_count * recency_factor / 100);
+    s64 base_score = normalized_access_count;
+>>>>>>> REPLACE
+</DIFF>

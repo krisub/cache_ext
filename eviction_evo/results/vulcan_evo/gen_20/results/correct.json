@@ -1,0 +1,4 @@
+{
+  "correct": false,
+  "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:297:1: error: expected identifier or '('\n>>>>>>> REPLACE\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:389:1: error: expected identifier or '('\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:522:37: error: use of undeclared identifier 'last_loss_ts'\n        u64 time_since_loss = now - last_loss_ts;\n                                    ^\n3 errors generated.\n"
+}

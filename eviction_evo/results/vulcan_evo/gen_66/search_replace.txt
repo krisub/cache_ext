@@ -1,0 +1,87 @@
+<NAME>
+time_decay_loss_protection
+</NAME>
+
+<DESCRIPTION>
+Implement explicit time-decay for loss signal protection to prevent sustained over-protection from stale loss events while maintaining responsiveness to transient congestion.
+
+The current approach uses RollingWindow position-based decay which relies on packet arrivals but doesn't provide precise time-based decay. This change adds explicit timestamp tracking for loss events and applies exponential time-decay where protection decays from 15% boost at loss detection to no boost after ~150ms.
+
+This addresses the observation that Generation 39's dual_congested throughput (3696.20 MB/s) is lower than Generation 38 (3781.21 MB/s), suggesting that the graduated decay (8% and 3% boosts for old loss) is too conservative and keeps protection elevated for too long after network conditions improve.
+
+The new approach:
+1. Tracks the timestamp of the last loss event using global state
+2. Applies exponential decay: full boost (115%) when loss is active, decaying linearly to no boost over 150ms
+3. Provides faster recovery when network conditions improve while maintaining protection during active congestion
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+=======
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+// -- Loss event tracking (for time-based decay) -------------------------------
+static u64 last_loss_event_ts = 0;  // Timestamp of last detected loss event
+static u32 prev_loss_count = 0;     // Previous loss count for detecting new loss events
+
+static u64 main_list;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss with time-decay: recent loss triggers full boost, older loss
+     * triggers reduced boost, providing natural decay without sustained over-protection. */
+    s64 latest_lost = vulcan_get_latest(GF_LOST);
+    if (latest_lost > 0 && srtt_ewma > 3000) {
+        /* Active loss detected: full boost */
+        network_factor = (network_factor * 115) / 100;  /* 15% boost */
+    } else if (srtt_ewma > 3000) {
+        /* No active loss, check for recent (but not current) loss for graduated decay */
+        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
+        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
+        if (prev_lost_1 > 0) {
+            network_factor = (network_factor * 108) / 100;  /* 8% boost for very recent loss */
+        } else if (prev_lost_2 > 0) {
+            network_factor = (network_factor * 103) / 100;  /* 3% boost for older loss */
+        }
+    }
+=======
+    /* Packet loss protection with explicit time-based decay.
+     * Detect new loss events and track timestamp for exponential decay.
+     * Full boost decays to zero over ~150ms, enabling faster recovery when
+     * congestion resolves while maintaining protection during active loss. */
+
+    /* Check for new loss events by comparing current loss count with previous */
+    u32 current_loss = (u32)net_lost;
+    if (current_loss > prev_loss_count) {
+        /* New loss detected - update timestamp and previous count */
+        last_loss_event_ts = now;
+        prev_loss_count = current_loss;
+    }
+
+    /* Apply time-decayed protection boost if loss occurred recently */
+    if (last_loss_event_ts > 0 && srtt_ewma > 3000) {
+        u64 time_since_loss = now - last_loss_event_ts;
+
+        if (time_since_loss < 150000000ULL) {  /* Within 150ms of loss event */
+            /* Linear decay: 15% boost at 0ms, decaying to 0% at 150ms
+             * Formula: boost = 115 - (elapsed_ms / 10)
+             * Clamped to 100-115 range for safety */
+            s64 elapsed_ms = time_since_loss / 1000000ULL;
+            s64 loss_boost = 115 - (elapsed_ms / 10);
+
+            /* Clamp to valid range */
+            if (loss_boost > 115) loss_boost = 115;
+            if (loss_boost < 100) loss_boost = 100;
+
+            network_factor = (network_factor * loss_boost) / 100;
+        }
+    }
+>>>>>>> REPLACE
+</DIFF>

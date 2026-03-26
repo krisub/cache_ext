@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-evaluate.py — ShinkaEvolve evaluator for cache_ext eviction policies.
+evaluate.py - ShinkaEvolve evaluator for cache_ext eviction policies.
 
 Called by ShinkaEvolve with:
     python evaluate.py --program_path <evolved.c> --results_dir <dir>
 
 Flow:
   1. Copy the evolved .c file into the policies build directory
-  2. Compile: clang → .bpf.o → bpftool skeleton → clang userspace loader
+  2. Compile: clang -> .bpf.o -> bpftool skeleton -> clang userspace loader
   3. Set up cgroup, start net_leveldb_server inside it
   4. Load the evolved BPF policy
   5. Run My-YCSB benchmark
@@ -18,12 +18,16 @@ Flow:
 import argparse
 import fcntl
 import json
+import platform
+import threading
 import logging
+import math
 import os
 import re
 import shlex
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -34,6 +38,45 @@ from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+
+# -- Emergency cleanup ---------------------------------------------------------
+# MGLRU is a system-wide setting. If evaluate.py is killed (SIGKILL from
+# ShinkaEvolve, Ctrl+C, timeout, etc.) while MGLRU is disabled, the entire
+# system loses its page reclaim strategy and becomes unresponsive.
+#
+# We defend against this at three levels:
+#   1. atexit -- runs on normal exit and most signal-induced exits
+#   2. SIGTERM/SIGINT handlers -- convert to SystemExit so finally blocks run
+#   3. Startup guard -- re-enable MGLRU at the very start of every evaluation
+#      in case a previous run was killed without cleanup
+
+def _emergency_restore_mglru():
+    """Last-resort MGLRU restoration. Called via atexit."""
+    try:
+        path = "/sys/kernel/mm/lru_gen/enabled"
+        if os.path.exists(path):
+            current = open(path).read().strip()
+            if current == "0x0000" or current == "0":
+                subprocess.run(
+                    ["sudo", "sh", "-c", f"echo 0x0007 > {path}"],
+                    timeout=10, check=False, capture_output=True,
+                )
+    except Exception:
+        pass
+
+import atexit
+atexit.register(_emergency_restore_mglru)
+
+
+def _signal_handler(signum, frame):
+    """Convert SIGTERM/SIGINT into SystemExit so try/finally blocks execute."""
+    log.warning("Received signal %d, initiating cleanup...", signum)
+    raise SystemExit(128 + signum)
+
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
+
 
 # -- Configuration -------------------------------------------------------------
 # Adjust these paths to match your environment
@@ -52,7 +95,7 @@ REMOTE_CLIENT_CGROUP = "cache_ext_remote_clients"
 # Ordered list of trace configs to run for each evaluation.
 # Each trace is (short_name, yaml_filename).
 TRACE_CONFIGS = [
-    # # Single-client traces (commented out — dual-client only mode)
+    # # Single-client traces (commented out - dual-client only mode)
     # ("ycsb_a", "ycsb_a.yaml"),           # 50% read, 50% update (zipfian)
     # ("ycsb_b", "ycsb_b.yaml"),           # 95% read, 5% update (zipfian)
     # ("ycsb_c", "ycsb_c.yaml"),           # 100% read (zipfian)
@@ -68,33 +111,48 @@ TRACE_CONFIGS = [
 SERVER_PORT = 9100
 CGROUP_NAME = "cache_ext_test"
 CGROUP_PATH = f"/sys/fs/cgroup/{CGROUP_NAME}"
-CGROUP_SIZE_BYTES = 512 * (2**20)  # 512 MiB — hot working set ~600 MiB so this creates real eviction pressure
+CGROUP_SIZE_BYTES = 512 * (2**20)  # 512 MiB - hot working set ~600 MiB so this creates real eviction pressure
 
 # Benchmark timing
 WARMUP_SECONDS = 30
 RUNTIME_SECONDS = 120
-# Maximum time to wait for the full evaluation (compile + 8 trace benchmarks), seconds
-EVAL_TIMEOUT_SECONDS = 3600
+RUNS_PER_TRACE = 5
+# Maximum time to wait for the full evaluation, seconds
+EVAL_TIMEOUT_SECONDS = 7200
 
 # Compiler settings (same as policies/Makefile)
 CLANG = "clang-14"
 BPFTOOL = "/usr/local/sbin/bpftool"
-ARCH = (
-    subprocess.check_output(
-        "uname -m | sed 's/x86_64/x86/'", shell=True
-    )
-    .decode()
-    .strip()
-)
-CLANG_BPF_SYS_INCLUDES = (
-    subprocess.check_output(
-        f"{CLANG} -v -E - </dev/null 2>&1 | "
-        "sed -n '/<...> search starts here:/,/End of search list./{ s| \\(/.*\\)|-idirafter \\1|p }'",
-        shell=True,
-    )
-    .decode()
-    .strip()
-)
+def _get_arch():
+    try:
+        return subprocess.check_output(
+            "uname -m | sed 's/x86_64/x86/'", shell=True
+        ).decode().strip()
+    except Exception:
+        m = platform.machine()
+        return "x86" if m == "x86_64" else m
+
+
+ARCH = _get_arch()
+
+
+def _get_clang_includes():
+    try:
+        out = subprocess.check_output(
+            f"{CLANG} -v -E - </dev/null 2>&1 | "
+            "sed -n '/<...> search starts here:/,/End of search list./{ s| \\(/.*\\)|-idirafter \\1|p }'",
+            shell=True,
+            timeout=10,
+        ).decode().strip()
+        if out:
+            return out
+    except Exception:
+        pass
+    # Fallback: common include paths for BPF (avoids clang/sed pipeline segfaults)
+    return "-idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include"
+
+
+CLANG_BPF_SYS_INCLUDES = _get_clang_includes()
 GiB = 2**30
 
 
@@ -144,7 +202,6 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
     # Symlink required headers into build dir
     for header in [
         "cache_ext_lib.bpf.h",
-        "vulcan_bpf.h",
         "dir_watcher.bpf.h",
         "dir_watcher.h",
         "vmlinux.h",
@@ -152,7 +209,6 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
         dst = os.path.join(build_dir, header)
         src = os.path.join(POLICIES_DIR, header)
         if not os.path.exists(src):
-            # vmlinux.h might be in the policies dir or needs generation
             if header == "vmlinux.h":
                 src = os.path.join(CACHE_EXT_DIR, "vmlinux.h")
         if os.path.exists(dst):
@@ -161,6 +217,13 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
             os.symlink(src, dst)
         else:
             raise FileNotFoundError(f"Required header {header} not found at {src}")
+
+    # Symlink the vulcan_bpf library directory
+    vulcan_dst = os.path.join(build_dir, "vulcan_bpf")
+    vulcan_src = os.path.join(CACHE_EXT_DIR, "vulcan_bpf")
+    if os.path.exists(vulcan_dst) or os.path.islink(vulcan_dst):
+        os.remove(vulcan_dst)
+    os.symlink(vulcan_src, vulcan_dst)
 
     # 1. Compile BPF object
     clang_cmd = [
@@ -206,25 +269,95 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
 
 def delete_cgroup():
     """Delete the test cgroup if it exists."""
-    try:
-        run_cmd(["sudo", "cgdelete", f"memory:{CGROUP_NAME}"], check=False)
-    except Exception:
-        pass
+    for cmd, desc in [
+        (["sudo", "cgdelete", f"memory:{CGROUP_NAME}"], "cgdelete"),
+        (["sudo", "rmdir", f"/sys/fs/cgroup/{CGROUP_NAME}"], "rmdir v2"),
+        (["sudo", "rmdir", f"/sys/fs/cgroup/memory/{CGROUP_NAME}"], "rmdir v1"),
+    ]:
+        try:
+            subprocess.run(cmd, check=False, timeout=5, capture_output=True)
+        except Exception:
+            pass
 
 
 def create_cgroup(limit_bytes):
-    """Create the cgroup with the given memory limit."""
+    """Create the cgroup with the given memory limit.
+    Uses cgcreate when available; falls back to cgroup v2 filesystem API
+    when cgcreate segfaults (e.g. on some cgroup v2 setups)."""
     delete_cgroup()
-    run_cmd(["sudo", "cgcreate", "-g", f"memory:{CGROUP_NAME}"])
-    run_cmd([
-        "sudo", "sh", "-c",
-        f"echo {limit_bytes} > /sys/fs/cgroup/{CGROUP_NAME}/memory.max",
-    ])
+
+    try:
+        run_cmd(["sudo", "cgcreate", "-g", f"memory:{CGROUP_NAME}"], timeout=5)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        log.warning("cgcreate failed (%s), trying cgroup v2 fallback", e)
+        run_cmd(["sudo", "mkdir", "-p", f"/sys/fs/cgroup/{CGROUP_NAME}"])
+
+    # Set memory limit (v2: memory.max, v1: memory.limit_in_bytes)
+    for path, fname in [
+        (f"/sys/fs/cgroup/{CGROUP_NAME}", "memory.max"),
+        (f"/sys/fs/cgroup/memory/{CGROUP_NAME}", "memory.limit_in_bytes"),
+    ]:
+        limit_file = f"{path}/{fname}"
+        if os.path.exists(path):
+            run_cmd(["sudo", "sh", "-c", f"echo {limit_bytes} > {limit_file}"])
+            break
     log.info("Created cgroup %s with limit %d bytes", CGROUP_NAME, limit_bytes)
 
 
 MGLRU_ENABLED_PATH = "/sys/kernel/mm/lru_gen/enabled"
 _mglru_original_value = None
+_mglru_watchdog_pid = None
+
+
+def _start_mglru_watchdog(debug: bool):
+    """Spawn a root process that will restore MGLRU after a timeout.
+    The process runs as root from the start (via sudo); when it wakes from sleep,
+    it writes directly to sysfs without invoking sudo again. So even when the
+    system is thrashing and sudo would segfault, this restore can succeed."""
+    global _mglru_watchdog_pid
+    if not os.path.exists(MGLRU_ENABLED_PATH):
+        return
+    # Debug: ~5 min run; Full: EVAL_TIMEOUT_SECONDS (2h) + 10 min buffer
+    seconds = 600 if debug else EVAL_TIMEOUT_SECONDS + 600
+    cmd = [
+        "sudo", "-n", "sh", "-c",
+        f"sleep {seconds}; echo 0x0007 > {MGLRU_ENABLED_PATH}",
+    ]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _mglru_watchdog_pid = proc.pid
+        log.info("MGLRU watchdog started (PID %d, will restore in %d s)", proc.pid, seconds)
+    except Exception as e:
+        log.warning("Failed to start MGLRU watchdog: %s (atexit/signal handlers still active)", e)
+        _mglru_watchdog_pid = None
+
+
+def _stop_mglru_watchdog():
+    """Kill the MGLRU watchdog if we restored MGLRU ourselves."""
+    global _mglru_watchdog_pid
+    if _mglru_watchdog_pid is None:
+        return
+    try:
+        # Kill the whole process group (sudo + its child shell) so the watchdog
+        # does not run the echo after we've already restored MGLRU.
+        os.killpg(_mglru_watchdog_pid, signal.SIGKILL)
+        log.info("MGLRU watchdog stopped (PID %d)", _mglru_watchdog_pid)
+    except ProcessLookupError:
+        pass
+    except OSError as e:
+        # Process may have exited; try killing the main process
+        try:
+            os.kill(_mglru_watchdog_pid, signal.SIGKILL)
+        except Exception:
+            pass
+    except Exception as e:
+        log.warning("Could not stop MGLRU watchdog: %s", e)
+    _mglru_watchdog_pid = None
 
 
 def drop_page_cache():
@@ -238,7 +371,7 @@ def disable_mglru():
     global _mglru_original_value
     if os.path.exists(MGLRU_ENABLED_PATH):
         _mglru_original_value = open(MGLRU_ENABLED_PATH).read().strip()
-        log.info("MGLRU current state: %s — disabling", _mglru_original_value)
+        log.info("MGLRU current state: %s - disabling", _mglru_original_value)
         run_cmd(["sudo", "sh", "-c", f"echo 0 > {MGLRU_ENABLED_PATH}"])
         log.info("MGLRU disabled.")
     else:
@@ -250,10 +383,11 @@ def enable_mglru():
     global _mglru_original_value
     if os.path.exists(MGLRU_ENABLED_PATH):
         restore = _mglru_original_value if _mglru_original_value else "0x0007"
-        run_cmd(["sudo", "sh", "-c", f"echo {restore} > {MGLRU_ENABLED_PATH}"])
-        log.info("MGLRU re-enabled (restored to %s).", restore)
-    else:
-        log.warning("MGLRU sysfs path not found: %s", MGLRU_ENABLED_PATH)
+        try:
+            run_cmd(["sudo", "sh", "-c", f"echo {restore} > {MGLRU_ENABLED_PATH}"])
+            log.info("MGLRU re-enabled (restored to %s).", restore)
+        except Exception as e:
+            log.warning("Failed to re-enable MGLRU: %s (try: echo %s > %s)", e, restore, MGLRU_ENABLED_PATH)
 
 
 # -- Server Management ---------------------------------------------------------
@@ -354,19 +488,16 @@ def stop_policy(proc):
 
 
 def reset_database():
-    """rsync the source DB to the temp location. Skips if temp DB already exists."""
-    src = LEVELDB_DB
-    if not src.endswith("/"):
-        src += "/"
-    # Check if temp DB already has essential LevelDB files (CURRENT, MANIFEST)
-    # Skip expensive rsync for read-only workloads
+    """Create temp DB via hardlinks from source. Skips if temp DB already exists."""
     current_file = os.path.join(LEVELDB_TEMP_DB, "CURRENT")
     if os.path.isfile(current_file):
-        log.info("Database already exists at %s (CURRENT file found), skipping rsync",
+        log.info("Database already exists at %s (CURRENT file found), skipping copy",
                  LEVELDB_TEMP_DB)
         return
-    run_cmd(["rsync", "-apl", "--delete", src, LEVELDB_TEMP_DB], timeout=900)
-    log.info("Database reset: %s → %s", LEVELDB_DB, LEVELDB_TEMP_DB)
+    # Use cp -al to hardlink all files - nearly instant even for large DBs.
+    # Safe for LevelDB: it never modifies SST files in place, only creates/deletes.
+    run_cmd(["cp", "-al", LEVELDB_DB, LEVELDB_TEMP_DB], timeout=120)
+    log.info("Database hardlinked: %s -> %s", LEVELDB_DB, LEVELDB_TEMP_DB)
 
 
 def run_benchmark(trace_config_path):
@@ -494,14 +625,10 @@ def ensure_remote_client_cgroup(remote_host):
 
 
 def remote_bench_command(bench_binary, remote_path):
-    """Run benchmark in shared remote cgroup when available."""
-    return (
-        f"if command -v cgexec >/dev/null 2>&1; then "
-        f"cgexec -g memory:{REMOTE_CLIENT_CGROUP} "
-        f"{bench_binary} {remote_path} && exit 0; "
-        f"fi; "
-        f"exec {bench_binary} {remote_path}"
-    )
+    """Run benchmark. Skip cgexec - remote client cgroup often fails with
+    'cgroup change of group failed' on worker nodes; eviction only needs
+    the server in a cgroup."""
+    return f"exec {bench_binary} {remote_path}"
 
 
 def run_dual_client_benchmark(trace_config_dict):
@@ -577,8 +704,44 @@ def run_dual_client_benchmark(trace_config_dict):
 
         results_per_client = {}
         for name, proc in client_procs:
+            stdout_buf = []
+            stderr_buf = []
+
+            def capture_output(pipe, buf):
+                try:
+                    for line in iter(pipe.readline, ""):
+                        buf.append(line)
+                except Exception:
+                    pass
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+
+            stdout_reader = None
+            stderr_reader = None
+            if proc.stdout:
+                stdout_reader = threading.Thread(
+                    target=capture_output, args=(proc.stdout, stdout_buf)
+                )
+                stdout_reader.daemon = True
+                stdout_reader.start()
+            if proc.stderr:
+                stderr_reader = threading.Thread(
+                    target=capture_output, args=(proc.stderr, stderr_buf)
+                )
+                stderr_reader.daemon = True
+                stderr_reader.start()
+
             try:
-                stdout, stderr = proc.communicate(timeout=max_timeout)
+                proc.wait(timeout=max_timeout)
+                if stdout_reader:
+                    stdout_reader.join(timeout=2)
+                if stderr_reader:
+                    stderr_reader.join(timeout=2)
+                stdout = "".join(stdout_buf)
+                stderr = "".join(stderr_buf)
+
                 if proc.returncode != 0:
                     log.error("Client %s failed (rc=%d): %s",
                               name, proc.returncode, stderr[:500])
@@ -589,7 +752,28 @@ def run_dual_client_benchmark(trace_config_dict):
                              results_per_client[name].get("total_throughput", 0))
             except subprocess.TimeoutExpired:
                 proc.kill()
+                if stdout_reader:
+                    stdout_reader.join(timeout=2)
+                if stderr_reader:
+                    stderr_reader.join(timeout=2)
+                stdout = "".join(stdout_buf)
+                stderr = "".join(stderr_buf)
                 log.error("Client %s timed out", name)
+                partial = (
+                    f"=== Client {name} TIMEOUT - partial stdout ===\n"
+                    f"{stdout[-5000:] if stdout else '(none)'}\n"
+                    f"=== Client {name} TIMEOUT - partial stderr ===\n"
+                    f"{stderr[-2500:] if stderr else '(none)'}\n"
+                )
+                log.error("Client %s partial output:\n%s", name, partial[:3500])
+                # Save full partial output for debugging (caller can pass results_dir)
+                if trace_config_dict.get("_debug_results_dir"):
+                    try:
+                        path = Path(trace_config_dict["_debug_results_dir"]) / "client_timeout_debug.txt"
+                        path.write_text(partial, encoding="utf-8")
+                        log.info("Saved timeout debug output to %s", path)
+                    except Exception as ex:
+                        log.warning("Could not save debug output: %s", ex)
                 results_per_client[name] = {"total_throughput": 0.0}
 
         # Combine: sum throughputs from all clients
@@ -628,42 +812,91 @@ def run_dual_client_benchmark(trace_config_dict):
 # -- Main Evaluation -----------------------------------------------------------
 
 
-# Serialization lock — only one evaluate() may run at a time regardless of
+# Serialization lock - only one evaluate() may run at a time regardless of
 # how many parallel evaluate.py processes ShinkaEvolve spawns.
-EVAL_LOCK_PATH = "/tmp/cache_ext_evaluate.lock"
+EVAL_LOCK_PATH = f"/tmp/cache_ext_evaluate_{os.getuid()}.lock"
 
 
-def evaluate(program_path: str, results_dir: str):
+def evaluate(program_path: str, results_dir: str, debug: bool = False,
+             policy_name: str | None = None):
     """
     Full evaluation pipeline:
-      drop cache → compile → disable MGLRU → setup cgroup → start server → load policy → benchmark → cleanup
+      drop cache -> [compile if evolved] -> disable MGLRU -> setup cgroup -> start server -> load policy -> benchmark -> cleanup
+
+    If policy_name is given, use pre-built loader from policies/ (cache_ext_{policy_name}.out) and skip compilation.
+    If debug=True: run 1 trace, 1 run, shorter warmup/runtime for faster iteration.
     """
-    # Acquire exclusive lock so concurrent evaluate.py instances don't fight
-    # over the LevelDB LOCK file, cgroup, or port 9100.
+    # Acquire exclusive lock FIRST. If we checked MGLRU before the lock, a second
+    # process starting while another holds the lock (and has MGLRU disabled) would
+    # see MGLRU disabled and exit with "reboot" - even though the running process
+    # will restore it. By acquiring the lock first, we block until the previous run
+    # finishes and restores MGLRU; then we're the only runner and can safely check.
     lock_fd = open(EVAL_LOCK_PATH, "w")
     log.info("Waiting for evaluation lock %s ...", EVAL_LOCK_PATH)
     fcntl.flock(lock_fd, fcntl.LOCK_EX)  # blocks until previous run finishes
     log.info("Acquired evaluation lock.")
+
+    # CRITICAL: Now check MGLRU. If a previous run was killed, MGLRU stays disabled.
+    # The kernel reclaims aggressively - sudo may segfault. Only the lock holder
+    # runs this check; others block until we (or a previous run) finish.
+    if os.path.exists(MGLRU_ENABLED_PATH):
+        try:
+            current_mglru = open(MGLRU_ENABLED_PATH).read().strip()
+        except OSError:
+            current_mglru = "?"
+        if current_mglru in ("0x0000", "0"):
+            log.error(
+                "MGLRU is DISABLED (left by a killed experiment). "
+                "The system is in severe memory pressure - sudo will segfault. "
+                "REBOOT the machine to restore MGLRU, then rerun."
+            )
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+            raise SystemExit(
+                "MGLRU disabled. Reboot to fix. See stderr for details."
+            )
 
     server_proc = None
     policy_proc = None
     mglru_disabled = False
 
     try:
+        # Guard: if a previous run was killed, re-enable MGLRU and clean up.
+        if os.path.exists(MGLRU_ENABLED_PATH):
+            try:
+                current_mglru = open(MGLRU_ENABLED_PATH).read().strip()
+            except OSError:
+                current_mglru = ""
+            if current_mglru in ("0x0000", "0"):
+                log.warning("MGLRU was left disabled by a previous killed run - re-enabling now")
+                enable_mglru()
+            # Also clean up any orphaned cgroup or server from a killed run
+            delete_cgroup()
+
         # 0. Drop page cache FIRST (before compilation) so even failed runs
         #    don't leave a warm cache that benefits the next generation.
         log.info("=== Step 0: Drop page cache ===")
         reset_database()
         drop_page_cache()
 
-        # 1. Compile
-        log.info("=== Step 1: Compile evolved policy ===")
-        loader_path = compile_bpf_policy(program_path, BUILD_DIR)
+        # 1. Get loader: pre-built policy or compile evolved
+        if policy_name:
+            loader_path = os.path.join(POLICIES_DIR, f"cache_ext_{policy_name}.out")
+            if not os.path.exists(loader_path):
+                raise FileNotFoundError(
+                    f"Pre-built policy not found: {loader_path}. Run 'make -C {POLICIES_DIR}' first."
+                )
+            log.info("=== Step 1: Using pre-built policy %s ===", loader_path)
+        else:
+            log.info("=== Step 1: Compile evolved policy ===")
+            loader_path = compile_bpf_policy(program_path, BUILD_DIR)
 
         # 2. Disable MGLRU so BPF evict_folios is the sole eviction decision maker.
         #    Without this, the kernel routes cgroup reclaim through MGLRU directly,
         #    never calling our BPF hook, and evict_folios never fires.
+        #    Start watchdog first: if we're killed, a root process will restore MGLRU.
         log.info("=== Step 2: Disable MGLRU ===")
+        _start_mglru_watchdog(debug)
         disable_mglru()
         mglru_disabled = True
 
@@ -680,62 +913,110 @@ def evaluate(program_path: str, results_dir: str):
         server_proc = start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)
 
         # 6. Run all trace benchmarks
-        log.info("=== Step 6: Run %d trace benchmarks ===", len(TRACE_CONFIGS))
+        if debug:
+            log.info("=== Step 6: DEBUG mode - 1 trace x 1 run (short warmup/runtime) ===")
+        else:
+            log.info("=== Step 6: Run %d traces x %d runs = %d total benchmarks ===",
+                     len(TRACE_CONFIGS), RUNS_PER_TRACE,
+                     len(TRACE_CONFIGS) * RUNS_PER_TRACE)
         all_trace_results = {}
         public_metrics = {}
+        run_counter = 0
 
-        for trace_idx, (trace_name, trace_file) in enumerate(TRACE_CONFIGS):
+        trace_configs = TRACE_CONFIGS[:1] if debug else TRACE_CONFIGS
+        runs_per_trace = 1 if debug else RUNS_PER_TRACE
+        total_runs = len(trace_configs) * runs_per_trace
+
+        for trace_idx, (trace_name, trace_file) in enumerate(trace_configs):
             trace_path = os.path.join(TRACES_DIR, trace_file)
-            log.info("--- Trace %d/%d: %s ---", trace_idx + 1, len(TRACE_CONFIGS), trace_name)
 
-            # Drop page cache between traces to ensure each starts cold
-            if trace_idx > 0:
+            with open(trace_path, 'r') as _tf:
+                trace_yaml = pyyaml.safe_load(_tf)
+            is_dual = trace_yaml.get("type") == "dual_client"
+
+            if debug and is_dual:
+                for c in trace_yaml.get("clients", []):
+                    wl = c.get("config", {}).get("workload", {})
+                    wl["warmup_runtime_seconds"] = 10
+                    wl["runtime_seconds"] = 30
+                    wl["nr_op"] = 500000
+                log.info("Debug mode: shortened warmup=10s runtime=30s nr_op=500k")
+
+            runs = []
+            for run_idx in range(runs_per_trace):
+                run_counter += 1
+                log.info("--- Trace %d/%d (%s) run %d/%d  [%d/%d overall] ---",
+                         trace_idx + 1, len(trace_configs), trace_name,
+                         run_idx + 1, runs_per_trace, run_counter, total_runs)
+
                 drop_page_cache()
                 time.sleep(2)
 
-            try:
-                # Detect dual-client traces and dispatch accordingly
-                with open(trace_path, 'r') as _tf:
-                    trace_yaml = pyyaml.safe_load(_tf)
-                if trace_yaml.get("type") == "dual_client":
-                    trace_results = run_dual_client_benchmark(trace_yaml)
-                else:
-                    trace_results = run_benchmark(trace_path)
-                all_trace_results[trace_name] = trace_results
+                try:
+                    if is_dual:
+                        trace_yaml["_debug_results_dir"] = results_dir
+                        run_result = run_dual_client_benchmark(trace_yaml)
+                    else:
+                        run_result = run_benchmark(trace_path)
+                    tp = run_result.get("total_throughput", 0.0)
+                    log.info("Trace %s run %d: throughput=%.2f ops/sec",
+                             trace_name, run_idx + 1, tp)
+                except Exception as te:
+                    log.error("Trace %s run %d failed: %s", trace_name, run_idx + 1, te)
+                    run_result = {"total_throughput": 0.0, "error": str(te)}
+                runs.append(run_result)
 
-                tp = trace_results.get("total_throughput", 0.0)
-                public_metrics[f"{trace_name}_throughput"] = tp
-                public_metrics[f"{trace_name}_read_p99_ns"] = trace_results.get(
-                    "read_latency_p99_ns", float("inf"))
+            # Compute per-trace statistics across runs
+            tps = [r.get("total_throughput", 0.0) for r in runs]
+            p99s = [r.get("read_latency_p99_ns", 0.0) for r in runs
+                    if "read_latency_p99_ns" in r]
 
-                log.info("Trace %s: throughput=%.2f ops/sec", trace_name, tp)
-            except Exception as te:
-                log.error("Trace %s failed: %s", trace_name, te)
-                all_trace_results[trace_name] = {"total_throughput": 0.0, "error": str(te)}
-                public_metrics[f"{trace_name}_throughput"] = 0.0
-                public_metrics[f"{trace_name}_error"] = str(te)
+            tp_mean = statistics.mean(tps)
+            tp_std = statistics.stdev(tps) if len(tps) > 1 else 0.0
+            tp_min = min(tps)
+            tp_max = max(tps)
+            p99_mean = statistics.mean(p99s) if p99s else 0.0
 
-        # 7. Compute combined score (harmonic mean of throughputs)
-        throughputs = []
+            trace_summary = {
+                "runs": runs,
+                "throughput_mean": tp_mean,
+                "throughput_std": tp_std,
+                "throughput_min": tp_min,
+                "throughput_max": tp_max,
+                "throughput_cv": (tp_std / tp_mean * 100) if tp_mean > 0 else 0.0,
+                "read_p99_ns_mean": p99_mean,
+            }
+            all_trace_results[trace_name] = trace_summary
+
+            public_metrics[f"{trace_name}_throughput_mean"] = tp_mean
+            public_metrics[f"{trace_name}_throughput_std"] = tp_std
+            public_metrics[f"{trace_name}_throughput_min"] = tp_min
+            public_metrics[f"{trace_name}_throughput_max"] = tp_max
+            public_metrics[f"{trace_name}_read_p99_ns_mean"] = p99_mean
+            log.info("Trace %s summary: mean=%.2f std=%.2f min=%.2f max=%.2f (CV=%.1f%%)",
+                     trace_name, tp_mean, tp_std, tp_min, tp_max,
+                     trace_summary["throughput_cv"])
+
+        # 7. Compute combined score (harmonic mean of per-trace mean throughputs)
+        mean_throughputs = []
         for trace_name, _ in TRACE_CONFIGS:
-            tp = all_trace_results.get(trace_name, {}).get("total_throughput", 0.0)
-            throughputs.append(tp)
+            tp_mean = all_trace_results.get(trace_name, {}).get("throughput_mean", 0.0)
+            mean_throughputs.append(tp_mean)
 
-        # Harmonic mean: penalizes policies that score 0 on any trace
-        nonzero_tps = [t for t in throughputs if t > 0]
-        if len(nonzero_tps) == len(throughputs) and len(throughputs) > 0:
-            harmonic_mean = len(throughputs) / sum(1.0 / t for t in throughputs)
+        nonzero_tps = [t for t in mean_throughputs if t > 0]
+        if len(nonzero_tps) == len(mean_throughputs) and len(mean_throughputs) > 0:
+            harmonic_mean = len(mean_throughputs) / sum(1.0 / t for t in mean_throughputs)
         elif len(nonzero_tps) > 0:
-            # Some traces failed: scale harmonic mean of successes by success ratio
             hm_partial = len(nonzero_tps) / sum(1.0 / t for t in nonzero_tps)
-            harmonic_mean = hm_partial * (len(nonzero_tps) / len(throughputs))
+            harmonic_mean = hm_partial * (len(nonzero_tps) / len(mean_throughputs))
         else:
             harmonic_mean = 0.0
 
         combined_score = harmonic_mean
         public_metrics["combined_score_harmonic_mean"] = harmonic_mean
         public_metrics["traces_passed"] = len(nonzero_tps)
-        public_metrics["traces_total"] = len(throughputs)
+        public_metrics["traces_total"] = len(mean_throughputs)
+        public_metrics["runs_per_trace"] = runs_per_trace
 
         metrics = {
             "combined_score": combined_score,
@@ -744,12 +1025,17 @@ def evaluate(program_path: str, results_dir: str):
         }
 
         save_results(results_dir, metrics, correct=True, error_msg=None)
-        log.info("=== Evaluation complete ===")
-        log.info("Combined score (harmonic mean): %.2f  (%d/%d traces passed)",
-                 combined_score, len(nonzero_tps), len(throughputs))
+        log.info("=== Evaluation complete (%d runs per trace) ===", runs_per_trace)
+        log.info("Combined score (harmonic mean of means): %.2f  (%d/%d traces passed)",
+                 combined_score, len(nonzero_tps), len(mean_throughputs))
         for trace_name, _ in TRACE_CONFIGS:
-            tp = all_trace_results.get(trace_name, {}).get("total_throughput", 0.0)
-            log.info("  %s: %.2f ops/sec", trace_name, tp)
+            ts = all_trace_results.get(trace_name, {})
+            log.info("  %s: mean=%.2f std=%.2f [%.2f .. %.2f]",
+                     trace_name,
+                     ts.get("throughput_mean", 0),
+                     ts.get("throughput_std", 0),
+                     ts.get("throughput_min", 0),
+                     ts.get("throughput_max", 0))
 
     except Exception as e:
         stderr_detail = ""
@@ -773,6 +1059,7 @@ def evaluate(program_path: str, results_dir: str):
         delete_cgroup()
         if mglru_disabled:
             enable_mglru()
+        _stop_mglru_watchdog()  # always stop; we started it before disable_mglru
         # Release the evaluation lock so the next queued evaluate.py can proceed
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         lock_fd.close()
@@ -785,8 +1072,12 @@ def main():
     parser.add_argument(
         "--program_path",
         type=str,
-        required=True,
-        help="Path to the evolved .c file",
+        help="Path to the evolved .c file (required if --policy_name not given)",
+    )
+    parser.add_argument(
+        "--policy_name",
+        type=str,
+        help="Pre-built policy name (fifo, lhd, mglru, mru, s3fifo, sampling). Skips compilation.",
     )
     parser.add_argument(
         "--results_dir",
@@ -794,8 +1085,22 @@ def main():
         required=True,
         help="Directory to write metrics.json and correct.json",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug mode: 1 trace, 1 run, shorter warmup/runtime, capture timeout output",
+    )
     args = parser.parse_args()
-    evaluate(args.program_path, args.results_dir)
+    if args.policy_name and args.program_path:
+        parser.error("Give only one of --program_path or --policy_name")
+    if not args.policy_name and not args.program_path:
+        parser.error("Give --program_path or --policy_name")
+    evaluate(
+        args.program_path or "",
+        args.results_dir,
+        debug=args.debug,
+        policy_name=args.policy_name,
+    )
 
 
 if __name__ == "__main__":

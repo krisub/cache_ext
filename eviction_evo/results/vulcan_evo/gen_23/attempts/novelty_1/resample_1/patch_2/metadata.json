@@ -1,0 +1,14 @@
+{
+  "generation": 23,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 2,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "loss_decay_timestamp",
+  "patch_description": "The current program implements recency-aware loss detection via RollingWindow (rw_size=5) for GF_LOST, but this can be further refined by explicitly tracking the timestamp of the last loss event and applying time-decay to the loss boost factor. This prevents stale loss signals from causing sustained over-protection of the cache after network conditions recover.\n\nThe key insight from the recommendation is that loss signals should naturally decay over time. We currently apply full 15% boost whenever max_lost > 0 via the multi-tier logic, but we should decay this boost exponentially based on how long ago the last loss occurred. This way:\n- Recent loss (< 10ms ago): full 15% boost (boost_factor = 115)\n- Moderately old loss (10-50ms): partial boost decaying toward baseline (105% down to 100%)\n- Stale loss (> 50ms): no boost (clamped to 100%)\n\nThis prevents the conservative over-protection that lingers after transient network events, allowing the cache to resume normal eviction once the network stabilizes.\n\nChanges:\n1. Add a static `last_loss_ts` variable within EVOLVE-BLOCK to track the most recent loss detection timestamp\n2. Update `last_loss_ts` in `bpf_score_fn` when loss is detected\n3. Replace the multi-tier loss boost logic with a single exponential-decay formula\n4. Revert the asymmetric penalty scaling logic (cold_penalty) that appears to have degraded performance compared to the simpler version",
+  "error_msg": null,
+  "timestamp": "2026-03-22T02:12:12.916343",
+  "llm_cost": 0.067732,
+  "llm_model": null
+}
