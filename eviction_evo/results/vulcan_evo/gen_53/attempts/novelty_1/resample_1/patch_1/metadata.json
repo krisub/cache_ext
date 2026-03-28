@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 1,
-  "patch_name": "adaptive_recency_decay_with_burstiness",
-  "patch_description": "The current program uses a simple flat recency bonus (< 5s gets +50), which underperforms compared to Generation 39's proven multi-scale temporal protection. This edit implements adaptive recency decay calibration based on per-folio access burstiness, extending Generation 39's successful 50% boost within 1s pattern.\n\nThe key improvements:\n1. Replace flat recency bonus with multi-scale temporal decay (< 1s: 50% boost, decaying linearly to 0% at 10s)\n2. Compute per-folio burstiness from interval_minmax listeners (already enabled): burstiness = max_interval / min_interval\n3. Adaptively scale recency boost based on burstiness:\n   - Bursty folios (burstiness > 10): 70% boost - these have sporadic access patterns and need stronger protection during active periods\n   - Normal folios (3 <= burstiness <= 10): 50% boost - standard working-set protection\n   - Steady-access folios (burstiness < 3): 30% boost - regular access patterns need less aggressive protection\n\nThis directly addresses the recommendation to make decay rates responsive to individual folio access patterns, which should reduce dual_small_vs_large throughput variance (currently std: 105.38) by better handling heterogeneous workloads.",
+  "num_applied": 2,
+  "patch_name": "cwnd_aware_access_pattern_classification",
+  "patch_description": "This edit implements per-folio CWND-aware access pattern classification to distinguish sequential-hot from random-access folios. The key insight is that LevelDB's sequential index scans (common in YCSB-C, YCSB-E, YCSB-F workloads) exhibit very low inter-packet arrival times with high access counts when the network is healthy (high CWND), while random key lookups have sporadic, high inter-arrival times.\n\nThe classification applies asymmetric bonus scaling:\n- Sequential-hot folios (low inter-arrival <50\u03bcs, high access count >50, good CWND >20): +6500 bonus - these benefit most from aggressive cache protection\n- Random-access folios (high inter-arrival >500\u03bcs): +1500 bonus - these are less cache-sensitive and don't warrant as much protection\n\nThis should improve YCSB-C/E/F performance (scan-heavy workloads) by 2-3% while maintaining stability on mixed workloads by avoiding over-protection of random-access folios.\n\nTo support this, we also need to tune the GF_INTER_ARRIVAL EWMA alpha to be more responsive (from 100 to 60) so it can quickly detect sequential vs. random patterns.",
   "error_msg": null,
-  "timestamp": "2026-03-23T20:02:29.903632",
-  "llm_cost": 0.201399,
+  "timestamp": "2026-03-27T06:10:41.972790",
+  "llm_cost": 0.205827,
   "llm_model": null
 }

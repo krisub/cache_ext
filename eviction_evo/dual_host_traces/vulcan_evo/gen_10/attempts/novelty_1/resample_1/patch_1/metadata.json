@@ -1,0 +1,14 @@
+{
+  "generation": 10,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "access_count_decay_simplify_rtt",
+  "patch_description": "The current program scores lower (1868.97) than the best previous program (1977.84), primarily because:\n\n1. **RTT trend detection is counterproductive**: The current program uses `vulcan_get_latest(GF_SRTT_US)` and `vulcan_get_kth_recent(GF_SRTT_US, 4)` to detect RTT degradation trends, but this added complexity (rolling window) hurts more than it helps. The simpler approach using just absolute EWMA RTT thresholds was more effective.\n\n2. **Access-count bias toward old folios**: Pure `access_count` favors pages that have been in cache longest, even if they're no longer frequently accessed. We should normalize by age using recency decay to prefer pages with recent activity.\n\n3. **Conservative durations in heat detection**: The current heat thresholds (< 2 seconds, > 5 seconds) may be too narrow. The best program used wider thresholds.\n\nThe fix:\n- Remove rolling window from SRTT (simplify back to EWMA-only)\n- Replace RTT trend detection with simpler absolute EWMA thresholds\n- Add recency decay to base_score to penalize cold, old folios even if frequently accessed in the past\n- Widen heat detection thresholds back to original levels",
+  "error_msg": null,
+  "timestamp": "2026-03-21T22:29:41.005308",
+  "llm_cost": 0.072967,
+  "llm_model": null
+}

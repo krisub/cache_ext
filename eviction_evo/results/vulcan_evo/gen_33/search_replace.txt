@@ -1,53 +1,54 @@
 <NAME>
-access_count_scaled_cold_penalty
+continuous_variance_weighted_regularity
 </NAME>
 
 <DESCRIPTION>
-The current cold folio penalty applies a uniform -100 score adjustment to all folios with interval_ewma > 10 seconds, regardless of their historical access patterns. This can over-penalize long-lived but infrequently-accessed pages that still provide value (e.g., LevelDB index structures that are accessed occasionally but are critical when needed).
+Replace the current binary variance check (either 2000 bonus or nothing) with a continuous regularity scoring function that uses safe arithmetic (multiplication and bit shifts) to avoid division. This change rewards highly predictable access patterns (low variance relative to mean interval) more aggressively, recognizing that LevelDB's sequential index scans have extremely low variance and deserve stronger protection than the current binary threshold provides.
 
-This change scales the cold penalty based on access_count to distinguish between:
-1. Truly unused pages (access_count < 5): full -100 penalty
-2. Moderately used pages (access_count < 20): reduced -50 penalty
-3. Frequently accessed historically (access_count >= 20): minimal -25 penalty
+The new scoring function computes:
+`regularity_bonus = (5000 * (interval_ewma - variance)) >> 32`
 
-This preserves the asymmetric dual-threshold approach (hot bonus at < 1s, cold penalty at > 10s) while making the cold penalty more nuanced. The scaling prevents aggressive eviction of pages that have accumulated significant access history over their lifetime, even if their recent inter-access intervals are long. This should reduce variance in dual_small_vs_large by better protecting valuable long-lived pages while still identifying truly cold victims.
+This provides:
+- Graduated protection: folios with lower variance get higher bonuses
+- Safe arithmetic: no signed division operations that could fail BPF verification
+- Hot folio focus: only applied when interval_ewma < 100ms (frequently accessed)
+- Better recognition of sequential scan patterns that dominate LevelDB performance
+
+The bit shift by 32 appropriately scales the nanosecond-level calculations into a reasonable bonus range (0-500 for typical patterns), while maintaining the continuous nature of the scoring.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold). */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
+    // Variance-based regularity detection: low variance = predictable access pattern
+    // Variance = max_interval - min_interval; < 50ms spread = regular
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0) {
+        s64 variance = interval_max - interval_min;
+        if (variance < 50000000) {  // < 50ms variance = highly regular
+            // Predictable access pattern: add bonus to protect
+            score += 2000;
+        }
     }
 =======
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold).
-     * Scale cold penalty by access_count to avoid over-penalizing long-lived
-     * but valuable pages (e.g., LevelDB index structures). */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: scale penalty by historical access count to distinguish
-         * truly unused pages from long-lived but occasionally-accessed valuable pages */
-        s64 cold_penalty = 100;  /* default for truly cold pages */
-        if (meta->access_count < 5) {
-            cold_penalty = 100;  /* truly unused: full penalty */
-        } else if (meta->access_count < 20) {
-            cold_penalty = 50;   /* moderately used over lifetime: reduced penalty */
-        } else {
-            cold_penalty = 25;   /* frequently accessed historically: minimal penalty */
+    // Continuous variance-weighted regularity scoring for hot folios
+    // Uses safe arithmetic (multiplication and bit shifts) instead of division
+    // Rewards highly predictable access patterns (low variance) more than irregular ones
+    // Particularly important for LevelDB's sequential index scans with extremely low variance
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_ewma > 0 && interval_ewma < 100000000 && interval_min > 0 && interval_max > 0) {
+        // Only for hot folios (interval_ewma < 100ms)
+        s64 variance = interval_max - interval_min;
+        if (variance < interval_ewma) {
+            // Continuous regularity bonus: higher for lower variance
+            // Safe arithmetic: (5000 * diff) >> 32 scales appropriately
+            s64 regularity_diff = interval_ewma - variance;
+            s64 regularity_bonus = (5000 * regularity_diff) >> 32;
+            if (regularity_bonus > 0) {
+                score += regularity_bonus;
+            }
         }
-        if (score > cold_penalty) score -= cold_penalty;
     }
 >>>>>>> REPLACE
 </DIFF>

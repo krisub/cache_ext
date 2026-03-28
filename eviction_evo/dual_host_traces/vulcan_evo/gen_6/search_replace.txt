@@ -1,0 +1,132 @@
+<NAME>
+adaptive_heat_thresholds_via_inter_arrival
+</NAME>
+
+<DESCRIPTION>
+The current implementation uses fixed time-based thresholds for heat classification:
+- Hot folios: interval_ewma < 1 second
+- Cold folios: interval_ewma > 10 seconds
+- Recency window: 5 seconds
+
+These hard-coded values don't adapt to different workload patterns. The recommendation suggests using data-driven, adaptive thresholds based on observed inter-access intervals.
+
+The key insight is that the global inter-arrival EWMA (smoothed packet arrival time) provides a workload-specific baseline. By deriving per-folio heat thresholds as multiples of this global baseline, we make the policy adaptive:
+
+- If packets arrive frequently (low inter-arrival), then:
+  - Hot = folio accessed more frequently than most packets (interval_ewma < 2× inter_arrival_ewma)
+  - Cold = folio accessed much less frequently (interval_ewma > 10× inter_arrival_ewma)
+- If packets arrive sparsely (high inter-arrival), then:
+  - Hot thresholds scale up proportionally
+  - Cold thresholds scale up proportionally
+
+This way, under burst traffic the working set is tighter; under sparse traffic the definitions relax.
+
+Additionally, reduce the fixed recency window from 5s to 3s to be more selective during eviction pressure.
+
+Changes:
+1. Enable GF_INTER_ARRIVAL listener with EWMA to track global packet inter-arrival patterns
+2. In bpf_score_fn, compute dynamic hot/cold thresholds as multiples of inter_arrival_ewma
+3. Adjust recency window to 3 seconds for tighter adaptation
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Per-feature listener configuration --------------------------------------
+// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
+// listeners for vulcan_get_* accessors in bpf_score_fn.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+// -- Per-feature listener configuration --------------------------------------
+// Enable GF_INTER_ARRIVAL EWMA to compute adaptive heat thresholds based on
+// global inter-packet arrival patterns.
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 180 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+=======
+    /* Recency bonus: protect pages accessed in last 3 seconds */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 3000000000ULL) {  /* 3 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: adapt thresholds based on global inter-arrival EWMA.
+     * If inter_arrival_ewma is high (sparse traffic), relax thresholds.
+     * If inter_arrival_ewma is low (bursty traffic), tighten thresholds.
+     * Default: hot if interval < 2× inter_arrival, cold if interval > 10× inter_arrival. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
+
+    /* Use a baseline if inter_arrival_ewma is not yet established (0 or very small) */
+    s64 baseline_interval = inter_arrival_ewma > 0 ? inter_arrival_ewma : 100000;  /* 100us fallback */
+
+    s64 hot_threshold = baseline_interval * 2;      /* hot if accessed more frequently than 2× inter_arrival */
+    s64 cold_threshold = baseline_interval * 10;    /* cold if accessed less frequently than 10× inter_arrival */
+
+    if (interval_ewma > 0 && interval_ewma < hot_threshold) {
+        /* Hot folio: very frequent accesses relative to packet arrival */
+        score += 100;
+    } else if (interval_ewma > cold_threshold) {
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+>>>>>>> REPLACE
+</DIFF>

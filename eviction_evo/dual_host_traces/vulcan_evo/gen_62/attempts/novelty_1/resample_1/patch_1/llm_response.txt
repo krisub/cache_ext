@@ -1,0 +1,59 @@
+<NAME>
+recency_normalized_access_count
+</NAME>
+
+<DESCRIPTION>
+The current recency-weighted scoring applies recency as a percentage multiplier to access_count, but computes the final base_score immediately. This recommendation introduces an explicit intermediate `normalized_access_count` variable that combines access frequency with recency weighting. This makes the temporal locality component more explicit and allows better score discrimination between recently-active hot folios and old cold folios with similar historical access counts.
+
+The key improvement is in how the normalized score flows through subsequent network-aware adjustments. By making `normalized_access_count` the foundation rather than immediately computing `base_score`, we ensure that recency-weighted frequency is consistently used as the primary metric before applying network factors. This should particularly help the dual_small_vs_large workload where the fast reader has a tight working set that benefits from aggressive recency-based protection.
+
+The mathematical result is equivalent to the current formula but the code structure makes the recency normalization more prominent in the scoring logic, which the verifier and subsequent network adjustments can leverage more effectively.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Recency-weighted base score: prioritize recently-active folios over cold ones
+     * with similar historical access counts. Linear decay from +50% boost (< 1 second)
+     * to 0% boost (10+ seconds). This captures working-set dynamics by making temporal
+     * locality a first-class component of the score. */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_factor = 0;
+
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = 50;  /* 50% boost for very recent accesses */
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        /* Linear decay: 50% at 1s, 0% at 10s */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 50 - (elapsed_seconds * 50 / 9);  /* decay over 9 seconds */
+        if (recency_factor < 0) recency_factor = 0;
+    }
+    /* else: time_since_access >= 10s, recency_factor remains 0 */
+
+    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+=======
+    /* Recency-normalized access count: combines frequency with temporal locality
+     * to better distinguish recently-active hot folios from old cold folios with
+     * similar historical access counts. This makes recency a first-class component
+     * that flows through all subsequent score adjustments. Linear decay from +50%
+     * boost (< 1 second) to 0% boost (10+ seconds) captures working-set dynamics. */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_factor = 0;
+
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = 50;  /* 50% boost for very recent accesses */
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        /* Linear decay: 50% at 1s, 0% at 10s */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 50 - (elapsed_seconds * 50 / 9);  /* decay over 9 seconds */
+        if (recency_factor < 0) recency_factor = 0;
+    }
+    /* else: time_since_access >= 10s, recency_factor remains 0 */
+
+    /* Compute normalized access count with recency weighting as foundation */
+    s64 normalized_access_count = (s64)meta->access_count + ((s64)meta->access_count * recency_factor / 100);
+    s64 base_score = normalized_access_count;
+>>>>>>> REPLACE
+
+</DIFF>

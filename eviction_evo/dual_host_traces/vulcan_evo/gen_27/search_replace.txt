@@ -1,0 +1,72 @@
+<NAME>
+recency_boost_with_softer_cold_penalty
+</NAME>
+
+<DESCRIPTION>
+The current implementation suffers from an overly aggressive cold penalty that harms performance on the dual_small_vs_large workload (throughput dropped from 1601.83 to 1454.21 vs Gen 5). The recommendation suggests adding recency-weighted normalization to distinguish recently-active pages from stale ones.
+
+Key insight: Pages with the same access_count can have very different value — a page accessed 10 times but recently is more valuable than one accessed 10 times but not touched for 10+ seconds.
+
+This change:
+1. **Replaces the cold penalty scaling** with a softer, recency-aware approach that proportionally reduces scores for cold pages rather than applying fixed thresholds
+2. **Adds exponential recency boost** to base_score to prioritize recently-active pages (decay from +60% within 3s to 0% by 10s), using fixed-point arithmetic
+3. **Preserves the heat protection** via interval_ewma but makes it work in concert with recency rather than against it
+
+The rationale: The current cold penalty bucketing (access_count < 5/20) creates artificial cliffs that evict valuable-but-infrequent pages too aggressively. Instead, use a continuous recency function that smoothly rewards recent activity regardless of historical frequency, allowing the network factors and heat tracking to provide necessary protection without over-penalizing cold pages.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold).
+     * Asymmetric penalty scaling: folios with higher access_count are more
+     * valuable (long-lived, proven useful), so apply gentler penalty. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, but scale penalty by access history
+         * to avoid over-evicting valuable long-lived pages */
+        s64 cold_penalty = 100;  /* default for truly cold pages */
+        if (meta->access_count < 5) {
+            cold_penalty = 100;  /* truly unused: full penalty */
+        } else if (meta->access_count < 20) {
+            cold_penalty = 50;   /* moderately used over lifetime: 50% penalty */
+        } else {
+            cold_penalty = 25;   /* frequently used historically: 25% penalty */
+        }
+        if (score > cold_penalty) score -= cold_penalty;
+    }
+=======
+    /* Recency-weighted boost: prioritize recently-accessed pages over cold ones.
+     * Exponential decay: 60% boost within 3s, decays to ~10% at 10s, negligible after 20s.
+     * Formula: recency_factor = 100 + 60 * exp(-(time_since_access / 3000ms))
+     * Approximated via: recency_factor = 100 + 60 / (1 + time_since_access_ms / 3000)
+     * This ensures recently-active pages are prioritized regardless of absolute frequency. */
+    s64 recency_boost_pct = 0;
+    if (time_since_access < 20000000000ULL) {  /* Within 20 seconds */
+        s64 elapsed_ms = time_since_access / 1000000;  /* Convert ns to ms */
+        /* Approximate exp(-t/3000): 60 / (1 + t/3000) */
+        recency_boost_pct = (60 * 3000) / (3000 + elapsed_ms);
+    }
+    s64 recency_weighted_base = (base_score * (100 + recency_boost_pct)) / 100;
+
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold).
+     * Apply heat-based adjustments on top of recency-weighted base. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        recency_weighted_base += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, but gentle penalty (soft degradation) */
+        s64 cold_discount = 50;  /* Default soft penalty */
+        if (recency_weighted_base > cold_discount) recency_weighted_base -= cold_discount;
+    }
+
+    score = recency_weighted_base;
+>>>>>>> REPLACE
+</DIFF>

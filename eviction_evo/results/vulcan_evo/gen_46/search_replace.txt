@@ -1,149 +1,137 @@
 <NAME>
-calibrate_recency_granular
+cwnd_aware_sequential_random_classification
 </NAME>
 
 <DESCRIPTION>
-The current program's performance regression (1873.98 vs 2184.76 best) stems from the complex loss time-decay logic that adds overhead without clear benefit. The recommendation suggests calibrating the recency-weighted score calculation to better distinguish folios with similar access counts but different temporal localities.
+The current program's CWND recovery logic (scaling down bonuses during recovery) has degraded performance from 5667.51 to 5207.70, suggesting we're evicting important pages too aggressively. Instead of scaling down protection universally, we should distinguish between different access patterns and apply asymmetric protection.
 
-The key insight is that the current recency calculation treats all accesses within 1 second identically (50% boost), missing the critical distinction between a folio accessed 0.1s ago (extremely hot) versus 0.9s ago (warm). Similarly, the 1-10 second window uses coarse 1-second granularity.
+LevelDB workloads exhibit two distinct access patterns:
+1. **Sequential-hot**: Index scans (YCSB C, F) create very regular, frequent per-folio accesses with low inter-access intervals (<50ms), high access counts, and occur when network is healthy (good CWND). These benefit greatly from aggressive cache protection.
+2. **Random-access**: Random key lookups (YCSB A, B, D) create sporadic accesses with high inter-access intervals (>500ms), which are less cache-sensitive.
 
-This change:
-1. **Removes the complex loss time-decay mechanism** (global `last_loss_ts` variable and decay calculation) that hurt performance, reverting to the simpler best-performing approach
-2. **Introduces finer-grained recency weighting** within the critical <1 second window using 100ms buckets (80% boost at <100ms, decaying to 50% at 1s)
-3. **Maintains proven network-aware protection** from the best program (simple MINMAX loss check, EWMA RTT/PACKETS_OUT)
+This change removes the problematic CWND recovery scaling and instead implements per-folio classification:
+- Sequential-hot folios: interval_ewma < 50ms AND access_count > 50 AND cwnd_ewma > 20 → +6500 bonus
+- Random-access folios: interval_ewma > 500ms → +1500 bonus (reduced from default +5000 hot bonus)
 
-This provides better temporal resolution for hot working-set folios while avoiding the overhead of per-eviction loss timestamp tracking. The more aggressive initial boost (80% vs 50%) for extremely recent accesses (<100ms) better protects the active working set during network-bound operations, while the smoother decay curve maintains differentiation across the full 10-second window.
+This allows the policy to aggressively protect LevelDB's sequential scan working sets while being more selective about random-access folios, improving throughput on scan-heavy workloads (YCSB C+F, YCSB E+F) while maintaining stability on mixed workloads.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-static u64 main_list;
-
-// Timestamp of last detected packet loss (for time-decay of loss protection)
-u64 last_loss_ts = 0;
-
-// LevelDB: index block is at end of file; protect last page (same as sampling).
+    // Per-folio heat: lower interval EWMA = hotter (more frequent accesses)
+    // Interval is in nanoseconds; < 100ms (100000000ns) = hot
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed, add bonus
+        score += 5000;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
+    }
 =======
-static u64 main_list;
+    // Per-folio access pattern classification: distinguish sequential-hot from random-access
+    // Sequential scans (YCSB C, F) create very regular, frequent accesses that benefit from
+    // aggressive protection. Random lookups create sporadic accesses less sensitive to eviction.
+    s64 interval_ewma = meta->interval_ewma.value;
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
 
-// LevelDB: index block is at end of file; protect last page (same as sampling).
+    if (interval_ewma > 0 && interval_ewma < 50000000 && meta->access_count > 50 && cwnd_ewma > 20) {
+        // Sequential-hot: very frequent accesses (<50ms interval), high count, good network
+        // Characteristic of LevelDB index scans - protect aggressively
+        score += 6500;
+    } else if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed, standard bonus
+        score += 5000;
+    } else if (interval_ewma > 0 && interval_ewma > 500000000) {
+        // Random-access: infrequent accesses (>500ms interval)
+        // Less cache-sensitive, apply reduced bonus
+        score += 1500;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
+    }
 >>>>>>> REPLACE
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Recency-weighted access normalization: multiply access_count by time-decay factor
-     * to prioritize recently-active folios. This scales protection with actual hotness
-     * rather than applying a flat bonus that treats all recent folios equally.
-     */
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // High jitter (RTT variance) also extends working set window due to unpredictable latency
     u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    s64 recency_factor = 100;  /* baseline: 1.0x multiplier */
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    bool high_jitter = (mdev_ewma > 10000);  // > 10ms jitter = high variance
 
-    if (time_since_access < 1000000000ULL) {  /* < 1 second: very fresh */
-        recency_factor = 150;  /* 1.5x multiplier (50% bonus) */
-    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds: decay linearly */
-        /* Linear interpolation from 150 (at 1s) down to 100 (at 10s) */
-        s64 elapsed_s = (time_since_access - 1000000000ULL) / 1000000000ULL;  /* 0-9 range */
-        recency_factor = 150 - (elapsed_s * 5);  /* Decreases by 5 per second: 150→145→...→105→100 */
-        if (recency_factor < 100) recency_factor = 100;  /* Floor at 100 */
-    }
-    /* else: time_since_access >= 10s, recency_factor stays 100 (no bonus) */
-
-    s64 base_score = ((s64)meta->access_count * recency_factor) / 100;
-=======
-    /* Recency-weighted base score with fine-grained temporal resolution.
-     * Provides aggressive protection for extremely recent accesses (<100ms: 80% boost)
-     * with smooth decay to capture working-set dynamics across multiple time scales.
-     * Distinguishes hot working set from warm/cold folios more effectively than
-     * coarse 1-second buckets.
-     */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    s64 recency_factor = 0;
-
-    if (time_since_access < 100000000ULL) {  /* < 100ms: extremely hot */
-        recency_factor = 80;  /* 80% boost for active working set */
-    } else if (time_since_access < 1000000000ULL) {  /* 100ms - 1s: hot */
-        /* Linear decay from 80% to 50% over 900ms */
-        s64 elapsed_deciseconds = (time_since_access - 100000000ULL) / 100000000ULL;  /* 0-9 range */
-        recency_factor = 80 - (elapsed_deciseconds * 3);  /* Decreases by ~3% per 100ms */
-        if (recency_factor < 50) recency_factor = 50;
-    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds: warm, decaying */
-        /* Linear decay from 50% to 0% over 9 seconds */
-        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
-        recency_factor = 50 - (elapsed_seconds * 50 / 9);
-        if (recency_factor < 0) recency_factor = 0;
-    }
-    /* else: time_since_access >= 10s, recency_factor = 0 (no boost) */
-
-    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-    /* Packet loss detected with time-decay protection:
-     * Apply 15% boost only when loss is fresh AND RTT is elevated.
-     * Boost decays exponentially: after 100ms it's ~37% of peak, after 300ms negligible.
-     */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
-        u64 time_since_loss = now - last_loss_ts;
-
-        /* Exponential decay: decay_factor = 100 * exp(-(time_since_loss / 100ms))
-         * Approximated: decay_factor = 100 / (1 + time_since_loss / 100ms)
-         * This gives ~37% at 100ms, ~9% at 300ms, negligible after 500ms
-         */
-        s64 decay_factor = 100;
-        if (time_since_loss > 0 && time_since_loss < 500000000) {  /* Within 500ms window */
-            s64 elapsed_ms = time_since_loss / 1000000;  /* Convert ns to ms */
-            decay_factor = (100 * 100) / (100 + elapsed_ms);  /* Approximately exponential */
-            if (decay_factor < 1) decay_factor = 1;  /* Floor at 1 */
-        } else if (time_since_loss >= 500000000) {
-            decay_factor = 1;  /* Negligible boost after 500ms */
+    // CWND recovery detection: distinguish transient loss from sustained congestion
+    // When CWND is recovering (> 1.5x minimum), network has moved past congestion event
+    // and doesn't need maximum protection - scale down loss bonuses to 75%
+    bool cwnd_recovering = false;
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    if (lost_max > 0 && cwnd_ewma > 0 && cwnd_min > 0) {
+        // Check if cwnd_ewma > cwnd_min * 1.5 (multiply to avoid division)
+        if ((cwnd_ewma * 2) > (cwnd_min * 3)) {
+            cwnd_recovering = true;
         }
+    }
 
-        network_factor = (network_factor * (100 + (15 * decay_factor / 100))) / 100;
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            // Modulate bonus based on CWND recovery state
+            score += cwnd_recovering ? 3375 : 4500;  // 75% during recovery, full during sustained congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            // Modulate loss bonus based on CWND recovery state
+            s64 loss_bonus = cwnd_recovering ? 375 : 500;  // 75% during recovery
+            score += base_bonus + loss_bonus;
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            // Modulate extended protection based on CWND recovery
+            score += cwnd_recovering ? 375 : 500;  // 75% during recovery
+        }
     }
 =======
-    /* Packet loss detected: apply conservative protection boost.
-     * Only boost when loss is detected AND RTT is elevated to avoid
-     * stale loss signals causing sustained over-protection.
-     */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
-        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
-    }
->>>>>>> REPLACE
-</DIFF>
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // High jitter (RTT variance) also extends working set window due to unpredictable latency
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    bool high_jitter = (mdev_ewma > 10000);  // > 10ms jitter = high variance
 
-<DIFF>
-<<<<<<< SEARCH
-void BPF_STRUCT_OPS(evolved_evict_folios,
-                    struct cache_ext_eviction_ctx *eviction_ctx,
-                    struct mem_cgroup *memcg)
-{
-    bump_counter(0);
-    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
-    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
-                  eviction_ctx);
-
-    /* Update last_loss_ts if loss has been detected (for time-decay calculation) */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        last_loss_ts = bpf_ktime_get_ns();
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
     }
-}
-=======
-void BPF_STRUCT_OPS(evolved_evict_folios,
-                    struct cache_ext_eviction_ctx *eviction_ctx,
-                    struct mem_cgroup *memcg)
-{
-    bump_counter(0);
-    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
-    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
-                  eviction_ctx);
-}
 >>>>>>> REPLACE
 </DIFF>

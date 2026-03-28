@@ -1,9 +1,200 @@
 {
-  "combined_score": 0.0,
+  "combined_score": 5578.639135884885,
   "public": {
-    "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: Error at line 348: Unsupport signed division for DAG: 0x1f3d5d8: i64 = sdiv 0x1f3cef0, Constant:i64<100>, build/cache_ext_evolved.bpf.c:348:47Please convert to unsigned div/mod.\nfatal error: error in backend: Cannot select: 0x1f3d5d8: i64 = sdiv 0x1f3cef0, Constant:i64<100>, build/cache_ext_evolved.bpf.c:348:47\n  0x1f3cef0: i64 = mul nsw 0x1f3d3d0, Constant:i64<150>, build/cache_ext_evolved.bpf.c:348:40\n    0x1f3d3d0: i64,ch = CopyFromReg 0x16f0528, Register:i64 %8, build/cache_ext_evolved.bpf.c:348:40\n      0x1e60348: i64 = Register %8\n    0x1f3b728: i64 = Constant<150>\n  0x1f3cce8: i64 = Constant<100>\nIn function: bpf_score_fn\nPLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.\nStack dump:\n0.\tProgram arguments: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o\n1.\t<eof> parser at end of file\n2.\tCode generation\n3.\tRunning pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.\n4.\tRunning pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'\n #0 0x00007f7a95e3fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)\n #1 0x00007f7a95e3da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)\n #2 0x00007f7a95e3f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)\n #3 0x00007f7a95d6bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)\n #4 0x00007f7a95d6bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)\n #5 0x00007f7a95e3a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)\n #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)\n #7 0x00007f7a95d7a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)\n #8 0x00007f7a96660e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)\n #9 0x00007f7a966602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)\n#10 0x00007f7a97f650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)\n#11 0x00007f7a96658ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)\n#12 0x00007f7a96658594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)\n#13 0x00007f7a966579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)\n#14 0x00007f7a96655557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)\n#15 0x00007f7a961c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)\n#16 0x00007f7a95f7a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)\n#17 0x00007f7a95f81983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)\n#18 0x00007f7a95f7af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)\n#19 0x00007f7a9d257201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)\n#20 0x00007f7a9d57c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)\n#21 0x00007f7a9c404824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)\n#22 0x00007f7a9d578b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)\n#23 0x00007f7a9df14b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)\n#24 0x00007f7a9de6c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)\n#25 0x00007f7a9df8e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)\n#26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)\n#27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)\n#28 0x00007f7a9daeaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)\n#29 0x00007f7a95d6bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)\n#30 0x00007f7a9daea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)\n#31 0x00007f7a9dab5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)\n#32 0x00007f7a9dab540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)\n#33 0x00007f7a9dacf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)\n#34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)\n#35 0x00007f7a94829d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16\n#36 0x00007f7a94829e40 call_init ./csu/../csu/libc-start.c:128:20\n#37 0x00007f7a94829e40 __libc_start_main ./csu/../csu/libc-start.c:379:5\n#38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)\nclang: error: clang frontend command failed with exit code 70 (use -v to see invocation)\nUbuntu clang version 14.0.0-1ubuntu1.1\nTarget: bpf\nThread model: posix\nInstalledDir: /usr/bin\nclang: note: diagnostic msg: \n********************\n\nPLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:\nPreprocessed source(s) and associated run script(s) are located at:\nclang: note: diagnostic msg: /tmp/cache_ext_evolved-0a22b8.c\nclang: note: diagnostic msg: /tmp/cache_ext_evolved-0a22b8.sh\nclang: note: diagnostic msg: \n\n********************\n"
+    "ycsb_c_a_throughput_mean": 4130.756666666667,
+    "ycsb_c_a_throughput_std": 114.39980346719713,
+    "ycsb_c_a_throughput_min": 4006.01,
+    "ycsb_c_a_throughput_max": 4230.76,
+    "ycsb_c_a_read_p99_ns_mean": 85574573.63333333,
+    "ycsb_c_e_throughput_mean": 79081.1,
+    "ycsb_c_e_throughput_std": 1721.9517162510622,
+    "ycsb_c_e_throughput_min": 77976.04000000001,
+    "ycsb_c_e_throughput_max": 81065.15,
+    "ycsb_c_e_read_p99_ns_mean": 48654617.28333333,
+    "ycsb_c_f_throughput_mean": 1749.69,
+    "ycsb_c_f_throughput_std": 4.754482095875455,
+    "ycsb_c_f_throughput_min": 1745.3799999999999,
+    "ycsb_c_f_throughput_max": 1754.79,
+    "ycsb_c_f_read_p99_ns_mean": 92452983.43,
+    "ycsb_b_a_throughput_mean": 4557.98,
+    "ycsb_b_a_throughput_std": 298.9957392673013,
+    "ycsb_b_a_throughput_min": 4336.969999999999,
+    "ycsb_b_a_throughput_max": 4898.19,
+    "ycsb_b_a_read_p99_ns_mean": 82173225.80666667,
+    "ycsb_a_d_throughput_mean": 5458.56,
+    "ycsb_a_d_throughput_std": 489.0617152262072,
+    "ycsb_a_d_throughput_min": 4893.85,
+    "ycsb_a_d_throughput_max": 5743.8,
+    "ycsb_a_d_read_p99_ns_mean": 82131904.63666667,
+    "ycsb_e_a_throughput_mean": 77561.44,
+    "ycsb_e_a_throughput_std": 1588.3052455998522,
+    "ycsb_e_a_throughput_min": 76196.7,
+    "ycsb_e_a_throughput_max": 79304.86,
+    "ycsb_e_a_read_p99_ns_mean": 45111602.74,
+    "ycsb_e_f_throughput_mean": 76699.4,
+    "ycsb_e_f_throughput_std": 1711.9876783143065,
+    "ycsb_e_f_throughput_min": 74723.98,
+    "ycsb_e_f_throughput_max": 77751.83,
+    "ycsb_e_f_read_p99_ns_mean": 173330.94666666666,
+    "combined_score_harmonic_mean": 5578.639135884885,
+    "traces_passed": 7,
+    "traces_total": 7,
+    "runs_per_trace": 3
   },
   "private": {
-    "traceback": "Traceback (most recent call last):\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 882, in evaluate\n    loader_path = compile_bpf_policy(program_path, BUILD_DIR)\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 238, in compile_bpf_policy\n    raise RuntimeError(f\"BPF compilation failed:\\nSTDOUT: {result.stdout}\\nSTDERR: {result.stderr}\")\nRuntimeError: BPF compilation failed:\nSTDOUT: \nSTDERR: Error at line 348: Unsupport signed division for DAG: 0x1f3d5d8: i64 = sdiv 0x1f3cef0, Constant:i64<100>, build/cache_ext_evolved.bpf.c:348:47Please convert to unsigned div/mod.\nfatal error: error in backend: Cannot select: 0x1f3d5d8: i64 = sdiv 0x1f3cef0, Constant:i64<100>, build/cache_ext_evolved.bpf.c:348:47\n  0x1f3cef0: i64 = mul nsw 0x1f3d3d0, Constant:i64<150>, build/cache_ext_evolved.bpf.c:348:40\n    0x1f3d3d0: i64,ch = CopyFromReg 0x16f0528, Register:i64 %8, build/cache_ext_evolved.bpf.c:348:40\n      0x1e60348: i64 = Register %8\n    0x1f3b728: i64 = Constant<150>\n  0x1f3cce8: i64 = Constant<100>\nIn function: bpf_score_fn\nPLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.\nStack dump:\n0.\tProgram arguments: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o\n1.\t<eof> parser at end of file\n2.\tCode generation\n3.\tRunning pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.\n4.\tRunning pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'\n #0 0x00007f7a95e3fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)\n #1 0x00007f7a95e3da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)\n #2 0x00007f7a95e3f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)\n #3 0x00007f7a95d6bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)\n #4 0x00007f7a95d6bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)\n #5 0x00007f7a95e3a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)\n #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)\n #7 0x00007f7a95d7a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)\n #8 0x00007f7a96660e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)\n #9 0x00007f7a966602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)\n#10 0x00007f7a97f650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)\n#11 0x00007f7a96658ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)\n#12 0x00007f7a96658594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)\n#13 0x00007f7a966579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)\n#14 0x00007f7a96655557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)\n#15 0x00007f7a961c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)\n#16 0x00007f7a95f7a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)\n#17 0x00007f7a95f81983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)\n#18 0x00007f7a95f7af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)\n#19 0x00007f7a9d257201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)\n#20 0x00007f7a9d57c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)\n#21 0x00007f7a9c404824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)\n#22 0x00007f7a9d578b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)\n#23 0x00007f7a9df14b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)\n#24 0x00007f7a9de6c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)\n#25 0x00007f7a9df8e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)\n#26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)\n#27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)\n#28 0x00007f7a9daeaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)\n#29 0x00007f7a95d6bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)\n#30 0x00007f7a9daea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)\n#31 0x00007f7a9dab5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)\n#32 0x00007f7a9dab540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)\n#33 0x00007f7a9dacf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)\n#34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)\n#35 0x00007f7a94829d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16\n#36 0x00007f7a94829e40 call_init ./csu/../csu/libc-start.c:128:20\n#37 0x00007f7a94829e40 __libc_start_main ./csu/../csu/libc-start.c:379:5\n#38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)\nclang: error: clang frontend command failed with exit code 70 (use -v to see invocation)\nUbuntu clang version 14.0.0-1ubuntu1.1\nTarget: bpf\nThread model: posix\nInstalledDir: /usr/bin\nclang: note: diagnostic msg: \n********************\n\nPLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:\nPreprocessed source(s) and associated run script(s) are located at:\nclang: note: diagnostic msg: /tmp/cache_ext_evolved-0a22b8.c\nclang: note: diagnostic msg: /tmp/cache_ext_evolved-0a22b8.sh\nclang: note: diagnostic msg: \n\n********************\n\n"
+    "ycsb_c_a": {
+      "runs": [
+        {
+          "total_throughput": 4006.01,
+          "read_latency_p99_ns": 86667440.96
+        },
+        {
+          "total_throughput": 4230.76,
+          "read_latency_p99_ns": 85430260.31
+        },
+        {
+          "total_throughput": 4155.5,
+          "read_latency_p99_ns": 84626019.63
+        }
+      ],
+      "throughput_mean": 4130.756666666667,
+      "throughput_std": 114.39980346719713,
+      "throughput_min": 4006.01,
+      "throughput_max": 4230.76,
+      "throughput_cv": 2.7694636285490177,
+      "read_p99_ns_mean": 85574573.63333333
+    },
+    "ycsb_c_e": {
+      "runs": [
+        {
+          "total_throughput": 77976.04000000001,
+          "read_latency_p99_ns": 47728812.82
+        },
+        {
+          "total_throughput": 78202.11,
+          "read_latency_p99_ns": 49123681.37
+        },
+        {
+          "total_throughput": 81065.15,
+          "read_latency_p99_ns": 49111357.66
+        }
+      ],
+      "throughput_mean": 79081.1,
+      "throughput_std": 1721.9517162510622,
+      "throughput_min": 77976.04000000001,
+      "throughput_max": 81065.15,
+      "throughput_cv": 2.1774503847961926,
+      "read_p99_ns_mean": 48654617.28333333
+    },
+    "ycsb_c_f": {
+      "runs": [
+        {
+          "total_throughput": 1748.9,
+          "read_latency_p99_ns": 92448573.74
+        },
+        {
+          "total_throughput": 1745.3799999999999,
+          "read_latency_p99_ns": 92838653.9
+        },
+        {
+          "total_throughput": 1754.79,
+          "read_latency_p99_ns": 92071722.65
+        }
+      ],
+      "throughput_mean": 1749.69,
+      "throughput_std": 4.754482095875455,
+      "throughput_min": 1745.3799999999999,
+      "throughput_max": 1754.79,
+      "throughput_cv": 0.2717328267221882,
+      "read_p99_ns_mean": 92452983.43
+    },
+    "ycsb_b_a": {
+      "runs": [
+        {
+          "total_throughput": 4898.19,
+          "read_latency_p99_ns": 79282220.69
+        },
+        {
+          "total_throughput": 4438.78,
+          "read_latency_p99_ns": 83061657.95
+        },
+        {
+          "total_throughput": 4336.969999999999,
+          "read_latency_p99_ns": 84175798.78
+        }
+      ],
+      "throughput_mean": 4557.98,
+      "throughput_std": 298.9957392673013,
+      "throughput_min": 4336.969999999999,
+      "throughput_max": 4898.19,
+      "throughput_cv": 6.559829996342708,
+      "read_p99_ns_mean": 82173225.80666667
+    },
+    "ycsb_a_d": {
+      "runs": [
+        {
+          "total_throughput": 4893.85,
+          "read_latency_p99_ns": 84695190.02
+        },
+        {
+          "total_throughput": 5738.03,
+          "read_latency_p99_ns": 81246101.0
+        },
+        {
+          "total_throughput": 5743.8,
+          "read_latency_p99_ns": 80454422.89
+        }
+      ],
+      "throughput_mean": 5458.56,
+      "throughput_std": 489.0617152262072,
+      "throughput_min": 4893.85,
+      "throughput_max": 5743.8,
+      "throughput_cv": 8.959537226415156,
+      "read_p99_ns_mean": 82131904.63666667
+    },
+    "ycsb_e_a": {
+      "runs": [
+        {
+          "total_throughput": 76196.7,
+          "read_latency_p99_ns": 44918077.86
+        },
+        {
+          "total_throughput": 79304.86,
+          "read_latency_p99_ns": 45404694.8
+        },
+        {
+          "total_throughput": 77182.76,
+          "read_latency_p99_ns": 45012035.56
+        }
+      ],
+      "throughput_mean": 77561.44,
+      "throughput_std": 1588.3052455998522,
+      "throughput_min": 76196.7,
+      "throughput_max": 79304.86,
+      "throughput_cv": 2.0478026782378618,
+      "read_p99_ns_mean": 45111602.74
+    },
+    "ycsb_e_f": {
+      "runs": [
+        {
+          "total_throughput": 77622.39,
+          "read_latency_p99_ns": 173083.94
+        },
+        {
+          "total_throughput": 74723.98,
+          "read_latency_p99_ns": 176472.9
+        },
+        {
+          "total_throughput": 77751.83,
+          "read_latency_p99_ns": 170436.0
+        }
+      ],
+      "throughput_mean": 76699.4,
+      "throughput_std": 1711.9876783143065,
+      "throughput_min": 74723.98,
+      "throughput_max": 77751.83,
+      "throughput_cv": 2.232074407771517,
+      "read_p99_ns_mean": 173330.94666666666
+    }
   }
 }

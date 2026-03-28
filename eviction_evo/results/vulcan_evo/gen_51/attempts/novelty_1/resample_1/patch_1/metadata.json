@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 1,
-  "patch_name": "recency_weighted_base_score",
-  "patch_description": "The current program computes base_score as raw access_count, then applies separate additive bonuses for recency (+50 if < 5s) and per-folio heat (+100/-100). This approach doesn't adequately distinguish between folios with similar access counts but vastly different recency profiles.\n\nThe best-performing prior program (Generation 39, score 2184.76) integrated recency directly into the base score calculation: `base_score = access_count * (1.0 + recency_factor)`, where recency_factor provides a 50% multiplicative boost for very recent accesses (<1s), decaying linearly to 0% at 10s.\n\nThis edit implements that proven recency-weighted base score computation. By making recency a multiplier rather than a flat additive bonus, we create a normalized access count that naturally prioritizes recently-active folios over cold ones with similar historical counts. A folio with 10 accesses from 2 seconds ago will score significantly higher than one with 10 accesses from 9 seconds ago, capturing working-set dynamics more effectively.\n\nThe computation uses integer arithmetic: `base_score = (access_count * (100 + recency_factor)) / 100`, where recency_factor ranges from 50 (full boost) to 0 (no boost), providing a 1.5x to 1.0x multiplier.",
+  "patch_name": "revert_three_tier_jitter_to_optimized_two_tier",
+  "patch_description": "The current three-tier jitter approach (8s/7s/5s with 15000/10000/0 thresholds) actually degraded performance from 5667.51 to 5401.53. The simpler two-tier approach from the previous best-performing version (5667.51) worked better. However, instead of simply reverting, I'll implement an optimized two-tier approach with slightly refined thresholds:\n\n**Analysis of performance regression:**\n- The 8-second primary window in the very-high-jitter tier is too aggressive, capturing too much cold data\n- Three tiers add complexity without corresponding benefit for these workloads\n- The ycsb_c_f (scan-heavy) workload particularly suffered (1824 \u2192 1641)\n\n**Proposed improvement:**\n- Revert to proven two-tier jitter detection (single 10000 threshold)\n- Use 6-second primary threshold for high jitter (down from 7s, more conservative)\n- Keep 5-second primary threshold for normal latency\n- Adjust secondary bonus to 1150 for high jitter (between 1000 and 1200)\n- This balances working set protection during jitter with avoiding over-protection of cold pages\n\nThis approach maintains the jitter-awareness that showed benefit, but with a more conservative and proven structure that avoids the performance regression from excessive protection windows.",
   "error_msg": null,
-  "timestamp": "2026-03-23T19:00:28.538616",
-  "llm_cost": 0.19954200000000002,
+  "timestamp": "2026-03-27T04:59:16.512042",
+  "llm_cost": 0.217755,
   "llm_model": null
 }

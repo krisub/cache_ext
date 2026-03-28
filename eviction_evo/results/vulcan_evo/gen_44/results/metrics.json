@@ -1,81 +1,9 @@
 {
-  "combined_score": 1845.3566855528957,
+  "combined_score": 0.0,
   "public": {
-    "dual_small_vs_large_throughput_mean": 1374.684,
-    "dual_small_vs_large_throughput_std": 191.8035250718819,
-    "dual_small_vs_large_throughput_min": 1246.09,
-    "dual_small_vs_large_throughput_max": 1711.3000000000002,
-    "dual_small_vs_large_read_p99_ns_mean": 42496997.522,
-    "dual_congested_throughput_mean": 2806.14,
-    "dual_congested_throughput_std": 59.982500364689585,
-    "dual_congested_throughput_min": 2730.09,
-    "dual_congested_throughput_max": 2888.04,
-    "dual_congested_read_p99_ns_mean": 47729945.266,
-    "combined_score_harmonic_mean": 1845.3566855528957,
-    "traces_passed": 2,
-    "traces_total": 2,
-    "runs_per_trace": 5
+    "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:413:9: error: redefinition of 'cwnd_min'\n    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);\n        ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:366:9: note: previous definition is here\n    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);\n        ^\n1 error generated.\n"
   },
   "private": {
-    "dual_small_vs_large": {
-      "runs": [
-        {
-          "total_throughput": 1711.3000000000002,
-          "read_latency_p99_ns": 36050269.12
-        },
-        {
-          "total_throughput": 1349.18,
-          "read_latency_p99_ns": 42460936.25
-        },
-        {
-          "total_throughput": 1284.04,
-          "read_latency_p99_ns": 44518019.81
-        },
-        {
-          "total_throughput": 1246.09,
-          "read_latency_p99_ns": 45134628.59
-        },
-        {
-          "total_throughput": 1282.8100000000002,
-          "read_latency_p99_ns": 44321133.84
-        }
-      ],
-      "throughput_mean": 1374.684,
-      "throughput_std": 191.8035250718819,
-      "throughput_min": 1246.09,
-      "throughput_max": 1711.3000000000002,
-      "throughput_cv": 13.952553828507636,
-      "read_p99_ns_mean": 42496997.522
-    },
-    "dual_congested": {
-      "runs": [
-        {
-          "total_throughput": 2833.18,
-          "read_latency_p99_ns": 47939773.14
-        },
-        {
-          "total_throughput": 2771.9700000000003,
-          "read_latency_p99_ns": 47884018.39
-        },
-        {
-          "total_throughput": 2888.04,
-          "read_latency_p99_ns": 47337012.3
-        },
-        {
-          "total_throughput": 2730.09,
-          "read_latency_p99_ns": 47954770.95
-        },
-        {
-          "total_throughput": 2807.42,
-          "read_latency_p99_ns": 47534151.55
-        }
-      ],
-      "throughput_mean": 2806.14,
-      "throughput_std": 59.982500364689585,
-      "throughput_min": 2730.09,
-      "throughput_max": 2888.04,
-      "throughput_cv": 2.1375448254431206,
-      "read_p99_ns_mean": 47729945.266
-    }
+    "traceback": "Traceback (most recent call last):\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 904, in evaluate\n    loader_path = compile_bpf_policy(program_path, BUILD_DIR)\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 250, in compile_bpf_policy\n    raise RuntimeError(f\"BPF compilation failed:\\nSTDOUT: {result.stdout}\\nSTDERR: {result.stderr}\")\nRuntimeError: BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:413:9: error: redefinition of 'cwnd_min'\n    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);\n        ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:366:9: note: previous definition is here\n    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);\n        ^\n1 error generated.\n\n"
   }
 }

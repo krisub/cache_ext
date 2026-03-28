@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 3,
-  "patch_name": "time_decay_loss_and_finer_recency",
-  "patch_description": "The current program suffers from sustained over-protection when using MINMAX for GF_LOST, as the maximum loss value persists indefinitely even after network conditions recover. This causes the cache to remain overly conservative long after transient congestion events resolve, hurting throughput.\n\nThis edit implements two complementary improvements:\n\n1. **Time-decay for loss signal**: Switch GF_LOST from MINMAX to RollingWindow (size 5) to provide natural time-based decay. The rolling window automatically ages out old loss events as new samples arrive, allowing the policy to recover more quickly when network conditions improve. With a window size of 5, loss protection decays over approximately 5 tcp_recvmsg samples, providing ~100-150ms decay time at typical packet rates.\n\n2. **Fine-grained recency tracking**: Replace the coarse 5-second recency bonus with a multi-tier approach that provides:\n   - 80% boost for extremely recent accesses (< 100ms): captures active working set\n   - Linear decay from 80% to 50% over 100ms-1s: distinguishes hot from warm\n   - Linear decay from 50% to 0% over 1-10s: smooth transition to cold\n   \nThis fine-grained temporal resolution better captures working-set dynamics across multiple time scales, providing stronger protection for the active working set while avoiding over-protection of stale pages. The combination addresses the core issue: loss events trigger appropriate protection during congestion but don't cause sustained over-protection afterward.\n\nThe approach mirrors Generation 39's successful recency strategy (2184.76 combined score) while adding the time-decay loss mechanism recommended in the prompt.",
+  "num_applied": 2,
+  "patch_name": "continuous_regularity_bonus",
+  "patch_description": "The current program regressed significantly (5667.51 \u2192 5207.70) after adding CWND recovery detection that scales down loss bonuses to 75% during recovery. This over-conservative approach hurts performance by reducing protection too aggressively.\n\nI'm implementing the recommended continuous variance-weighted regularity scoring using safe arithmetic (multiplication and bit shifts) to reward highly predictable access patterns. Instead of the current binary check (variance < 50ms \u2192 +2000), I'll use a continuous function that scales the bonus based on how regular the access pattern is.\n\nThe key insight is that LevelDB's sequential index scans have extremely low variance (min \u2248 max) and deserve stronger protection than the current flat +2000 bonus. By computing regularity_bonus = (interval_ewma - variance) >> shift, we reward patterns where variance is much smaller than the mean interval, while maintaining BPF compliance by avoiding division.\n\nAdditionally, I'm removing the problematic CWND recovery scaling that reduced bonuses to 75%, reverting to the more successful strategy from generation 5 that protected the working set more aggressively during any network stress.",
   "error_msg": null,
-  "timestamp": "2026-03-23T21:07:22.774857",
-  "llm_cost": 0.192978,
+  "timestamp": "2026-03-27T07:26:19.613358",
+  "llm_cost": 0.234123,
   "llm_model": null
 }

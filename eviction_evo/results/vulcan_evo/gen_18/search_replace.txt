@@ -1,61 +1,31 @@
 <NAME>
-congestion_window_saturation_detection
+optimize_ewma_alpha_timescales
 </NAME>
 
 <DESCRIPTION>
-The recommendation suggests integrating PACKETS_OUT congestion signal with window saturation detection. Currently, the policy only monitors RTT and loss, but doesn't detect when the congestion window is saturated (high in-flight packets relative to cwnd).
+This edit fine-tunes the EWMA alpha values for network features based on their characteristic timescales. The adjustments follow signal processing principles:
 
-When PACKETS_OUT EWMA approaches or exceeds SND_CWND EWMA, the network is window-limited. This is particularly valuable during the dual_congested workload where throughput is lower than the best prior version (2090.49).
+1. **GF_SRTT_US alpha: 275 → 310**: RTT changes occur rapidly (sub-second) when network conditions shift, so we need faster detection. A higher alpha (310) makes the EWMA more responsive to recent RTT spikes or improvements, allowing the eviction policy to quickly adapt protection levels when latency changes.
 
-The improvement:
-1. Enable GF_SND_CWND EWMA listener (fast-reacting, alpha=200 to match PACKETS_OUT)
-2. Compute congestion ratio: (packets_out_ewma * 100) / max(snd_cwnd_ewma, 1)
-3. Apply scaled secondary boost to network_factor when ratio > 70% (indicating pressure):
-   - 1.05x boost if ratio 70-90%
-   - 1.15x boost if ratio > 90%
+2. **GF_INTER_ARRIVAL alpha: 60 → 45**: Inter-arrival time between packets is inherently noisy due to packet batching, interrupt coalescing, and scheduling effects. A lower alpha (45) provides heavier smoothing to filter out high-frequency noise while still capturing genuine traffic pattern changes (e.g., burst vs. steady-state).
 
-This provides finer-grained network-aware protection without the complexity of exponential decay, focusing on the immediate congestion state.
+3. **GF_SND_CWND alpha: 175 (unchanged)**: Congestion window evolves on a moderate timescale (multiple RTTs), so the existing alpha is appropriate for tracking congestion state transitions.
+
+This multi-timescale tuning allows each metric's EWMA to match its natural dynamics: fast-reactive for RTT (which needs immediate response), slow-stable for inter-arrival (which needs noise filtering), and moderate for CWND (which needs balanced tracking). By optimizing each alpha independently based on the metric's temporal characteristics, we improve the signal-to-noise ratio of our network-aware eviction decisions, potentially capturing an additional 1-2% performance improvement.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-// -- Per-feature listener configuration --------------------------------------
-// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
-// listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 275 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
                             .ewma_alpha = 150 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
-    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
-    [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
-    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
-    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
-    [GF_SEGS_IN]        = { .listener_mask = 0 },
-    [GF_SEGS_OUT]       = { .listener_mask = 0 },
-    [GF_DELIVERED]      = { .listener_mask = 0 },
-    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
-    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
-    [GF_RECV_COUNT]     = { .listener_mask = 0 },
-};
-=======
-// -- Per-feature listener configuration --------------------------------------
-// Enable congestion detection via SND_CWND EWMA to complement PACKETS_OUT.
-// This allows computation of congestion ratio for window saturation detection.
-static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 150 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
     [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+                            .ewma_alpha = 175 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
     [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
@@ -64,134 +34,32 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
->>>>>>> REPLACE
-
-<<<<<<< SEARCH
-// -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
-
-static u64 main_list;
-
-// Timestamp of last detected packet loss (for time-decay of loss protection)
-u64 last_loss_ts = 0;
 =======
-// -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
-
-static u64 main_list;
->>>>>>> REPLACE
-
-<<<<<<< SEARCH
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT: protect working set more aggressively */
-    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
-        network_factor = 125;  /* 1.25x protection */
-    }
-
-    /* Packet loss detected with time-decay protection:
-     * Apply 15% boost only when loss is fresh AND RTT is elevated.
-     * Boost decays exponentially: after 100ms it's ~37% of peak, after 300ms negligible.
-     */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
-        u64 now = bpf_ktime_get_ns();
-        u64 time_since_loss = now - last_loss_ts;
-
-        /* Exponential decay: decay_factor = 100 * exp(-(time_since_loss / 100ms))
-         * Approximated: decay_factor = 100 / (1 + time_since_loss / 100ms)
-         * This gives ~37% at 100ms, ~9% at 300ms, negligible after 500ms
-         */
-        s64 decay_factor = 100;
-        if (time_since_loss > 0 && time_since_loss < 500000000) {  /* Within 500ms window */
-            s64 elapsed_ms = time_since_loss / 1000000;  /* Convert ns to ms */
-            decay_factor = (100 * 100) / (100 + elapsed_ms);  /* Approximately exponential */
-            if (decay_factor < 1) decay_factor = 1;  /* Floor at 1 */
-        } else if (time_since_loss >= 500000000) {
-            decay_factor = 1;  /* Negligible boost after 500ms */
-        }
-
-        network_factor = (network_factor * (100 + (15 * decay_factor / 100))) / 100;
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-=======
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT: protect working set more aggressively */
-    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
-        network_factor = 125;  /* 1.25x protection */
-    }
-
-    /* Packet loss detected: be more conservative */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
-        network_factor = (network_factor * 115) / 100;  /* 15% boost */
-    }
-
-    /* Window saturation detection: compute congestion ratio safely.
-     * Ratio = (packets_out_ewma * 100) / max(snd_cwnd_ewma, 1)
-     * If ratio > 70% (window-limited), apply secondary boost.
-     */
-    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
-    s64 snd_cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
-
-    /* Safe division with minimum denominator to avoid division by zero */
-    s64 snd_cwnd_safe = snd_cwnd_ewma > 0 ? snd_cwnd_ewma : 1;
-    s64 congestion_ratio = (packets_out_ewma * 100) / snd_cwnd_safe;
-
-    /* Apply scaled secondary boost based on congestion ratio */
-    if (congestion_ratio > 70) {  /* Window is becoming saturated */
-        if (congestion_ratio > 90) {
-            network_factor = (network_factor * 115) / 100;  /* 1.15x when heavily congested */
-        } else {
-            network_factor = (network_factor * 105) / 100;  /* 1.05x when moderately congested */
-        }
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
->>>>>>> REPLACE
-
-<<<<<<< SEARCH
-// -- struct_ops: evict_folios -------------------------------------------------
-void BPF_STRUCT_OPS(evolved_evict_folios,
-                    struct cache_ext_eviction_ctx *eviction_ctx,
-                    struct mem_cgroup *memcg)
-{
-    bump_counter(0);
-    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
-    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
-                  eviction_ctx);
-
-    /* Update last_loss_ts if loss has been detected (for time-decay calculation) */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        last_loss_ts = bpf_ktime_get_ns();
-    }
-}
-=======
-// -- struct_ops: evict_folios -------------------------------------------------
-void BPF_STRUCT_OPS(evolved_evict_folios,
-                    struct cache_ext_eviction_ctx *eviction_ctx,
-                    struct mem_cgroup *memcg)
-{
-    bump_counter(0);
-    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
-    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
-                  eviction_ctx);
-}
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 310 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 45 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
 >>>>>>> REPLACE
 </DIFF>

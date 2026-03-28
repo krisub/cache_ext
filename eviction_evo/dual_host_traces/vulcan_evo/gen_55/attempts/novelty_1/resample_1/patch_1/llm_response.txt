@@ -1,0 +1,47 @@
+<NAME>
+scale_cold_penalty_by_access_count
+</NAME>
+
+<DESCRIPTION>
+The current program applies a fixed -100 penalty to cold folios (interval_ewma > 5 seconds), which may over-penalize long-lived but valuable pages like LevelDB index structures that are accessed infrequently but remain important. This change introduces access-count-scaled asymmetry to the cold folio penalty:
+
+- Truly unused pages (access_count < 5): full -100 penalty
+- Moderately used pages (access_count < 20): reduced -50 penalty  
+- Frequently accessed historically (access_count >= 20): minimal -25 penalty
+
+This refinement directly addresses the higher variability observed in dual_small_vs_large throughput (std: 148.47) by distinguishing between genuinely cold pages and long-lived but occasionally-accessed valuable folios. The asymmetry preserves strong eviction preference for truly unused pages while providing graduated protection for pages with established access histories, potentially reducing variance and improving the harmonic mean score through more nuanced victim selection.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
+        /* Hot folio: very frequent accesses */
+        score += 100;
+    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+=======
+    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
+        /* Hot folio: very frequent accesses */
+        score += 100;
+    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
+        /* Cold folio: scale penalty by historical access count to distinguish
+         * truly unused pages from long-lived but valuable metadata structures */
+        s64 cold_penalty = 100;  /* default for truly cold pages */
+        if (meta->access_count < 5) {
+            cold_penalty = 100;  /* truly unused: full penalty */
+        } else if (meta->access_count < 20) {
+            cold_penalty = 50;   /* moderately used over lifetime: reduced penalty */
+        } else {
+            cold_penalty = 25;   /* frequently accessed historically: minimal penalty */
+        }
+        if (score > cold_penalty) score -= cold_penalty;
+    }
+>>>>>>> REPLACE
+
+</DIFF>

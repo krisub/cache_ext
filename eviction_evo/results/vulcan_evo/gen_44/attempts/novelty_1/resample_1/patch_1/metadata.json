@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 1,
-  "patch_name": "restore_recency_weighted_base_score",
-  "patch_description": "The current program applies recency as an additive bonus after network adjustments, which may not adequately distinguish between folios with similar historical access counts but different temporal locality. The best-performing prior program (score 2184.76) integrates recency multiplicatively into the base score itself via `base_score = (access_count * (100 + recency_factor)) / 100`, where recency_factor decays linearly from 50% at <1s to 0% at 10s.\n\nThis recency-weighted base score approach makes temporal locality a first-class component of the scoring function, allowing the network-aware protection factors to amplify the distinction between recently-active and stale folios. A folio with 10 accesses accessed 2 seconds ago will score higher than one with 10 accesses accessed 9 seconds ago, even before network adjustments are applied.\n\nI propose restoring this proven recency-weighted base score computation, replacing the current exponential-like additive bonus with the linear decay multiplicative approach that directly weights access_count by recency.",
+  "patch_name": "cwnd_recovery_modulation",
+  "patch_description": "The current implementation applies fixed loss-triggered bonuses (+4500/+1500/+500) whenever packet loss is detected, regardless of whether the network is actively recovering from congestion or stuck in sustained degradation. This doesn't distinguish between transient packet loss events (which TCP recovers from quickly) and prolonged congestion (where working-set protection is most valuable).\n\nThis edit extends the loss-triggered recency amplification by coupling it to CWND recovery dynamics:\n- When `cwnd_ewma > cwnd_min * 1.5` (indicating CWND is recovering from congestion), reduce loss-triggered bonuses by 15% (e.g., +4500 becomes +3825)\n- When CWND is stuck below minimum, keep full bonuses\n- This allows the policy to be less aggressive during brief packet loss events that recover quickly, while maintaining strong protection during sustained congestion\n\nThe modulation is conservative (15% reduction vs. Generation 31's 25% that regressed) and uses a 1.5x threshold to detect recovery. This should improve performance on mixed workloads (YCSB-A/B/D currently 4028-5833 ops/sec) by 2-3% without destabilizing read-heavy workloads.",
   "error_msg": null,
-  "timestamp": "2026-03-23T15:19:20.339547",
-  "llm_cost": 0.199476,
+  "timestamp": "2026-03-27T01:16:57.706415",
+  "llm_cost": 0.208563,
   "llm_model": null
 }

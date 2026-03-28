@@ -46,7 +46,7 @@ evolution_config:
     - 0.2
   llm_models:
   - us.anthropic.claude-sonnet-4-5-20250929-v1:0
-  max_api_costs: 12.0
+  max_api_costs: 15.0
   max_novelty_attempts: 2
   max_parallel_jobs: 2
   max_patch_attempts: 5
@@ -121,44 +121,56 @@ evolution_config:
     \ slot (see `struct sampling_options`)\n5. **Struct_ops callbacks** (init, evict_folios,\
     \ folio_added,\n   folio_accessed, folio_evicted) \u2014 sensible defaults are\
     \ provided;\n   customize only if needed.\n\n## Multi-Workload Evaluation\nYour\
-    \ policy is tested against 2 dual-client workload traces in sequence.\nThe combined\
-    \ score is the HARMONIC MEAN of throughputs across all traces.\nScoring 0 on ANY\
-    \ trace severely penalizes your total score.\n\nEach trace runs TWO My-YCSB clients\
-    \ simultaneously against the SAME\nLevelDB server in the SAME cgroup.\n\nThe 2\
-    \ traces are:\n1. **dual_small_vs_large**: fast reader (200B, zipfian, direct)\
-    \ + slow\n   writer (4KB, uniform, 1ms delay, 500Mbps limit)\n2. **dual_congested**:\
-    \ both clients behind delay proxies (2ms/5ms delay,\n   100/50 Mbps)\n\n## Listener\
-    \ Configuration API\nYou configure listeners per-feature using `gf_configs[]`,\
-    \ an array of\n`struct vulcan_feature_config` with one entry per global feature:\n\
-    \n```c\nstruct vulcan_feature_config {\n    u32 listener_mask;  // OR of VULCAN_LISTENER_*\
-    \ flags\n    u32 ewma_alpha;     // [0..1000], only used if EWMA enabled\n   \
-    \ u32 rw_size;        // [1..16],   only used if RW enabled\n};\n```\n\nListener\
-    \ bitmask flags (OR together in .listener_mask):\n  VULCAN_LISTENER_MINMAX  \u2014\
-    \ enable MinMax (tracks min/max over time)\n  VULCAN_LISTENER_EWMA    \u2014 enable\
-    \ EWMA (set .ewma_alpha)\n  VULCAN_LISTENER_AVG     \u2014 enable running Average\n\
-    \  VULCAN_LISTENER_RW      \u2014 enable RollingWindow (set .rw_size)\n  VULCAN_LISTENER_ALL\
-    \     \u2014 shorthand for all four\n\nExample configuration:\n```c\nstatic const\
-    \ struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {\n  \
-    \  [GF_SRTT_US]     = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,\n\
-    \                         .ewma_alpha = 200, .rw_size = 8 },\n    [GF_LOST]  \
-    \      = { .listener_mask = VULCAN_LISTENER_MINMAX },\n    [GF_SND_CWND]    =\
-    \ { .listener_mask = VULCAN_LISTENER_EWMA, .ewma_alpha = 100 },\n    // features\
-    \ with .listener_mask = 0 have no listeners (zero overhead)\n};\n```\n\nPer-folio\
-    \ configuration (struct vulcan_folio_config):\n```c\nstatic const struct vulcan_folio_config\
-    \ folio_cfg = {\n    .listener_mask = VULCAN_LISTENER_MINMAX | VULCAN_LISTENER_EWMA,\n\
-    \    .ewma_alpha    = 200,  // smoothing for per-folio interval tracking\n};\n\
-    ```\nCall vulcan_folio_on_access(meta, now, &folio_cfg) in folio_accessed.\n\n\
-    ## Global Feature Accessor API\nUse these inside bpf_score_fn to query listener\
-    \ state. An accessor\nreturns 0 if the corresponding listener is not enabled for\
-    \ that feature.\nAll return s64.\n\n  vulcan_get_min(GF_xxx)           \u2014\
-    \ minimum observed value  (needs MINMAX)\n  vulcan_get_max(GF_xxx)           \u2014\
-    \ maximum observed value  (needs MINMAX)\n  vulcan_get_ewma(GF_xxx)          \u2014\
-    \ EWMA smoothed value     (needs EWMA)\n  vulcan_get_avg(GF_xxx)           \u2014\
-    \ running arithmetic avg  (needs AVG)\n  vulcan_get_latest(GF_xxx)        \u2014\
-    \ most recent value       (needs RW)\n  vulcan_get_kth_recent(GF_xxx, k) \u2014\
-    \ k-th most recent        (needs RW)\n  vulcan_get_window_avg(GF_xxx)    \u2014\
-    \ rolling-window average  (needs RW)\n  vulcan_get_window_count(GF_xxx)  \u2014\
-    \ entries in window        (needs RW)\n\n### Global Feature IDs\n  GF_SRTT_US\
+    \ policy is tested against multiple dual-client workload traces in sequence.\n\
+    The combined score is the HARMONIC MEAN of throughputs across all traces.\nScoring\
+    \ 0 on ANY trace severely penalizes your total score.\n\nEach trace runs TWO My-YCSB\
+    \ clients simultaneously against the SAME\nLevelDB server in the SAME cgroup.\n\
+    \nExample traces:\n- **ycsb_c_a**: YCSB C (100% reads, zipfian hot-set) + YCSB\
+    \ A\n   (50% reads, 50% updates, zipfian)\n- **ycsb_c_b**: YCSB C (100% reads,\
+    \ zipfian hot-set) + YCSB B\n   (95% reads, 5% updates, zipfian)\n- **ycsb_c_d**:\
+    \ YCSB C (100% reads, zipfian hot-set) + YCSB D\n   (50% reads + 50% read_modify_write,\
+    \ zipfian)\n- **ycsb_c_e**: YCSB C (100% reads, zipfian hot-set) + YCSB E\n  \
+    \ (95% reads + 5% inserts over `latest`, mixed key churn)\n- **ycsb_c_f**: YCSB\
+    \ C (100% reads, zipfian hot-set) + YCSB F\n   (95% scans + 5% inserts, scan pollution)\n\
+    - **ycsb_b_a**: YCSB B (95% reads, 5% updates) + YCSB A\n   (50% reads, 50% updates)\n\
+    - **ycsb_a_d**: YCSB A (read/update mix) + YCSB D (read+RMW mix)\n- **ycsb_b_f**:\
+    \ YCSB B (mostly reads) + YCSB F (scan-heavy)\n- **ycsb_e_a**: YCSB E (latest\
+    \ inserts) + YCSB A (read/update churn)\n- **ycsb_e_f**: YCSB E (latest inserts)\
+    \ + YCSB F (scan-heavy)\n\n## Listener Configuration API\nYou configure listeners\
+    \ per-feature using `gf_configs[]`, an array of\n`struct vulcan_feature_config`\
+    \ with one entry per global feature:\n\n```c\nstruct vulcan_feature_config {\n\
+    \    u32 listener_mask;  // OR of VULCAN_LISTENER_* flags\n    u32 ewma_alpha;\
+    \     // [0..1000], only used if EWMA enabled\n    u32 rw_size;        // [1..16],\
+    \   only used if RW enabled\n};\n```\n\nListener bitmask flags (OR together in\
+    \ .listener_mask):\n  VULCAN_LISTENER_MINMAX  \u2014 enable MinMax (tracks min/max\
+    \ over time)\n  VULCAN_LISTENER_EWMA    \u2014 enable EWMA (set .ewma_alpha)\n\
+    \  VULCAN_LISTENER_AVG     \u2014 enable running Average\n  VULCAN_LISTENER_RW\
+    \      \u2014 enable RollingWindow (set .rw_size)\n  VULCAN_LISTENER_ALL     \u2014\
+    \ shorthand for all four\n\nExample configuration:\n```c\nstatic const struct\
+    \ vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {\n    [GF_SRTT_US]\
+    \     = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,\n      \
+    \                   .ewma_alpha = 200, .rw_size = 8 },\n    [GF_LOST]        =\
+    \ { .listener_mask = VULCAN_LISTENER_MINMAX },\n    [GF_SND_CWND]    = { .listener_mask\
+    \ = VULCAN_LISTENER_EWMA, .ewma_alpha = 100 },\n    // features with .listener_mask\
+    \ = 0 have no listeners (zero overhead)\n};\n```\n\nImportant: the example snippet\
+    \ above is only a template to show *syntax*.\nDo NOT copy these listener masks/parameters\
+    \ verbatim. You must reason\nabout which listeners to enable and why for the current\
+    \ trace set and\nscoring objective, and set `.listener_mask`, `.ewma_alpha`, and\
+    \ `.rw_size`\naccordingly.\n\nPer-folio configuration (struct vulcan_folio_config):\n\
+    ```c\nstatic const struct vulcan_folio_config folio_cfg = {\n    .listener_mask\
+    \ = VULCAN_LISTENER_MINMAX | VULCAN_LISTENER_EWMA,\n    .ewma_alpha    = 200,\
+    \  // smoothing for per-folio interval tracking\n};\n```\nCall vulcan_folio_on_access(meta,\
+    \ now, &folio_cfg) in folio_accessed.\n\n## Global Feature Accessor API\nUse these\
+    \ inside bpf_score_fn to query listener state. An accessor\nreturns 0 if the corresponding\
+    \ listener is not enabled for that feature.\nAll return s64.\n\n  vulcan_get_min(GF_xxx)\
+    \           \u2014 minimum observed value  (needs MINMAX)\n  vulcan_get_max(GF_xxx)\
+    \           \u2014 maximum observed value  (needs MINMAX)\n  vulcan_get_ewma(GF_xxx)\
+    \          \u2014 EWMA smoothed value     (needs EWMA)\n  vulcan_get_avg(GF_xxx)\
+    \           \u2014 running arithmetic avg  (needs AVG)\n  vulcan_get_latest(GF_xxx)\
+    \        \u2014 most recent value       (needs RW)\n  vulcan_get_kth_recent(GF_xxx,\
+    \ k) \u2014 k-th most recent        (needs RW)\n  vulcan_get_window_avg(GF_xxx)\
+    \    \u2014 rolling-window average  (needs RW)\n  vulcan_get_window_count(GF_xxx)\
+    \  \u2014 entries in window        (needs RW)\n\n### Global Feature IDs\n  GF_SRTT_US\
     \        \u2014 smoothed RTT in usec (kernel stores srtt<<3)\n  GF_MDEV_US   \
     \     \u2014 RTT mean deviation / jitter (usec)\n  GF_SND_CWND       \u2014 congestion\
     \ window (segments)\n  GF_SND_SSTHRESH   \u2014 slow-start threshold (segments)\n\
@@ -234,4 +246,4 @@ job_config:
   extra_cmd_args: {}
   time: null
 results_directory: results/vulcan_evo
-timestamp: '2026-03-23T18:59:20.106447'
+timestamp: '2026-03-26T22:49:27.637290'

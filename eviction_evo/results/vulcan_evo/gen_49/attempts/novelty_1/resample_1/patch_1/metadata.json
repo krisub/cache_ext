@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 1,
-  "patch_name": "recency_normalized_access_count",
-  "patch_description": "Calibrate the recency-weighted base score computation by introducing an explicit normalized access count variable. Instead of directly multiplying access_count by (100 + recency_factor) / 100, we compute a normalized_access_count that adds the recency boost as an additive component: `normalized_access_count = meta->access_count + (meta->access_count * recency_factor / 100)`. This makes the temporal locality contribution more explicit and allows network-aware protection factors to compound more effectively on top of the recency-adjusted value. The change better distinguishes between old cold folios (e.g., access_count=10, last_access=9s ago \u2192 normalized=10) and recently-active folios with similar historical counts (e.g., access_count=10, last_access=0.5s ago \u2192 normalized=15), addressing the working-set dynamics more precisely while maintaining the strong congested performance.",
+  "num_applied": 3,
+  "patch_name": "dual_metric_sustained_congestion_detection",
+  "patch_description": "Implement dual-metric sustained congestion detection by combining loss persistence with CWND collapse ratio for more reliable working-set expansion identification. This approach:\n\n1. Enables both MINMAX and EWMA listeners for GF_SND_CWND (currently only EWMA is enabled) to track historical CWND minimum\n2. Detects sustained congestion when CWND EWMA has collapsed below its historical minimum by comparing to a conservative 1.3x threshold AND packet loss persists\n3. Stacks a +1000 bonus additively with existing loss-triggered bonuses rather than replacing them\n\nThis differs from previous attempts that compared CWND to SSTHRESH. Instead, it compares CWND to its own historical baseline, providing a more reliable signal of sustained congestion versus transient loss. The 1.3x ratio is more conservative than the 1.4x used in prior attempts, reducing false positives while still catching genuine sustained congestion episodes.\n\nThe additive stacking ensures that protection increases progressively: base loss bonus + sustained congestion bonus, rather than choosing one or the other, making the policy more responsive to compound stress conditions.",
   "error_msg": null,
-  "timestamp": "2026-03-23T17:53:25.628056",
-  "llm_cost": 0.181446,
+  "timestamp": "2026-03-27T03:44:31.060608",
+  "llm_cost": 0.22351500000000002,
   "llm_model": null
 }

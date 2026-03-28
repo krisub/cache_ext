@@ -262,28 +262,31 @@ static __always_inline bool is_folio_relevant(struct folio *folio) {
 // Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
 // listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = 0 },
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
     [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
     [GF_SEGS_IN]        = { .listener_mask = 0 },
     [GF_SEGS_OUT]       = { .listener_mask = 0 },
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 
 // -- Per-folio listener configuration ----------------------------------------
 // Baseline: disabled. Evolution can enable for interval-based scoring.
 static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = 0,
+    .listener_mask = VULCAN_LISTENER_MINMAX | VULCAN_LISTENER_EWMA,
     .ewma_alpha    = 200,
 };
 
@@ -330,9 +333,63 @@ static s64 bpf_score_fn(struct cache_ext_list_node *node)
     if (!meta)
         return S64_MAX;
 
+    // Base score: access count (higher = keep)
     s64 score = (s64)meta->access_count;
 
-    /* LevelDB: protect index block (last page of file) */
+    // Network-aware protection: when RTT is high, cache misses are expensive
+    // RTT is in usec; typical good RTT < 10ms (10000us), bad > 50ms (50000us)
+    s64 rtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    if (rtt_ewma > 50000) {
+        // High RTT: add bonus to protect frequently accessed pages
+        score += meta->access_count / 2;
+    } else if (rtt_ewma > 35000) {
+        // Intermediate RTT: 37.5% bonus (3/8)
+        score += (meta->access_count * 3) / 8;
+    } else if (rtt_ewma > 20000) {
+        // Moderate RTT: small bonus
+        score += meta->access_count / 4;
+    }
+
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
+    }
+
+    // Per-folio heat: lower interval EWMA = hotter (more frequent accesses)
+    // Interval is in nanoseconds; < 100ms (100000000ns) = hot
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed, add bonus
+        score += 5000;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
+    }
+
+    // Variance-based regularity detection: low variance = predictable access pattern
+    // Variance = max_interval - min_interval; < 50ms spread = regular
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0) {
+        s64 variance = interval_max - interval_min;
+        if (variance < 50000000) {  // < 50ms variance = highly regular
+            // Predictable access pattern: add bonus to protect
+            score += 2000;
+        }
+    }
+
+    // Recency: protect recently accessed folios (likely in working set)
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        score += 3000;
+    } else if (age < 30000000000) {  // < 30 seconds
+        score += 1000;
+    }
+
+    // LevelDB: protect index block (last page of file)
     if (is_last_page_in_file(folio))
         score += 100000;
 

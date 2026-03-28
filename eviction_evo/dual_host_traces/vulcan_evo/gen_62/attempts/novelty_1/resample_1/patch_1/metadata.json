@@ -1,0 +1,14 @@
+{
+  "generation": 62,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "recency_normalized_access_count",
+  "patch_description": "The current recency-weighted scoring applies recency as a percentage multiplier to access_count, but computes the final base_score immediately. This recommendation introduces an explicit intermediate `normalized_access_count` variable that combines access frequency with recency weighting. This makes the temporal locality component more explicit and allows better score discrimination between recently-active hot folios and old cold folios with similar historical access counts.\n\nThe key improvement is in how the normalized score flows through subsequent network-aware adjustments. By making `normalized_access_count` the foundation rather than immediately computing `base_score`, we ensure that recency-weighted frequency is consistently used as the primary metric before applying network factors. This should particularly help the dual_small_vs_large workload where the fast reader has a tight working set that benefits from aggressive recency-based protection.\n\nThe mathematical result is equivalent to the current formula but the code structure makes the recency normalization more prominent in the scoring logic, which the verifier and subsequent network adjustments can leverage more effectively.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T23:40:48.955698",
+  "llm_cost": 0.19540200000000002,
+  "llm_model": null
+}

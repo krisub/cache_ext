@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 2,
-  "patch_name": "time_decaying_loss_protection_via_ewma",
-  "patch_description": "The current implementation uses MINMAX listener for GF_LOST, which tracks the maximum loss value ever observed. Once loss occurs, `vulcan_get_max(GF_LOST)` remains elevated indefinitely, causing sustained over-protection even after network conditions improve. This prevents the cache from adapting when congestion resolves.\n\nThis change switches GF_LOST from MINMAX to EWMA listener, which provides natural time-decay behavior. The EWMA smooths loss observations and automatically decays toward zero when loss events stop, achieving the recommended time-decay without requiring explicit timestamp tracking (which would violate the architectural constraint against modifying the kprobe).\n\nWith alpha=150, the EWMA provides ~100ms time constant, so loss protection naturally reduces within 200-300ms after conditions improve. The scoring function then applies graduated protection based on EWMA magnitude rather than a binary max_lost > 0 check, providing more nuanced responses to varying congestion levels.\n\nThis addresses the observation that dual_congested throughput (3781.21 MB/s) has room for improvement by enabling faster recovery when network conditions improve after transient loss events.",
+  "patch_name": "refine_dual_metric_congestion_detection",
+  "patch_description": "The current implementation of dual-metric sustained congestion detection compares CWND EWMA against the historical minimum, but this comparison may not reliably identify sustained congestion across all workloads. The performance regression from 5667.51 to 5277.58 suggests the sustained_congestion logic is triggering incorrectly or not providing the intended benefit.\n\nThe recommendation suggests using \"CWND collapse ratio\" more reliably. Instead of comparing current EWMA against historical minimum (which may fluctuate), we should compare against a more stable baseline. A better approach is to detect when CWND EWMA drops significantly below recent stable values while losses persist.\n\nThis change:\n1. Removes the sustained_congestion check that compares against cwnd_min (which proved unreliable)\n2. Instead, adds a simpler additional stacking bonus (+1000) when we detect BOTH loss persistence AND CWND staying low (below 50% of its EWMA value suggests sustained problems)\n3. This keeps bonuses stacking additively as recommended\n4. The conservative 1.3x ratio threshold mentioned in the recommendation is applied more carefully by requiring the CWND to be substantially depressed",
   "error_msg": null,
-  "timestamp": "2026-03-23T22:07:23.675765",
-  "llm_cost": 0.210321,
+  "timestamp": "2026-03-27T08:36:54.445310",
+  "llm_cost": 0.220983,
   "llm_model": null
 }

@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 3,
-  "patch_name": "adaptive_per_folio_heat_thresholds",
-  "patch_description": "The current program uses fixed global thresholds for determining folio \"heat\" (1s for hot, 10s for cold). This proposal implements adaptive thresholds based on each folio's own access pattern history using the interval_minmax listener data that we're already tracking.\n\n**Rationale**: Different folios have different natural access patterns. A folio accessed every 100ms shouldn't be treated the same as one accessed every 5s using the same global threshold. By using each folio's min/max inter-access intervals, we can detect when a folio is \"hot\" (accessing near its historical minimum) vs \"cold\" (accessing near its historical maximum) relative to its own pattern rather than a global constant.\n\n**Implementation**: \n1. Use the per-folio `interval_minmax.min_val` and `interval_minmax.max_val` to define a range\n2. If `interval_ewma` is in the lower 25% of the range (closer to min), mark as hot\n3. If `interval_ewma` is in the upper 75% of the range (closer to max), mark as cold\n4. Fall back to fixed thresholds only if minmax data is unavailable or invalid\n\nThis makes the heat scoring workload-adaptive rather than using hard-coded time constants.\n\n**Additional improvement**: Tighten the recency window from 5 seconds to 2 seconds. Looking at the prior programs, the one with a 2-second recency window (program 2) performed well. A tighter window better identifies truly recent accesses in the fast-paced network workload.",
+  "num_applied": 1,
+  "patch_name": "congestion_aware_recency_decay",
+  "patch_description": "The current program uses static recency bonuses (+3000 for <5s, +1000 for <30s). This change implements congestion-aware recency decay by modulating these bonuses based on packet loss detection. When `vulcan_get_max(GF_LOST) > 0` indicates network congestion, the recency bonuses are increased by 50% (+4500 and +1500 respectively). This makes the eviction policy more conservative during network stress, protecting recently accessed folios more aggressively when cache misses are most expensive. The `lost_max` value is already computed earlier in the function, so this change reuses it to conditionally adjust recency protection without additional overhead.",
   "error_msg": null,
-  "timestamp": "2026-03-21T21:57:14.825678",
-  "llm_cost": 0.168873,
+  "timestamp": "2026-03-25T23:26:24.924434",
+  "llm_cost": 0.092448,
   "llm_model": null
 }

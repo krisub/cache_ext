@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 4,
-  "patch_name": "congestion_window_saturation_detection",
-  "patch_description": "The recommendation suggests integrating PACKETS_OUT congestion signal with window saturation detection. Currently, the policy only monitors RTT and loss, but doesn't detect when the congestion window is saturated (high in-flight packets relative to cwnd).\n\nWhen PACKETS_OUT EWMA approaches or exceeds SND_CWND EWMA, the network is window-limited. This is particularly valuable during the dual_congested workload where throughput is lower than the best prior version (2090.49).\n\nThe improvement:\n1. Enable GF_SND_CWND EWMA listener (fast-reacting, alpha=200 to match PACKETS_OUT)\n2. Compute congestion ratio: (packets_out_ewma * 100) / max(snd_cwnd_ewma, 1)\n3. Apply scaled secondary boost to network_factor when ratio > 70% (indicating pressure):\n   - 1.05x boost if ratio 70-90%\n   - 1.15x boost if ratio > 90%\n\nThis provides finer-grained network-aware protection without the complexity of exponential decay, focusing on the immediate congestion state.",
+  "num_applied": 1,
+  "patch_name": "optimize_ewma_alpha_timescales",
+  "patch_description": "This edit fine-tunes the EWMA alpha values for network features based on their characteristic timescales. The adjustments follow signal processing principles:\n\n1. **GF_SRTT_US alpha: 275 \u2192 310**: RTT changes occur rapidly (sub-second) when network conditions shift, so we need faster detection. A higher alpha (310) makes the EWMA more responsive to recent RTT spikes or improvements, allowing the eviction policy to quickly adapt protection levels when latency changes.\n\n2. **GF_INTER_ARRIVAL alpha: 60 \u2192 45**: Inter-arrival time between packets is inherently noisy due to packet batching, interrupt coalescing, and scheduling effects. A lower alpha (45) provides heavier smoothing to filter out high-frequency noise while still capturing genuine traffic pattern changes (e.g., burst vs. steady-state).\n\n3. **GF_SND_CWND alpha: 175 (unchanged)**: Congestion window evolves on a moderate timescale (multiple RTTs), so the existing alpha is appropriate for tracking congestion state transitions.\n\nThis multi-timescale tuning allows each metric's EWMA to match its natural dynamics: fast-reactive for RTT (which needs immediate response), slow-stable for inter-arrival (which needs noise filtering), and moderate for CWND (which needs balanced tracking). By optimizing each alpha independently based on the metric's temporal characteristics, we improve the signal-to-noise ratio of our network-aware eviction decisions, potentially capturing an additional 1-2% performance improvement.",
   "error_msg": null,
-  "timestamp": "2026-03-22T01:06:30.841923",
-  "llm_cost": 0.071042,
+  "timestamp": "2026-03-26T05:32:12.320834",
+  "llm_cost": 0.200379,
   "llm_model": null
 }

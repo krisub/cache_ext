@@ -1,0 +1,14 @@
+{
+  "generation": 16,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "loss_decay_protection_refinement",
+  "patch_description": "The current program regressed from the best-performing variant (score 2090.49 down to 1874.82). The regression appears to stem from two issues:\n\n1. **Unnecessary overhead from adaptive statistics**: The interval_stats_map collection adds per-access overhead during folio_accessed events to compute dynamic thresholds, but the benefit doesn't materialize. The simpler fixed thresholds in program 5 actually performed better.\n\n2. **Over-aggressive loss protection**: The current code applies a flat 30% boost whenever loss is detected (`max_lost > 0`), regardless of staleness. This can cause sustained over-protection that locks the cache into conservative eviction for too long after a transient loss event.\n\nFollowing the provided recommendation, I propose:\n- **Remove** the interval statistics collection mechanism (eliminates per-access overhead)\n- **Implement** loss-triggered protection with exponential time-decay so the 15% boost gradually attenuates (~37% of peak after 100ms, negligible after 300ms)\n- **Restore** the condition that loss protection only applies when RTT is also elevated (RTT > 3ms), reducing false positives\n\nThis maintains network-awareness while preventing stale signals from indefinitely locking eviction policy, recovering performance closer to the best prior variant.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T00:35:22.632387",
+  "llm_cost": 0.076935,
+  "llm_model": null
+}

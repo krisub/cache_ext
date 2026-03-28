@@ -1,0 +1,76 @@
+<NAME>
+loss_decay_adaptive_protection
+</NAME>
+
+<DESCRIPTION>
+The current loss-based protection applies a uniform 15% boost whenever packet loss is detected (via MaxMin listener on GF_LOST), but the loss counter in kernel TCP state can persist long after network conditions improve, causing sustained over-protection that hurts throughput especially under high-frequency workloads (dual_small_vs_large).
+
+The proposed change implements adaptive loss protection by:
+1. Reducing the base loss boost from 15% to 12% to allow more eviction flexibility
+2. Raising the RTT threshold for loss protection from 3000µs to 5000µs, ensuring loss boost only triggers during genuine congestion (both high RTT AND loss detected)
+3. This creates natural decay: as network conditions improve and RTT normalizes below 5ms, the loss protection automatically relaxes, even if the kernel's loss counter hasn't reset yet
+4. During congestion, prioritize protecting genuinely hot folios (low interval_ewma) by applying stronger heat-based protection
+
+This maintains responsiveness to transient congestion while preventing stale loss signals from locking the cache into overly conservative eviction.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        network_factor = (network_factor * 115) / 100;  /* additional 15% boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Per-folio heat: use interval EWMA to distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold). */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+=======
+    /* Packet loss detected with adaptive decay: apply protection only when loss
+     * is accompanied by elevated RTT (active congestion), allowing natural decay
+     * as network conditions improve. Raise RTT threshold to 5ms to ensure only
+     * genuine congestion triggers protection, reducing stale-loss over-protection. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 5000) {  /* Loss + RTT > 5ms (stricter condition) */
+        network_factor = (network_factor * 112) / 100;  /* 12% boost instead of 15% */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Per-folio heat: use interval EWMA to distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold).
+     * During congestion (high RTT + loss), boost hot folios more aggressively
+     * to prevent evicting the active working set. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        s64 heat_protection = 100;
+        /* During active congestion, boost hot folios extra to preserve working set */
+        if (max_lost > 0 && srtt_ewma > 5000) {
+            heat_protection = 150;  /* +50% additional protection during congestion */
+        }
+        score += heat_protection;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        s64 cold_penalty = 100;
+        /* When network is good, more aggressively evict cold folios */
+        if (max_lost == 0 && srtt_ewma <= 5000) {
+            cold_penalty = 150;  /* +50% penalty for cold folios during good conditions */
+        }
+        if (score > cold_penalty) score -= cold_penalty;
+    }
+>>>>>>> REPLACE
+</DIFF>

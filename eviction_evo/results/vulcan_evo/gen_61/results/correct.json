@@ -1,4 +1,4 @@
 {
-  "correct": true,
-  "error": null
+  "correct": false,
+  "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:1: error: expected expression\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:3: error: expected expression\n=======\n  ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:5: error: expected expression\n=======\n    ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:7: error: expected expression\n=======\n      ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:396:5: error: unexpected type name 'u64': expected expression\n    u64 now = bpf_ktime_get_ns();\n    ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:397:21: error: use of undeclared identifier 'now'\n    s64 age = (s64)(now - meta->last_access_ts);\n                    ^\n6 errors generated.\n"
 }

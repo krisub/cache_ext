@@ -1,0 +1,56 @@
+<NAME>
+access_count_scaled_cold_penalty
+</NAME>
+
+<DESCRIPTION>
+The current program applies a fixed -100 penalty to all cold folios (interval_ewma > 5 seconds), which over-penalizes long-lived but valuable pages like LevelDB index structures that are accessed infrequently but remain critical to performance. This modification scales the cold folio penalty by historical access count to distinguish between truly unused pages (low access_count) and long-lived valuable structures (high access_count with infrequent but consistent access).
+
+The scaling works as follows:
+- access_count < 5: Full -100 penalty (truly cold/unused pages)
+- access_count < 20: Reduced -50 penalty (moderately accessed over lifetime)
+- access_count >= 20: Minimal -25 penalty (frequently accessed historically, just not recently)
+
+This asymmetric penalty structure preserves the existing +100 hot folio bonus while preventing excessive eviction of long-lived metadata structures. The thresholds are calibrated based on typical LevelDB access patterns where index blocks accumulate moderate access counts over time but have naturally high inter-access intervals.
+
+This change addresses the observed higher variance in dual_small_vs_large (std: 217.25 in best program) by providing more stable protection for persistent working set elements while still preferring genuinely cold pages as victims.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold).
+     * Thresholds calibrated to align with recency decay window. */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+=======
+    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
+     * Low interval_ewma means frequent accesses (hot).
+     * High interval_ewma means infrequent accesses (cold).
+     * Scale cold penalty by historical access_count to avoid over-penalizing
+     * long-lived but valuable pages (e.g., LevelDB index structures). */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
+        /* Cold folio: scale penalty by historical access count to distinguish
+         * truly unused pages from long-lived but occasionally-accessed valuable pages */
+        s64 cold_penalty = 100;  /* default for truly cold pages */
+        if (meta->access_count < 5) {
+            cold_penalty = 100;  /* truly unused: full penalty */
+        } else if (meta->access_count < 20) {
+            cold_penalty = 50;   /* moderately used over lifetime: reduced penalty */
+        } else {
+            cold_penalty = 25;   /* frequently accessed historically: minimal penalty */
+        }
+        if (score > cold_penalty) score -= cold_penalty;
+    }
+>>>>>>> REPLACE
+</DIFF>

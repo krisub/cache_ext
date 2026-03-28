@@ -1,136 +1,101 @@
 <NAME>
-restore_recency_weighted_base_score
+cwnd_recovery_modulation
 </NAME>
 
 <DESCRIPTION>
-The current program applies recency as an additive bonus after network adjustments, which may not adequately distinguish between folios with similar historical access counts but different temporal locality. The best-performing prior program (score 2184.76) integrates recency multiplicatively into the base score itself via `base_score = (access_count * (100 + recency_factor)) / 100`, where recency_factor decays linearly from 50% at <1s to 0% at 10s.
+The current implementation applies fixed loss-triggered bonuses (+4500/+1500/+500) whenever packet loss is detected, regardless of whether the network is actively recovering from congestion or stuck in sustained degradation. This doesn't distinguish between transient packet loss events (which TCP recovers from quickly) and prolonged congestion (where working-set protection is most valuable).
 
-This recency-weighted base score approach makes temporal locality a first-class component of the scoring function, allowing the network-aware protection factors to amplify the distinction between recently-active and stale folios. A folio with 10 accesses accessed 2 seconds ago will score higher than one with 10 accesses accessed 9 seconds ago, even before network adjustments are applied.
+This edit extends the loss-triggered recency amplification by coupling it to CWND recovery dynamics:
+- When `cwnd_ewma > cwnd_min * 1.5` (indicating CWND is recovering from congestion), reduce loss-triggered bonuses by 15% (e.g., +4500 becomes +3825)
+- When CWND is stuck below minimum, keep full bonuses
+- This allows the policy to be less aggressive during brief packet loss events that recover quickly, while maintaining strong protection during sustained congestion
 
-I propose restoring this proven recency-weighted base score computation, replacing the current exponential-like additive bonus with the linear decay multiplicative approach that directly weights access_count by recency.
+The modulation is conservative (15% reduction vs. Generation 31's 25% that regressed) and uses a 1.5x threshold to detect recovery. This should improve performance on mixed workloads (YCSB-A/B/D currently 4028-5833 ops/sec) by 2-3% without destabilizing read-heavy workloads.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    s64 base_score = (s64)meta->access_count;
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // High jitter (RTT variance) also extends working set window due to unpredictable latency
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    bool high_jitter = (mdev_ewma > 10000);  // > 10ms jitter = high variance
 
-    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
-    if (srtt_ewma > 5000) {
-        network_factor = 125;  /* 1.25x protection */
-    }
-    if (srtt_ewma > 10000) {
-        network_factor = 150;  /* 1.5x protection for >10ms RTT */
-    }
-
-    /* Packet loss detected with recency-aware decay via RollingWindow.
-     * Recent loss → full 15% boost; stale loss → gradually decay to no boost.
-     * Check most recent loss value; if zero (network recovered), apply reduced boost
-     * based on how recent the earlier loss was. */
-    s64 latest_lost = vulcan_get_latest(GF_LOST);
-    s64 loss_boost = 0;
-
-    if (latest_lost > 0 && srtt_ewma > 3000) {
-        /* Most recent sample shows active loss: apply full boost */
-        loss_boost = 115;
-    } else if (srtt_ewma > 3000) {
-        /* No active loss, but check if loss was recent (window position 2-4)
-         * Apply partial decay-based boost */
-        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
-        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
-
-        if (prev_lost_1 > 0) {
-            loss_boost = 108;  /* 8% boost for very recent loss */
-        } else if (prev_lost_2 > 0) {
-            loss_boost = 103;  /* 3% boost for moderately old loss */
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
         }
     }
-
-    if (loss_boost > 100) {
-        network_factor = (network_factor * loss_boost) / 100;
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency-weighted boost: prioritize recently-accessed pages over old ones.
-     * Apply stronger recency bonus for pages accessed very recently (<3s).
-     * Uses exponential-like decay: 100 bonus at 0s, decays toward 0 at 10s+.
-     * Formula approximation: bonus = 100 * exp(-time_elapsed_sec / 3)
-     *                              ≈ 100 / (1 + time_elapsed_ms / 3000) */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    s64 recency_bonus = 0;
-    if (time_since_access < 10000000000ULL) {  /* Within 10 seconds */
-        s64 elapsed_ms = time_since_access / 1000000;  /* ns to ms */
-        recency_bonus = (100 * 3000) / (3000 + elapsed_ms);
-    }
-    score += recency_bonus;
 =======
-    /* Recency-weighted base score: prioritize recently-active folios over cold ones
-     * with similar historical access counts. Linear decay from +50% boost (< 1 second)
-     * to 0% boost (10+ seconds). This captures working-set dynamics by making temporal
-     * locality a first-class component of the score. */
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // High jitter (RTT variance) also extends working set window due to unpredictable latency
+    // CWND recovery modulation: reduce loss-triggered bonuses during recovery phase
     u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    s64 recency_factor = 0;
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    bool high_jitter = (mdev_ewma > 10000);  // > 10ms jitter = high variance
 
-    if (time_since_access < 1000000000ULL) {  /* < 1 second */
-        recency_factor = 50;  /* 50% boost for very recent accesses */
-    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
-        /* Linear decay: 50% at 1s, 0% at 10s */
-        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
-        recency_factor = 50 - (elapsed_seconds * 50 / 9);  /* decay over 9 seconds */
-        if (recency_factor < 0) recency_factor = 0;
-    }
-    /* else: time_since_access >= 10s, recency_factor remains 0 */
-
-    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
-
-    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
-    if (srtt_ewma > 5000) {
-        network_factor = 125;  /* 1.25x protection */
-    }
-    if (srtt_ewma > 10000) {
-        network_factor = 150;  /* 1.5x protection for >10ms RTT */
-    }
-
-    /* Packet loss detected with recency-aware decay via RollingWindow.
-     * Recent loss → full 15% boost; stale loss → gradually decay to no boost.
-     * Check most recent loss value; if zero (network recovered), apply reduced boost
-     * based on how recent the earlier loss was. */
-    s64 latest_lost = vulcan_get_latest(GF_LOST);
-    s64 loss_boost = 0;
-
-    if (latest_lost > 0 && srtt_ewma > 3000) {
-        /* Most recent sample shows active loss: apply full boost */
-        loss_boost = 115;
-    } else if (srtt_ewma > 3000) {
-        /* No active loss, but check if loss was recent (window position 2-4)
-         * Apply partial decay-based boost */
-        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
-        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
-
-        if (prev_lost_1 > 0) {
-            loss_boost = 108;  /* 8% boost for very recent loss */
-        } else if (prev_lost_2 > 0) {
-            loss_boost = 103;  /* 3% boost for moderately old loss */
+    // Detect CWND recovery state to modulate loss-triggered bonuses
+    // When CWND is recovering (growing back after congestion), be less aggressive
+    bool cwnd_recovering = false;
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    if (lost_max > 0 && cwnd_ewma > 0 && cwnd_min > 0) {
+        // Check if cwnd > cwnd_min * 1.5 (multiply to avoid division)
+        if ((cwnd_ewma * 2) > (cwnd_min * 3)) {
+            cwnd_recovering = true;
         }
     }
 
-    if (loss_boost > 100) {
-        network_factor = (network_factor * loss_boost) / 100;
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            // Base loss bonus: 4500
+            // If CWND recovering, reduce by 15%: 4500 * 0.85 = 3825
+            s64 loss_bonus = cwnd_recovering ? 3825 : 4500;
+            score += loss_bonus;
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            // Base loss bonus: 500
+            // If CWND recovering, reduce by 15%: 500 * 0.85 = 425
+            s64 loss_bonus = cwnd_recovering ? 425 : 500;
+            score += base_bonus + loss_bonus;
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            // Base loss bonus: 500
+            // If CWND recovering, reduce by 15%: 500 * 0.85 = 425
+            s64 loss_bonus = cwnd_recovering ? 425 : 500;
+            score += loss_bonus;
+        }
     }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
 >>>>>>> REPLACE
-
 </DIFF>

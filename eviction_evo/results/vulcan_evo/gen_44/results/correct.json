@@ -1,4 +1,4 @@
 {
-  "correct": true,
-  "error": null
+  "correct": false,
+  "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:413:9: error: redefinition of 'cwnd_min'\n    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);\n        ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:366:9: note: previous definition is here\n    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);\n        ^\n1 error generated.\n"
 }

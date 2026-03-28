@@ -34,6 +34,8 @@ struct NetLevelDBConfig {
 		long scan_length;
 		string trace_file;
 		string trace_type;
+		/// Optional CSV of target aggregate ops/s per experiment second (see run_net_leveldb).
+		string rate_schedule_file;
 	} workload;
 	struct {
 		string latency_file;
@@ -77,6 +79,9 @@ NetLevelDBConfig NetLevelDBConfig::parse_yaml(YAML::Node &root) {
 	config.workload.trace_type = "";
 	if (workload["trace_type"])
 		config.workload.trace_type = workload["trace_type"].as<string>();
+	config.workload.rate_schedule_file = "";
+	if (workload["rate_schedule_file"])
+		config.workload.rate_schedule_file = workload["rate_schedule_file"].as<string>();
 
 	YAML::Node measurement = root["measurement"];
 	config.measurement.latency_file = measurement["latency_file"] ? measurement["latency_file"].as<string>() : "";

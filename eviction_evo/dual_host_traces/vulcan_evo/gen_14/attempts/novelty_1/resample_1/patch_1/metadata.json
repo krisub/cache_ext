@@ -1,0 +1,14 @@
+{
+  "generation": 14,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "loss_detection_decay",
+  "patch_description": "The current program has lost performance by reverting to pure LFU with no network listeners. Looking at the prior evolution, Program 5 (score 1977.84) achieved the best performance by enabling smart network-aware listeners and per-folio heat tracking. \n\nThe recommendation is to implement **time-decay for loss-triggered protection** to prevent sustained over-protection after transient loss events. Currently, if max_lost > 0 is detected, a constant 30% boost is applied indefinitely until loss clears. This can lock the cache into overly conservative eviction during/after brief loss spikes.\n\nThe solution is to:\n1. Re-enable the high-performing listener configuration from Program 5 (SRTT_US with EWMA+RW, PACKETS_OUT with EWMA, LOST with MINMAX, plus per-folio EWMA+MINMAX)\n2. Add per-folio tracking of last_loss_event_ts to detect when loss was last observed relative to each folio\n3. Implement exponential decay: when loss is old, the protection boost decays toward 0 (e.g., ~37% boost after 100ms, ~5% after 300ms)\n4. Restore the sophisticated scoring function that combines recency, network conditions, and per-folio heat\n\nThis prevents the cache from over-protecting folios based on stale loss information while maintaining strong protection during active network degradation.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: '// ============================================================================='\nAt position: 9164\n\nContext around found text:\n     Line 216: // Include feature dispatch layer (needs maps declared above)\n     Line 217: #include \"vulcan_bpf/vulcan_feature.h\"\n     Line 218: \n >>> Line 219: // =============================================================================\n     Line 220: // RAW NETWORK GLOBALS (updated by kprobe)\n     Line 221: // =============================================================================\n     Line 222: \n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 10421-16268):\n    // =============================================================================\n    // EVICTION POLICY -- everything below (until the closing marker) is evolved\n    // =============================================================================\n    ... (158 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-21T23:33:01.766685",
+  "llm_cost": 0.07883899999999999,
+  "llm_model": null
+}

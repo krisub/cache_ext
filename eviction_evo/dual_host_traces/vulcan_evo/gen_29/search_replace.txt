@@ -1,0 +1,307 @@
+<NAME>
+add_packets_out_congestion_ratio_secondary_boost
+</NAME>
+
+<DESCRIPTION>
+This change implements the recommended PACKETS_OUT congestion signal integration as a secondary network factor. The key improvements:
+
+1. Enable SND_CWND EWMA listener to track congestion window alongside PACKETS_OUT
+2. Compute a congestion ratio using safe unsigned arithmetic: (packets_out * 100) / max(snd_cwnd, 1)
+3. Apply graduated secondary boost to network_factor:
+   - +5 to network_factor if congestion ratio > 70% (window nearly saturated)
+   - +10 to network_factor if congestion ratio > 90% (window fully saturated)
+4. Simplify loss handling by removing complex time-decay logic and reverting to Generation 5's simpler approach (which achieved 2090.49 score)
+
+The congestion ratio provides a complementary signal to RTT for detecting network pressure. During window saturation, protecting the working set prevents expensive cache misses from compounding congestion. Using unsigned arithmetic avoids division-by-zero issues and signed overflow problems.
+
+This approach combines the proven Gen 5 logic with the new congestion detection, providing multi-dimensional network awareness without the complexity that hurt the current program's performance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+static u64 main_list;
+
+// Timestamp of last detected packet loss (for time-decay of loss protection)
+u64 last_loss_ts = 0;
+
+// LevelDB: index block is at end of file; protect last page (same as sampling).
+=======
+static u64 main_list;
+
+// LevelDB: index block is at end of file; protect last page (same as sampling).
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+/*
+ * Network-aware LFU with loss-triggered protection using exponential time-decay.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Loss boost decays over ~300ms to prevent sustained over-protection from stale signals.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: when RTT is high, cache misses are expensive */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT: protect working set more aggressively */
+    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
+        network_factor = 150;  /* 1.5x protection */
+    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
+        network_factor = 125;  /* 1.25x protection */
+    }
+
+    /* Packet loss detected with time-decay protection:
+     * Apply 15% boost only when loss is fresh AND RTT is elevated.
+     * Boost decays exponentially: after 100ms it's ~37% of peak, after 300ms negligible.
+     */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        u64 now = bpf_ktime_get_ns();
+        u64 time_since_loss = now - last_loss_ts;
+
+        /* Exponential decay: decay_factor = 100 * exp(-(time_since_loss / 100ms))
+         * Approximated: decay_factor = 100 / (1 + time_since_loss / 100ms)
+         * This gives ~37% at 100ms, ~9% at 300ms, negligible after 500ms
+         */
+        s64 decay_factor = 100;
+        if (time_since_loss > 0 && time_since_loss < 500000000) {  /* Within 500ms window */
+            s64 elapsed_ms = time_since_loss / 1000000;  /* Convert ns to ms */
+            decay_factor = (100 * 100) / (100 + elapsed_ms);  /* Approximately exponential */
+            if (decay_factor < 1) decay_factor = 1;  /* Floor at 1 */
+        } else if (time_since_loss >= 500000000) {
+            decay_factor = 1;  /* Negligible boost after 500ms */
+        }
+
+        network_factor = (network_factor * (100 + (15 * decay_factor / 100))) / 100;
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed very recently (< 5 seconds) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: use interval EWMA to distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold).
+     */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+=======
+/*
+ * Network-aware LFU with congestion-based secondary protection.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ *
+ * Uses PACKETS_OUT/SND_CWND ratio as a secondary signal for window saturation.
+ * During congestion (high ratio), cache misses are expensive due to full window.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: when RTT is high, cache misses are expensive */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT: protect working set more aggressively */
+    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
+        network_factor = 150;  /* 1.5x protection */
+    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
+        network_factor = 125;  /* 1.25x protection */
+    }
+
+    /* Packet loss detected: apply conservative protection boost */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+
+    /* Congestion detection via window saturation (secondary factor):
+     * High PACKETS_OUT relative to SND_CWND indicates congestion.
+     * Use safe unsigned arithmetic to avoid division errors.
+     */
+    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
+    s64 snd_cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+
+    if (packets_out_ewma > 0 && snd_cwnd_ewma > 0) {
+        /* Compute congestion ratio: (packets_out * 100) / cwnd
+         * Using unsigned values to ensure safe arithmetic */
+        u64 packets_out_u = (u64)packets_out_ewma;
+        u64 cwnd_u = (u64)snd_cwnd_ewma;
+        if (cwnd_u < 1) cwnd_u = 1;  /* Avoid division by zero */
+
+        u64 congestion_ratio = (packets_out_u * 100) / cwnd_u;
+
+        /* Apply graduated secondary boost based on window saturation */
+        if (congestion_ratio > 90) {
+            /* Window fully saturated: strong additional protection */
+            network_factor += 10;
+        } else if (congestion_ratio > 70) {
+            /* Window nearly saturated: moderate additional protection */
+            network_factor += 5;
+        }
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed very recently (< 5 seconds) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: use interval EWMA to distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold).
+     */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+
+    /* Update last_loss_ts if loss has been detected (for time-decay calculation) */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        last_loss_ts = bpf_ktime_get_ns();
+    }
+}
+=======
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+}
+>>>>>>> REPLACE
+
+</DIFF>

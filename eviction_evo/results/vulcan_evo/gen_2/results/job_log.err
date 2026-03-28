@@ -1,144 +1,166 @@
-2026-03-21 19:54:23,295 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate_0.lock ...
-2026-03-21 20:24:06,564 INFO Acquired evaluation lock.
-2026-03-21 20:24:06,610 INFO === Step 0: Drop page cache ===
-2026-03-21 20:24:06,610 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping copy
-2026-03-21 20:24:06,610 INFO CMD: sudo sync
-2026-03-21 20:24:06,768 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:24:07,017 INFO Page cache dropped.
-2026-03-21 20:24:07,017 INFO === Step 1: Compile evolved policy ===
-2026-03-21 20:24:07,025 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
-2026-03-21 20:24:07,315 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
-2026-03-21 20:24:10,256 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
-2026-03-21 20:24:10,431 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
-2026-03-21 20:24:11,311 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
-2026-03-21 20:24:11,312 INFO === Step 2: Disable MGLRU ===
-2026-03-21 20:24:11,313 INFO MGLRU watchdog started (PID 35577, will restore in 7800 s)
-2026-03-21 20:24:11,313 INFO MGLRU current state: 0x0007 — disabling
-2026-03-21 20:24:11,313 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
-2026-03-21 20:24:11,398 INFO MGLRU disabled.
-2026-03-21 20:24:11,398 INFO === Step 3: Create cgroup ===
-2026-03-21 20:24:11,461 INFO CMD: sudo cgcreate -g memory:cache_ext_test
-2026-03-21 20:24:11,560 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
-2026-03-21 20:24:11,576 INFO Created cgroup cache_ext_test with limit 536870912 bytes
-2026-03-21 20:24:11,576 INFO === Step 4: Load BPF policy ===
-2026-03-21 20:24:11,576 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
-2026-03-21 20:24:21,587 INFO Policy loaded (PID 35598)
-2026-03-21 20:24:21,587 INFO === Step 5: Start server ===
-2026-03-21 20:24:21,587 INFO Starting server: sudo cgexec -g memory:cache_ext_test /mydata/cache_ext/net_leveldb_server 9100 /mydata/leveldb_temp
-2026-03-21 20:24:21,588 INFO Waiting for server on port 9100 ...
-2026-03-21 20:24:22,641 INFO Server ready (PID 35606) on port 9100
-2026-03-21 20:24:22,641 INFO === Step 6: Run 2 traces x 5 runs = 10 total benchmarks ===
-2026-03-21 20:24:22,706 INFO --- Trace 1/2 (dual_small_vs_large) run 1/5  [1/10 overall] ---
-2026-03-21 20:24:22,706 INFO CMD: sudo sync
-2026-03-21 20:24:22,851 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:24:23,125 INFO Page cache dropped.
-2026-03-21 20:24:25,861 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_v6fv9m32.yaml'
-2026-03-21 20:24:26,104 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_0adf4gis.yaml'
-2026-03-21 20:27:24,079 INFO Client reader_fast: throughput=931.78
-2026-03-21 20:27:24,080 INFO Client writer_slow: throughput=245.14
-2026-03-21 20:27:24,080 INFO Dual-client combined throughput: 1176.92 ops/sec
-2026-03-21 20:27:24,533 INFO Trace dual_small_vs_large run 1: throughput=1176.92 ops/sec
-2026-03-21 20:27:24,533 INFO --- Trace 1/2 (dual_small_vs_large) run 2/5  [2/10 overall] ---
-2026-03-21 20:27:24,533 INFO CMD: sudo sync
-2026-03-21 20:27:24,764 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:27:25,064 INFO Page cache dropped.
-2026-03-21 20:27:27,809 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_96y0e6x7.yaml'
-2026-03-21 20:27:28,048 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_wonrcs7v.yaml'
-2026-03-21 20:30:26,619 INFO Client reader_fast: throughput=903.21
-2026-03-21 20:30:26,621 INFO Client writer_slow: throughput=244.43
-2026-03-21 20:30:26,621 INFO Dual-client combined throughput: 1147.64 ops/sec
-2026-03-21 20:30:27,093 INFO Trace dual_small_vs_large run 2: throughput=1147.64 ops/sec
-2026-03-21 20:30:27,093 INFO --- Trace 1/2 (dual_small_vs_large) run 3/5  [3/10 overall] ---
-2026-03-21 20:30:27,093 INFO CMD: sudo sync
-2026-03-21 20:30:27,332 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:30:27,596 INFO Page cache dropped.
-2026-03-21 20:30:30,257 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_k7jy6vr5.yaml'
-2026-03-21 20:30:30,505 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_mqnn8oay.yaml'
-2026-03-21 20:33:28,477 INFO Client reader_fast: throughput=819.84
-2026-03-21 20:33:28,479 INFO Client writer_slow: throughput=239.48
-2026-03-21 20:33:28,479 INFO Dual-client combined throughput: 1059.32 ops/sec
-2026-03-21 20:33:28,949 INFO Trace dual_small_vs_large run 3: throughput=1059.32 ops/sec
-2026-03-21 20:33:28,949 INFO --- Trace 1/2 (dual_small_vs_large) run 4/5  [4/10 overall] ---
-2026-03-21 20:33:28,949 INFO CMD: sudo sync
-2026-03-21 20:33:29,164 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:33:29,438 INFO Page cache dropped.
-2026-03-21 20:33:32,133 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_9ctmp4k0.yaml'
-2026-03-21 20:33:32,388 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_546a461t.yaml'
-2026-03-21 20:36:30,465 INFO Client reader_fast: throughput=781.51
-2026-03-21 20:36:30,467 INFO Client writer_slow: throughput=241.83
-2026-03-21 20:36:30,468 INFO Dual-client combined throughput: 1023.34 ops/sec
-2026-03-21 20:36:30,969 INFO Trace dual_small_vs_large run 4: throughput=1023.34 ops/sec
-2026-03-21 20:36:30,969 INFO --- Trace 1/2 (dual_small_vs_large) run 5/5  [5/10 overall] ---
-2026-03-21 20:36:30,969 INFO CMD: sudo sync
-2026-03-21 20:36:31,183 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:36:31,514 INFO Page cache dropped.
-2026-03-21 20:36:34,153 INFO Starting remote client reader_fast on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_reader_fast_8xysm_38.yaml'
-2026-03-21 20:36:34,392 INFO Starting remote client writer_slow on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_writer_slow_wr3k09h4.yaml'
-2026-03-21 20:39:32,367 INFO Client reader_fast: throughput=798.20
-2026-03-21 20:39:32,368 INFO Client writer_slow: throughput=238.73
-2026-03-21 20:39:32,368 INFO Dual-client combined throughput: 1036.93 ops/sec
-2026-03-21 20:39:32,817 INFO Trace dual_small_vs_large run 5: throughput=1036.93 ops/sec
-2026-03-21 20:39:32,818 INFO Trace dual_small_vs_large summary: mean=1088.83 std=69.05 min=1023.34 max=1176.92 (CV=6.3%)
-2026-03-21 20:39:32,871 INFO --- Trace 2/2 (dual_congested) run 1/5  [6/10 overall] ---
-2026-03-21 20:39:32,871 INFO CMD: sudo sync
-2026-03-21 20:39:33,072 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:39:33,349 INFO Page cache dropped.
-2026-03-21 20:39:36,124 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_cru5q1a9.yaml'
-2026-03-21 20:39:36,376 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_ujybktqo.yaml'
-2026-03-21 20:42:34,293 INFO Client wan_reader: throughput=980.61
-2026-03-21 20:42:34,709 INFO Client wan_writer: throughput=1253.25
-2026-03-21 20:42:34,709 INFO Dual-client combined throughput: 2233.86 ops/sec
-2026-03-21 20:42:35,169 INFO Trace dual_congested run 1: throughput=2233.86 ops/sec
-2026-03-21 20:42:35,169 INFO --- Trace 2/2 (dual_congested) run 2/5  [7/10 overall] ---
-2026-03-21 20:42:35,169 INFO CMD: sudo sync
-2026-03-21 20:42:35,398 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:42:35,694 INFO Page cache dropped.
-2026-03-21 20:42:38,457 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_2z6yqo7z.yaml'
-2026-03-21 20:42:38,717 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_dcootzix.yaml'
-2026-03-21 20:45:36,838 INFO Client wan_reader: throughput=946.46
-2026-03-21 20:45:37,054 INFO Client wan_writer: throughput=1302.09
-2026-03-21 20:45:37,054 INFO Dual-client combined throughput: 2248.55 ops/sec
-2026-03-21 20:45:37,537 INFO Trace dual_congested run 2: throughput=2248.55 ops/sec
-2026-03-21 20:45:37,537 INFO --- Trace 2/2 (dual_congested) run 3/5  [8/10 overall] ---
-2026-03-21 20:45:37,537 INFO CMD: sudo sync
-2026-03-21 20:45:37,814 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:45:38,147 INFO Page cache dropped.
-2026-03-21 20:45:40,829 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_gm5q07d7.yaml'
-2026-03-21 20:45:41,076 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_cyvbjz_g.yaml'
-2026-03-21 20:48:39,245 INFO Client wan_reader: throughput=966.74
-2026-03-21 20:48:39,310 INFO Client wan_writer: throughput=1359.45
-2026-03-21 20:48:39,310 INFO Dual-client combined throughput: 2326.19 ops/sec
-2026-03-21 20:48:39,777 INFO Trace dual_congested run 3: throughput=2326.19 ops/sec
-2026-03-21 20:48:39,777 INFO --- Trace 2/2 (dual_congested) run 4/5  [9/10 overall] ---
-2026-03-21 20:48:39,777 INFO CMD: sudo sync
-2026-03-21 20:48:40,026 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:48:40,314 INFO Page cache dropped.
-2026-03-21 20:48:43,001 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_cbatzsd_.yaml'
-2026-03-21 20:48:43,232 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_ka0rcrjj.yaml'
-2026-03-21 20:51:41,304 INFO Client wan_reader: throughput=986.58
-2026-03-21 20:51:41,570 INFO Client wan_writer: throughput=1389.78
-2026-03-21 20:51:41,570 INFO Dual-client combined throughput: 2376.36 ops/sec
-2026-03-21 20:51:42,021 INFO Trace dual_congested run 4: throughput=2376.36 ops/sec
-2026-03-21 20:51:42,021 INFO --- Trace 2/2 (dual_congested) run 5/5  [10/10 overall] ---
-2026-03-21 20:51:42,021 INFO CMD: sudo sync
-2026-03-21 20:51:42,215 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 20:51:42,515 INFO Page cache dropped.
-2026-03-21 20:51:45,198 INFO Starting remote client wan_reader on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_reader_49a3a8pa.yaml'
-2026-03-21 20:51:45,445 INFO Starting remote client wan_writer on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_wan_writer_s_z9dqdn.yaml'
-2026-03-21 20:54:43,464 INFO Client wan_reader: throughput=985.86
-2026-03-21 20:54:43,680 INFO Client wan_writer: throughput=1388.46
-2026-03-21 20:54:43,680 INFO Dual-client combined throughput: 2374.32 ops/sec
-2026-03-21 20:54:44,141 INFO Trace dual_congested run 5: throughput=2374.32 ops/sec
-2026-03-21 20:54:44,141 INFO Trace dual_congested summary: mean=2311.86 std=67.75 min=2233.86 max=2376.36 (CV=2.9%)
-2026-03-21 20:54:44,163 INFO === Evaluation complete (5 runs per trace) ===
-2026-03-21 20:54:44,163 INFO Combined score (harmonic mean of means): 1480.42  (2/2 traces passed)
-2026-03-21 20:54:44,163 INFO   dual_small_vs_large: mean=1088.83 std=69.05 [1023.34 .. 1176.92]
-2026-03-21 20:54:44,163 INFO   dual_congested: mean=2311.86 std=67.75 [2233.86 .. 2376.36]
-2026-03-21 20:54:44,163 INFO Stopping net_leveldb_server (PID 35606)
-2026-03-21 20:54:44,163 INFO CMD: sudo kill 35606
-2026-03-21 20:54:44,336 INFO Unloading BPF policy (PID 35598)
-2026-03-21 20:54:44,337 INFO CMD: sudo kill -2 35598
-2026-03-21 20:54:44,617 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
-2026-03-21 20:54:44,718 INFO CMD: sudo sh -c echo 0x0007 > /sys/kernel/mm/lru_gen/enabled
-2026-03-21 20:54:44,826 INFO MGLRU re-enabled (restored to 0x0007).
-2026-03-21 20:54:44,827 INFO MGLRU watchdog stopped (PID 35577)
+2026-03-25 22:46:50,708 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate_0.lock ...
+2026-03-25 23:22:12,146 INFO Acquired evaluation lock.
+2026-03-25 23:22:12,187 INFO === Step 0: Drop page cache ===
+2026-03-25 23:22:12,187 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping copy
+2026-03-25 23:22:12,187 INFO CMD: sudo sync
+2026-03-25 23:22:12,366 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-25 23:22:12,612 INFO Page cache dropped.
+2026-03-25 23:22:12,612 INFO === Step 1: Compile evolved policy ===
+2026-03-25 23:22:12,625 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-25 23:22:12,986 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-25 23:22:16,158 ERROR Evaluation failed: RuntimeError: BPF compilation failed:
+STDOUT: 
+STDERR: Error at line 351: Unsupport signed division for DAG: 0x277d288: i64 = sdiv 0x24a25a0, 0x24a7088, build/cache_ext_evolved.bpf.c:351:42Please convert to unsigned div/mod.
+fatal error: error in backend: Cannot select: 0x277d288: i64 = sdiv 0x24a25a0, 0x24a7088, build/cache_ext_evolved.bpf.c:351:42
+  0x24a25a0: i64 = mul nsw 0x24da860, Constant:i64<100>, build/cache_ext_evolved.bpf.c:351:35
+    0x24da860: i64,ch = CopyFromReg 0x1daa528, Register:i64 %13, build/cache_ext_evolved.bpf.c:351:35
+      0x24a2bb8: i64 = Register %13
+    0x24a2ae8: i64 = Constant<100>
+  0x24a7088: i64 = add nuw nsw 0x24a2878, Constant:i64<1>, build/cache_ext_evolved.bpf.c:351:53
+    0x24a2878: i64,ch = CopyFromReg 0x1daa528, Register:i64 %16, build/cache_ext_evolved.bpf.c:351:53
+      0x2503ca8: i64 = Register %16
+    0x24da7f8: i64 = Constant<1>
+In function: bpf_score_fn
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
+Stack dump:
+0.	Program arguments: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+1.	<eof> parser at end of file
+2.	Code generation
+3.	Running pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.
+4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'
+ #0 0x00007f15fd23fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
+ #1 0x00007f15fd23da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
+ #2 0x00007f15fd23f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
+ #3 0x00007f15fd16bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
+ #4 0x00007f15fd16bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
+ #5 0x00007f15fd23a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
+ #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)
+ #7 0x00007f15fd17a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
+ #8 0x00007f15fda60e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
+ #9 0x00007f15fda602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
+#10 0x00007f15ff3650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
+#11 0x00007f15fda58ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
+#12 0x00007f15fda58594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
+#13 0x00007f15fda579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
+#14 0x00007f15fda55557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
+#15 0x00007f15fd5c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
+#16 0x00007f15fd37a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
+#17 0x00007f15fd381983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
+#18 0x00007f15fd37af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
+#19 0x00007f1604657201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
+#20 0x00007f160497c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
+#21 0x00007f1603804824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
+#22 0x00007f1604978b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
+#23 0x00007f1605314b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
+#24 0x00007f160526c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
+#25 0x00007f160538e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
+#26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)
+#27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)
+#28 0x00007f1604eeaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
+#29 0x00007f15fd16bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
+#30 0x00007f1604eea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
+#31 0x00007f1604eb5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
+#32 0x00007f1604eb540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
+#33 0x00007f1604ecf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
+#34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)
+#35 0x00007f15fbc29d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+#36 0x00007f15fbc29e40 call_init ./csu/../csu/libc-start.c:128:20
+#37 0x00007f15fbc29e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
+#38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)
+clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
+Ubuntu clang version 14.0.0-1ubuntu1.1
+Target: bpf
+Thread model: posix
+InstalledDir: /usr/bin
+clang: note: diagnostic msg: 
+********************
+
+PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
+Preprocessed source(s) and associated run script(s) are located at:
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-9786c1.c
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-9786c1.sh
+clang: note: diagnostic msg: 
+
+********************
+
+Traceback (most recent call last):
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 904, in evaluate
+    loader_path = compile_bpf_policy(program_path, BUILD_DIR)
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 250, in compile_bpf_policy
+    raise RuntimeError(f"BPF compilation failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
+RuntimeError: BPF compilation failed:
+STDOUT: 
+STDERR: Error at line 351: Unsupport signed division for DAG: 0x277d288: i64 = sdiv 0x24a25a0, 0x24a7088, build/cache_ext_evolved.bpf.c:351:42Please convert to unsigned div/mod.
+fatal error: error in backend: Cannot select: 0x277d288: i64 = sdiv 0x24a25a0, 0x24a7088, build/cache_ext_evolved.bpf.c:351:42
+  0x24a25a0: i64 = mul nsw 0x24da860, Constant:i64<100>, build/cache_ext_evolved.bpf.c:351:35
+    0x24da860: i64,ch = CopyFromReg 0x1daa528, Register:i64 %13, build/cache_ext_evolved.bpf.c:351:35
+      0x24a2bb8: i64 = Register %13
+    0x24a2ae8: i64 = Constant<100>
+  0x24a7088: i64 = add nuw nsw 0x24a2878, Constant:i64<1>, build/cache_ext_evolved.bpf.c:351:53
+    0x24a2878: i64,ch = CopyFromReg 0x1daa528, Register:i64 %16, build/cache_ext_evolved.bpf.c:351:53
+      0x2503ca8: i64 = Register %16
+    0x24da7f8: i64 = Constant<1>
+In function: bpf_score_fn
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
+Stack dump:
+0.	Program arguments: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+1.	<eof> parser at end of file
+2.	Code generation
+3.	Running pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.
+4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'
+ #0 0x00007f15fd23fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
+ #1 0x00007f15fd23da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
+ #2 0x00007f15fd23f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
+ #3 0x00007f15fd16bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
+ #4 0x00007f15fd16bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
+ #5 0x00007f15fd23a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
+ #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)
+ #7 0x00007f15fd17a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
+ #8 0x00007f15fda60e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
+ #9 0x00007f15fda602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
+#10 0x00007f15ff3650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
+#11 0x00007f15fda58ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
+#12 0x00007f15fda58594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
+#13 0x00007f15fda579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
+#14 0x00007f15fda55557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
+#15 0x00007f15fd5c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
+#16 0x00007f15fd37a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
+#17 0x00007f15fd381983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
+#18 0x00007f15fd37af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
+#19 0x00007f1604657201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
+#20 0x00007f160497c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
+#21 0x00007f1603804824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
+#22 0x00007f1604978b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
+#23 0x00007f1605314b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
+#24 0x00007f160526c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
+#25 0x00007f160538e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
+#26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)
+#27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)
+#28 0x00007f1604eeaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
+#29 0x00007f15fd16bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
+#30 0x00007f1604eea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
+#31 0x00007f1604eb5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
+#32 0x00007f1604eb540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
+#33 0x00007f1604ecf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
+#34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)
+#35 0x00007f15fbc29d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+#36 0x00007f15fbc29e40 call_init ./csu/../csu/libc-start.c:128:20
+#37 0x00007f15fbc29e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
+#38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)
+clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
+Ubuntu clang version 14.0.0-1ubuntu1.1
+Target: bpf
+Thread model: posix
+InstalledDir: /usr/bin
+clang: note: diagnostic msg: 
+********************
+
+PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
+Preprocessed source(s) and associated run script(s) are located at:
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-9786c1.c
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-9786c1.sh
+clang: note: diagnostic msg: 
+
+********************
+
+

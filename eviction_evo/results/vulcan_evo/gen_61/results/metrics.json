@@ -1,81 +1,9 @@
 {
-  "combined_score": 1676.1414579447246,
+  "combined_score": 0.0,
   "public": {
-    "dual_small_vs_large_throughput_mean": 1212.124,
-    "dual_small_vs_large_throughput_std": 187.9351564503034,
-    "dual_small_vs_large_throughput_min": 1038.26,
-    "dual_small_vs_large_throughput_max": 1514.9,
-    "dual_small_vs_large_read_p99_ns_mean": 71240824.74,
-    "dual_congested_throughput_mean": 2715.778,
-    "dual_congested_throughput_std": 214.46013841737587,
-    "dual_congested_throughput_min": 2381.24,
-    "dual_congested_throughput_max": 2917.95,
-    "dual_congested_read_p99_ns_mean": 51263447.69,
-    "combined_score_harmonic_mean": 1676.1414579447246,
-    "traces_passed": 2,
-    "traces_total": 2,
-    "runs_per_trace": 5
+    "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:1: error: expected expression\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:3: error: expected expression\n=======\n  ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:5: error: expected expression\n=======\n    ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:7: error: expected expression\n=======\n      ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:396:5: error: unexpected type name 'u64': expected expression\n    u64 now = bpf_ktime_get_ns();\n    ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:397:21: error: use of undeclared identifier 'now'\n    s64 age = (s64)(now - meta->last_access_ts);\n                    ^\n6 errors generated.\n"
   },
   "private": {
-    "dual_small_vs_large": {
-      "runs": [
-        {
-          "total_throughput": 1514.9,
-          "read_latency_p99_ns": 60722355.57
-        },
-        {
-          "total_throughput": 1238.5700000000002,
-          "read_latency_p99_ns": 72366861.24
-        },
-        {
-          "total_throughput": 1038.26,
-          "read_latency_p99_ns": 75406356.61
-        },
-        {
-          "total_throughput": 1076.96,
-          "read_latency_p99_ns": 75530012.08
-        },
-        {
-          "total_throughput": 1191.9299999999998,
-          "read_latency_p99_ns": 72178538.2
-        }
-      ],
-      "throughput_mean": 1212.124,
-      "throughput_std": 187.9351564503034,
-      "throughput_min": 1038.26,
-      "throughput_max": 1514.9,
-      "throughput_cv": 15.504614746536113,
-      "read_p99_ns_mean": 71240824.74
-    },
-    "dual_congested": {
-      "runs": [
-        {
-          "total_throughput": 2381.24,
-          "read_latency_p99_ns": 53483750.74
-        },
-        {
-          "total_throughput": 2631.66,
-          "read_latency_p99_ns": 52740081.3
-        },
-        {
-          "total_throughput": 2805.65,
-          "read_latency_p99_ns": 50088260.9
-        },
-        {
-          "total_throughput": 2842.39,
-          "read_latency_p99_ns": 50124920.87
-        },
-        {
-          "total_throughput": 2917.95,
-          "read_latency_p99_ns": 49880224.64
-        }
-      ],
-      "throughput_mean": 2715.778,
-      "throughput_std": 214.46013841737587,
-      "throughput_min": 2381.24,
-      "throughput_max": 2917.95,
-      "throughput_cv": 7.896821405040319,
-      "read_p99_ns_mean": 51263447.69
-    }
+    "traceback": "Traceback (most recent call last):\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 904, in evaluate\n    loader_path = compile_bpf_policy(program_path, BUILD_DIR)\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 250, in compile_bpf_policy\n    raise RuntimeError(f\"BPF compilation failed:\\nSTDOUT: {result.stdout}\\nSTDERR: {result.stderr}\")\nRuntimeError: BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:1: error: expected expression\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:3: error: expected expression\n=======\n  ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:5: error: expected expression\n=======\n    ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:390:7: error: expected expression\n=======\n      ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:396:5: error: unexpected type name 'u64': expected expression\n    u64 now = bpf_ktime_get_ns();\n    ^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:397:21: error: use of undeclared identifier 'now'\n    s64 age = (s64)(now - meta->last_access_ts);\n                    ^\n6 errors generated.\n\n"
   }
 }

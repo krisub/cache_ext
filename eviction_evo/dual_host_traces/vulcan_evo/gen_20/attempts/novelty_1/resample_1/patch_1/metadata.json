@@ -1,0 +1,14 @@
+{
+  "generation": 20,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "simplify_loss_protection_remove_decay",
+  "patch_description": "The current implementation of time-decay for loss-triggered protection is performing worse than the previous simpler approach (2090.49 vs 1880.24). The time-decay calculation is overly conservative and appears to be suppressing protection too aggressively.\n\nAnalysis shows:\n1. The decay formula `decay_factor = (100 * 100) / (100 + elapsed_ms)` gives 50% at 100ms, not the intended 37% exponential decay\n2. Both workload traces show regression, suggesting the mechanism is incorrectly penalizing folios\n3. The previous best implementation (5th prior, 2090.49) used simpler RTT+loss detection without time-decay\n\nThe fix is to revert to the simpler, proven approach: apply a fixed 15% loss boost only when both loss is detected AND RTT is elevated (>3ms). This condition is sufficient to avoid stale loss signals\u2014if RTT is low, loss is less impactful and doesn't warrant protection. If loss persists but RTT returns to normal, network has likely recovered and we shouldn't protect aggressively.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T01:38:59.590455",
+  "llm_cost": 0.072833,
+  "llm_model": null
+}

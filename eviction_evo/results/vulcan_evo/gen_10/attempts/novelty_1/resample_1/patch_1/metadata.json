@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 2,
-  "patch_name": "access_count_decay_simplify_rtt",
-  "patch_description": "The current program scores lower (1868.97) than the best previous program (1977.84), primarily because:\n\n1. **RTT trend detection is counterproductive**: The current program uses `vulcan_get_latest(GF_SRTT_US)` and `vulcan_get_kth_recent(GF_SRTT_US, 4)` to detect RTT degradation trends, but this added complexity (rolling window) hurts more than it helps. The simpler approach using just absolute EWMA RTT thresholds was more effective.\n\n2. **Access-count bias toward old folios**: Pure `access_count` favors pages that have been in cache longest, even if they're no longer frequently accessed. We should normalize by age using recency decay to prefer pages with recent activity.\n\n3. **Conservative durations in heat detection**: The current heat thresholds (< 2 seconds, > 5 seconds) may be too narrow. The best program used wider thresholds.\n\nThe fix:\n- Remove rolling window from SRTT (simplify back to EWMA-only)\n- Replace RTT trend detection with simpler absolute EWMA thresholds\n- Add recency decay to base_score to penalize cold, old folios even if frequently accessed in the past\n- Widen heat detection thresholds back to original levels",
+  "num_applied": 1,
+  "patch_name": "access_pattern_classification",
+  "patch_description": "Implement asymmetric scoring based on access pattern classification to better differentiate read-heavy hot pages from mixed workload pages. This adds a tiered bonus system:\n\n1. **Hot read-heavy folios** (access_count > 100 AND interval_ewma < 50ms): These are genuinely hot pages with frequent, rapid re-access patterns typical of YCSB-E workloads. Apply a strong +1000 bonus to protect them aggressively.\n\n2. **Moderately hot folios** (access_count > 50 AND interval_ewma < 100ms): Apply a +500 bonus for pages with moderate frequency.\n\nThis classification helps the policy adapt to different workload characteristics:\n- Read-heavy workloads (YCSB-E: 75k+ ops/sec) benefit from aggressive protection of their hot set\n- Mixed workloads (YCSB-A: 4k ops/sec) don't over-protect moderately accessed pages\n- Scan-heavy workloads (YCSB-F) benefit from better discrimination between working set and scan pollution\n\nThe thresholds are chosen based on observed access patterns:\n- 100 accesses is a clear signal of a hot page\n- 50ms interval indicates very frequent access (20+ accesses/second)\n- 100ms interval indicates still-hot but less critical access",
   "error_msg": null,
-  "timestamp": "2026-03-21T22:29:41.005308",
-  "llm_cost": 0.072967,
+  "timestamp": "2026-03-26T01:16:07.827152",
+  "llm_cost": 0.163431,
   "llm_model": null
 }

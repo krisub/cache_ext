@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 1,
-  "patch_name": "recency_boost_with_softer_cold_penalty",
-  "patch_description": "The current implementation suffers from an overly aggressive cold penalty that harms performance on the dual_small_vs_large workload (throughput dropped from 1601.83 to 1454.21 vs Gen 5). The recommendation suggests adding recency-weighted normalization to distinguish recently-active pages from stale ones.\n\nKey insight: Pages with the same access_count can have very different value \u2014 a page accessed 10 times but recently is more valuable than one accessed 10 times but not touched for 10+ seconds. \n\nThis change:\n1. **Replaces the cold penalty scaling** with a softer, recency-aware approach that proportionally reduces scores for cold pages rather than applying fixed thresholds\n2. **Adds exponential recency boost** to base_score to prioritize recently-active pages (decay from +60% within 3s to 0% by 10s), using fixed-point arithmetic\n3. **Preserves the heat protection** via interval_ewma but makes it work in concert with recency rather than against it\n\nThe rationale: The current cold penalty bucketing (access_count < 5/20) creates artificial cliffs that evict valuable-but-infrequent pages too aggressively. Instead, use a continuous recency function that smoothly rewards recent activity regardless of historical frequency, allowing the network factors and heat tracking to provide necessary protection without over-penalizing cold pages.",
+  "patch_name": "three_tier_jitter_aware_recency",
+  "patch_description": "Implement three-tier jitter-aware recency threshold scaling with graduated window extension. The current program uses a two-tier approach (high_jitter vs normal), but this misses the nuance of severe network unpredictability. When jitter exceeds 15ms (very high), the working set expands significantly and requires even more aggressive protection. This graduated approach provides:\n\n1. Very high jitter (>15ms): 9-second primary window + 1400 secondary bonus\n2. High jitter (>10ms): 7-second primary window + 1200 secondary bonus  \n3. Normal (\u226410ms): 5-second primary window + 1000 secondary bonus\n\nThe incremental tuning captures increasingly expanded working sets during progressively worse network conditions, potentially adding 1-2% improvement by better adapting to severe jitter scenarios without introducing complex calculations or new metrics.",
   "error_msg": null,
-  "timestamp": "2026-03-22T03:46:27.444589",
-  "llm_cost": 0.065116,
+  "timestamp": "2026-03-26T09:51:25.444544",
+  "llm_cost": 0.198822,
   "llm_model": null
 }

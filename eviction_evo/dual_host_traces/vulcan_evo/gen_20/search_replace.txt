@@ -1,0 +1,218 @@
+<NAME>
+simplify_loss_protection_remove_decay
+</NAME>
+
+<DESCRIPTION>
+The current implementation of time-decay for loss-triggered protection is performing worse than the previous simpler approach (2090.49 vs 1880.24). The time-decay calculation is overly conservative and appears to be suppressing protection too aggressively.
+
+Analysis shows:
+1. The decay formula `decay_factor = (100 * 100) / (100 + elapsed_ms)` gives 50% at 100ms, not the intended 37% exponential decay
+2. Both workload traces show regression, suggesting the mechanism is incorrectly penalizing folios
+3. The previous best implementation (5th prior, 2090.49) used simpler RTT+loss detection without time-decay
+
+The fix is to revert to the simpler, proven approach: apply a fixed 15% loss boost only when both loss is detected AND RTT is elevated (>3ms). This condition is sufficient to avoid stale loss signals—if RTT is low, loss is less impactful and doesn't warrant protection. If loss persists but RTT returns to normal, network has likely recovered and we shouldn't protect aggressively.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// Timestamp of last detected packet loss (for time-decay of loss protection)
+u64 last_loss_ts = 0;
+=======
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+/*
+ * Network-aware LFU with loss-triggered protection using exponential time-decay.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Loss boost decays over ~300ms to prevent sustained over-protection from stale signals.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: when RTT is high, cache misses are expensive */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT: protect working set more aggressively */
+    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
+        network_factor = 150;  /* 1.5x protection */
+    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
+        network_factor = 125;  /* 1.25x protection */
+    }
+
+    /* Packet loss detected with time-decay protection:
+     * Apply 15% boost only when loss is fresh AND RTT is elevated.
+     * Boost decays exponentially: after 100ms it's ~37% of peak, after 300ms negligible.
+     */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        u64 now = bpf_ktime_get_ns();
+        u64 time_since_loss = now - last_loss_ts;
+
+        /* Exponential decay: decay_factor = 100 * exp(-(time_since_loss / 100ms))
+         * Approximated: decay_factor = 100 / (1 + time_since_loss / 100ms)
+         * This gives ~37% at 100ms, ~9% at 300ms, negligible after 500ms
+         */
+        s64 decay_factor = 100;
+        if (time_since_loss > 0 && time_since_loss < 500000000) {  /* Within 500ms window */
+            s64 elapsed_ms = time_since_loss / 1000000;  /* Convert ns to ms */
+            decay_factor = (100 * 100) / (100 + elapsed_ms);  /* Approximately exponential */
+            if (decay_factor < 1) decay_factor = 1;  /* Floor at 1 */
+        } else if (time_since_loss >= 500000000) {
+            decay_factor = 1;  /* Negligible boost after 500ms */
+        }
+
+        network_factor = (network_factor * (100 + (15 * decay_factor / 100))) / 100;
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed very recently (< 5 seconds) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: use interval EWMA to distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold).
+     */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+=======
+/*
+ * Network-aware LFU with pragmatic loss-triggered protection.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Loss boost is conditional on elevated RTT: prevents stale loss signals from
+ * causing sustained over-protection when network has recovered.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: when RTT is high, cache misses are expensive */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT: protect working set more aggressively */
+    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
+        network_factor = 150;  /* 1.5x protection */
+    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
+        network_factor = 125;  /* 1.25x protection */
+    }
+
+    /* Packet loss detected: apply conservative protection boost only when
+     * RTT is also elevated (>3ms). This avoids stale loss signals during
+     * recovery phases when RTT has normalized. */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed very recently (< 5 seconds) */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
+        score += 50;  /* recency boost */
+    }
+
+    /* Per-folio heat: use interval EWMA to distinguish hot vs cold folios.
+     * Low interval_ewma = frequent accesses (hot).
+     * High interval_ewma = infrequent accesses (cold).
+     */
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
+        /* Hot folio: very frequent accesses, protect strongly */
+        score += 100;
+    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
+        /* Cold folio: infrequent accesses, prefer as victim */
+        if (score > 100) score -= 100;
+    }
+
+    /* LevelDB: protect index block (last page of file) */
+    if (is_last_page_in_file(folio))
+        score += 100000;
+
+    return score;
+}
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+
+    /* Update last_loss_ts if loss has been detected (for time-decay calculation) */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        last_loss_ts = bpf_ktime_get_ns();
+    }
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>

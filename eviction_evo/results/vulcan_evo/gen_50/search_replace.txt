@@ -1,57 +1,155 @@
 <NAME>
-loss_signal_time_decay_via_rolling_window
+dual_metric_sustained_congestion_detection
 </NAME>
 
 <DESCRIPTION>
-The current program uses MINMAX listener for packet loss (GF_LOST), which causes the max_lost value to persist indefinitely once loss is observed, leading to sustained over-protection. The best-performing prior program (2184.76 combined score) used a RollingWindow listener instead, providing natural time-decay as old loss events age out of the window.
+The current program shows a regression (5223.20) compared to the fifth-best program (5667.51) due to the sequential vs random classification logic that uses inter-arrival patterns. This classification is too aggressive and misidentifies access patterns.
 
-This change implements time-decayed loss protection by:
-1. Switching GF_LOST from MINMAX to RollingWindow (size 5) to provide automatic aging
-2. Implementing graduated loss protection that checks multiple positions in the rolling window:
-   - Latest loss (position 0): 15% boost (full protection)
-   - Recent loss (position 1): 8% boost (moderate protection)
-   - Older loss (position 2): 3% boost (minimal protection)
-   - Loss events >2 positions old: no boost (aged out)
+Instead, I'm implementing a more reliable congestion detection mechanism that combines two signals:
+1. CWND collapse: When the EWMA of congestion window falls significantly below its historical minimum (indicating sustained window reduction, not just a transient dip)
+2. Loss persistence: When packet losses are observed (vulcan_get_max(GF_LOST) > 0)
 
-This provides responsive protection during active congestion while preventing stale loss signals from causing sustained over-protection. The rolling window naturally implements time-decay without requiring explicit per-folio timestamp tracking, matching the approach that achieved the highest combined score in prior generations.
+This dual-metric approach distinguishes between:
+- Transient congestion: CWND temporarily low but recovering quickly
+- Sustained congestion: CWND stuck below historical minimum while losses persist
+
+The implementation:
+1. Enable MINMAX listener for GF_SND_CWND (currently only has EWMA)
+2. Add detection logic: when cwnd_ewma < cwnd_min * 1.3 AND lost_max > 0
+3. Stack an additional +1000 bonus with existing loss-triggered bonuses (not replacing them)
+4. Use conservative 1.3x ratio threshold to avoid false positives
+
+This complements the existing jitter-aware protection and provides more reliable working-set expansion identification during genuine sustained congestion periods.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
 =======
-    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_RW,
-                            .rw_size = 5 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+                            .ewma_alpha = 175 },
 >>>>>>> REPLACE
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Packet loss detected: apply conservative protection boost.
-     * Only boost when loss is detected AND RTT is elevated to avoid
-     * stale loss signals causing sustained over-protection.
-     */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
-        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
+    }
+
+    // Per-folio heat with sequential vs random classification:
+    // Combine per-folio interval EWMA with global inter-arrival pattern
+    // to distinguish sequential scans from random access
+    s64 interval_ewma = meta->interval_ewma.value;
+    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
+
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed
+        // Classify as sequential-hot if low inter-arrival + high access count
+        if (inter_arrival_ewma > 0 && inter_arrival_ewma < 50000 && meta->access_count > 50) {
+            // Sequential scan pattern: aggressive protection
+            score += 6000;
+        } else if (inter_arrival_ewma > 500000) {
+            // Random access pattern: reduced protection to avoid pollution
+            score += 1500;
+        } else {
+            // Intermediate case: standard protection
+            score += 5000;
+        }
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
     }
 =======
-    /* Packet loss with time-decay via rolling window: recent loss triggers full boost,
-     * older loss triggers reduced boost, providing natural decay without sustained
-     * over-protection. RollingWindow automatically ages out old loss events.
-     */
-    s64 latest_lost = vulcan_get_latest(GF_LOST);
-    if (latest_lost > 0 && srtt_ewma > 3000) {
-        /* Active loss detected: full boost */
-        network_factor = (network_factor * 115) / 100;  /* 15% boost */
-    } else if (srtt_ewma > 3000) {
-        /* No active loss, check for recent (but not current) loss for graduated decay */
-        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
-        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
-        if (prev_lost_1 > 0) {
-            network_factor = (network_factor * 108) / 100;  /* 8% boost for very recent loss */
-        } else if (prev_lost_2 > 0) {
-            network_factor = (network_factor * 103) / 100;  /* 3% boost for older loss */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
+    }
+
+    // Dual-metric sustained congestion detection: combine loss persistence
+    // with CWND collapse ratio for reliable working-set expansion identification
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    bool sustained_congestion = false;
+    if (cwnd_ewma > 0 && cwnd_min > 0 && lost_max > 0) {
+        // Check if cwnd < cwnd_min * 1.3 (conservative threshold)
+        // Multiply to avoid division: cwnd_ewma * 10 < cwnd_min * 13
+        if ((cwnd_ewma * 10) < (cwnd_min * 13)) {
+            sustained_congestion = true;
+        }
+    }
+
+    // Per-folio heat: lower interval EWMA = hotter (more frequent accesses)
+    // Interval is in nanoseconds; < 100ms (100000000ns) = hot
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed, add bonus
+        score += 5000;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
+    }
+=======
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+            if (sustained_congestion) {
+                score += 1000;  // Additional stacking bonus for sustained congestion
+            }
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+            if (sustained_congestion) {
+                score += 1000;  // Additional stacking bonus for sustained congestion
+            }
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+            if (sustained_congestion) {
+                score += 1000;  // Additional stacking bonus for sustained congestion
+            }
         }
     }
 >>>>>>> REPLACE

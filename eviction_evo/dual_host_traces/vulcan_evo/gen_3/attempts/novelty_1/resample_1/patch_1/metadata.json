@@ -1,0 +1,14 @@
+{
+  "generation": 3,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_rtt_trend_protection",
+  "patch_description": "The current policy uses absolute RTT thresholds (5ms, 10ms) to determine network-aware protection levels. However, in the dual_congested workload, RTT is consistently high for both clients due to delay proxies, causing over-protection of pages that may not need it.\n\nThis edit improves the policy by:\n\n1. **Adding rolling window tracking for SRTT**: Enables trend detection by comparing recent vs historical RTT values. This helps distinguish between consistently high RTT (stable network conditions) vs increasing RTT (degrading conditions).\n\n2. **Reducing recency bonus window**: From 5 seconds to 2 seconds. The longer window was likely keeping too many pages that won't be re-accessed, especially in the dual_congested workload where both clients need cache space.\n\n3. **Adjusting interval EWMA thresholds**: Making them more aggressive - raising the \"hot\" threshold from 1s to 2s and lowering the \"cold\" threshold from 10s to 5s. This better identifies truly hot pages while being more willing to evict warm pages.\n\n4. **Trend-based protection**: Instead of using absolute RTT values, we check if RTT is increasing (comparing latest to k-th recent). Only apply elevated protection when RTT is actively degrading, not when it's consistently high.\n\nThe rationale is that in dual_congested, both clients have consistently high RTT due to delay proxies. The old policy was protecting too aggressively based on this consistently high value. By focusing on RTT trends, we only increase protection when network conditions are actively degrading, allowing better cache utilization when RTT is stable even if high.",
+  "error_msg": null,
+  "timestamp": "2026-03-21T20:24:54.532726",
+  "llm_cost": 0.109407,
+  "llm_model": null
+}

@@ -259,34 +259,34 @@ static __always_inline bool is_folio_relevant(struct folio *folio) {
 // =============================================================================
 
 // -- Per-feature listener configuration --------------------------------------
-// Enable GF_INTER_ARRIVAL to detect burst patterns. The kprobe automatically
-// activates when any listener is enabled (early-exit check in trace_tcp_recvmsg).
+// Enable network-aware listeners for adaptive eviction under congestion
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = 0 },
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+                            .ewma_alpha = 150 },  // Smooth RTT for stable decisions
     [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },  // Track congestion window trends
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
     [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },  // Detect packet loss
     [GF_SEGS_IN]        = { .listener_mask = 0 },
     [GF_SEGS_OUT]       = { .listener_mask = 0 },
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
-                             .ewma_alpha = 150, .rw_size = 8 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_RW,
+                            .rw_size = 8 },  // Detect request bursts
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 
 // -- Per-folio listener configuration ----------------------------------------
-// Enable interval_ewma tracking to distinguish hot vs. cold folios
-// based on inter-access time patterns.
+// Enable interval tracking to distinguish hot vs cold pages
 static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA,
-    .ewma_alpha    = 200,
+    .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+    .ewma_alpha    = 250,  // Smooth per-folio access interval
 };
 
 // -- Tunable constants --------------------------------------------------------
@@ -311,10 +311,8 @@ static inline bool is_last_page_in_file(struct folio *folio)
 }
 
 /*
- * Enhanced LFU with recency + burst awareness.
+ * Network-adaptive scoring: adjust eviction based on RTT, loss, and per-folio heat.
  * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Combines access_count (frequency) with interval_ewma (recency) and
- * burst detection (via inter-arrival) to make smarter eviction decisions.
  */
 static s64 bpf_score_fn(struct cache_ext_list_node *node)
 {
@@ -333,28 +331,56 @@ static s64 bpf_score_fn(struct cache_ext_list_node *node)
     if (!meta)
         return S64_MAX;
 
-    /* Base score: frequency (higher access_count = higher score = harder to evict) */
-    s64 score = (s64)meta->access_count * 100;
-
-    /* Recency penalty: folios with high interval_ewma (stale) get lower scores.
-     * If a folio hasn't been accessed for a while (high interval_ewma),
-     * make it easier to evict. Divide by large constant to normalize ns values. */
-    if (meta->interval_ewma.value > 0) {
-        score -= meta->interval_ewma.value / 100000;  /* High interval → low score → evict first */
-    }
-
-    /* Burst detection: if inter-arrival is low, we're in a bursty phase.
-     * During bursts, protect the active working set by boosting scores. */
-    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
-    if (inter_arrival_ewma > 0 && inter_arrival_ewma < 100000) {  /* < 100us avg = burst */
-        score += 5000;  /* Protect working set during burst */
-    }
+    s64 base_score = (s64)meta->access_count;
 
     /* LevelDB: protect index block (last page of file) */
     if (is_last_page_in_file(folio))
-        score += 100000;
+        base_score += 100000;
 
-    return score;
+    // Network-adaptive adjustments
+    s64 rtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 rtt_min  = vulcan_get_min(GF_SRTT_US);
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 inter_arrival_avg = vulcan_get_window_avg(GF_INTER_ARRIVAL);
+
+    // RTT pressure: when RTT is elevated, protect hot pages more
+    // If rtt_ewma > rtt_min * 1.5, apply a multiplier
+    if (rtt_min > 0 && rtt_ewma > 0) {
+        // Scale: if RTT doubled, multiply score by 2x
+        s64 rtt_ratio = (rtt_ewma * 100) / (rtt_min + 1);
+        if (rtt_ratio > 150) {  // RTT elevated by 50%+
+            s64 multiplier = (rtt_ratio - 100) / 50;  // +1x for each 50% increase
+            if (multiplier > 5) multiplier = 5;  // cap at 5x
+            base_score += base_score * multiplier;
+        }
+    }
+
+    // Loss penalty: if we've seen packet loss, be more conservative
+    if (lost_max > 0) {
+        base_score += 5000;  // Add penalty to protect more pages
+    }
+
+    // Per-folio heat: lower interval EWMA = hotter page
+    // Protect pages with low inter-access intervals
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 50000000) {  // < 50ms = hot
+        s64 heat_bonus = (50000000 - interval_ewma) / 10000;
+        base_score += heat_bonus;
+    }
+
+    // Burst detection: low inter-arrival = high request rate
+    // Protect working set during bursts
+    if (inter_arrival_avg > 0 && inter_arrival_avg < 100000) {  // < 100us = burst
+        base_score += 2000;
+    }
+
+    // Congestion window: if cwnd is low, be conservative
+    if (cwnd_ewma > 0 && cwnd_ewma < 10) {
+        base_score += 3000;
+    }
+
+    return base_score;
 }
 
 // -- struct_ops: init ---------------------------------------------------------

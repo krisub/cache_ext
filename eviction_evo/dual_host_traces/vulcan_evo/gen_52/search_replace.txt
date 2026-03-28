@@ -1,0 +1,85 @@
+<NAME>
+adaptive_recency_decay_burstiness
+</NAME>
+
+<DESCRIPTION>
+This edit implements adaptive recency decay calibration based on per-folio access burstiness, extending the proven 50% boost within 1s pattern from Generation 39 (which scored 2184.76).
+
+The key insight is that Generation 39's simpler linear decay (50% boost at 1s, decaying to 0% at 10s) outperforms the current multi-scale approach. However, we can improve upon Generation 39 by making the recency boost adaptive to individual folio characteristics.
+
+We compute a burstiness metric from the already-enabled interval_minmax listener: `burstiness = max_interval / min_interval`. This quantifies how variable a folio's access pattern is:
+- High burstiness (>10): Access pattern is bursty/irregular → Apply 70% recency boost to protect during active periods
+- Normal burstiness (3-10): Regular access pattern → Apply 50% boost (proven effective in Gen 39)
+- Low burstiness (<3): Very steady/predictable access → Apply 30% boost (less aggressive protection)
+
+This adaptive approach should reduce throughput variance in dual_small_vs_large (current std: 161.38) by better distinguishing between the fast reader's bursty accesses and the slow writer's steady pattern, while maintaining the proven temporal protection strategy.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Recency-weighted base score with fine-grained temporal resolution.
+     * Provides aggressive protection for extremely recent accesses (<100ms: 80% boost)
+     * with smooth decay to capture working-set dynamics across multiple time scales.
+     * Distinguishes hot working set from warm/cold folios more effectively than
+     * coarse 1-second buckets.
+     */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_factor = 0;
+
+    if (time_since_access < 100000000ULL) {  /* < 100ms: extremely hot */
+        recency_factor = 80;  /* 80% boost for active working set */
+    } else if (time_since_access < 1000000000ULL) {  /* 100ms - 1s: hot */
+        /* Linear decay from 80% to 50% over 900ms */
+        s64 elapsed_deciseconds = (time_since_access - 100000000ULL) / 100000000ULL;  /* 0-9 range */
+        recency_factor = 80 - (elapsed_deciseconds * 3);  /* Decreases by ~3% per 100ms */
+        if (recency_factor < 50) recency_factor = 50;
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds: warm, decaying */
+        /* Linear decay from 50% to 0% over 9 seconds */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 50 - (elapsed_seconds * 50 / 9);
+        if (recency_factor < 0) recency_factor = 0;
+    }
+    /* else: time_since_access >= 10s, recency_factor = 0 (no boost) */
+=======
+    /* Adaptive recency-weighted base score calibrated by per-folio burstiness.
+     * Extends Generation 39's proven 50% boost within 1s pattern by making the
+     * boost magnitude adaptive to each folio's access pattern characteristics.
+     * Burstiness = max_interval / min_interval distinguishes bursty, regular, and steady folios.
+     */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+
+    /* Compute burstiness metric from per-folio interval_minmax listener */
+    s64 max_interval = meta->interval_minmax.max_val;
+    s64 min_interval = meta->interval_minmax.min_val;
+    s64 burstiness = 1;  /* default: no burstiness data yet */
+    if (min_interval > 0 && max_interval > 0) {
+        burstiness = max_interval / min_interval;
+        if (burstiness < 1) burstiness = 1;  /* safety: ensure >= 1 */
+    }
+
+    /* Calibrate recency boost based on burstiness profile */
+    s64 max_boost = 50;  /* default: proven Gen 39 pattern */
+    if (burstiness > 10) {
+        /* Highly bursty access (irregular): stronger protection during active periods */
+        max_boost = 70;
+    } else if (burstiness < 3) {
+        /* Very steady access (predictable): gentler protection */
+        max_boost = 30;
+    }
+    /* else: normal burstiness (3-10): use 50% (Gen 39 proven baseline) */
+
+    /* Linear decay from max_boost (at 1s) to 0% (at 10s) - proven Gen 39 pattern */
+    s64 recency_factor = 0;
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = max_boost;
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = max_boost - (elapsed_seconds * max_boost / 9);
+        if (recency_factor < 0) recency_factor = 0;
+    }
+    /* else: time_since_access >= 10s, recency_factor = 0 (no boost) */
+>>>>>>> REPLACE
+
+</DIFF>

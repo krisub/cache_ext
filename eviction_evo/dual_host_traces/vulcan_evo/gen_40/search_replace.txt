@@ -1,0 +1,125 @@
+<NAME>
+adaptive_rtt_baseline_tracking
+</NAME>
+
+<DESCRIPTION>
+Implement adaptive RTT baseline tracking with dynamic threshold scaling to better adapt to varying network conditions across different workloads.
+
+The current program uses fixed RTT thresholds (5ms, 10ms) which may not be optimal for all network environments. This edit introduces:
+
+1. A long-term baseline RTT tracker using a slow-moving EWMA (alpha=50, ~5% weight to new samples)
+2. Dynamic threshold scaling based on how current RTT compares to the baseline
+3. Protection multipliers that scale with the deviation from baseline (e.g., 1.25x if 20% above, 1.5x if 50% above)
+
+This allows the policy to automatically calibrate to workload-specific network conditions - a 5ms RTT might be elevated for one workload but normal for another. By comparing current RTT to the learned baseline, we apply appropriate protection without manual tuning.
+
+The baseline is updated periodically (every 1 second) in the scoring function to minimize overhead while maintaining accurate tracking. We also add a condition to the loss-based protection (only apply if RTT > 3ms and reduce boost from 30% to 15%) to avoid over-protecting based on stale loss signals, matching the pattern from the best-performing programs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+=======
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+// Adaptive baseline RTT tracking for dynamic threshold scaling
+static u64 baseline_srtt_us = 0;
+static u64 last_baseline_update = 0;
+#define BASELINE_UPDATE_INTERVAL_NS 1000000000ULL  // Update baseline every 1 second
+#define BASELINE_ALPHA 50  // Slow EWMA for baseline (5% weight to new samples)
+
+static u64 main_list;
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    s64 base_score = (s64)meta->access_count;
+
+    /* Network-aware protection: when RTT is high, cache misses are expensive */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    /* Elevated RTT (>10ms smoothed): protect working set more aggressively */
+    if (srtt_ewma > 10000) {
+        network_factor = 150;  /* 1.5x protection */
+    } else if (srtt_ewma > 5000) {
+        network_factor = 125;  /* 1.25x protection */
+    }
+
+    /* Packet loss detected: be more conservative */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        network_factor = (network_factor * 130) / 100;  /* additional 30% boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+    u64 now = bpf_ktime_get_ns();
+=======
+    s64 base_score = (s64)meta->access_count;
+
+    u64 now = bpf_ktime_get_ns();
+
+    /* Update adaptive baseline RTT periodically (every 1 second)
+     * This learns the "normal" RTT for this workload and enables dynamic thresholds */
+    if (now - last_baseline_update > BASELINE_UPDATE_INTERVAL_NS) {
+        s64 current_srtt = vulcan_get_ewma(GF_SRTT_US);
+        if (current_srtt > 0) {
+            if (baseline_srtt_us == 0) {
+                baseline_srtt_us = (u64)current_srtt;
+            } else {
+                /* Manual EWMA: new = old * (1000 - alpha) / 1000 + current * alpha / 1000 */
+                baseline_srtt_us = (baseline_srtt_us * (1000 - BASELINE_ALPHA) +
+                                   (u64)current_srtt * BASELINE_ALPHA) / 1000;
+            }
+            last_baseline_update = now;
+        }
+    }
+
+    /* Network-aware protection with adaptive thresholds */
+    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+
+    if (baseline_srtt_us > 0 && srtt_ewma > 0) {
+        /* Dynamic threshold scaling: compare current RTT to learned baseline
+         * If current is 50% above baseline → 1.5x protection
+         * If current is 20% above baseline → 1.25x protection
+         * This adapts to workload-specific network conditions automatically */
+        s64 ratio_pct = (srtt_ewma * 100) / (s64)baseline_srtt_us;
+
+        if (ratio_pct > 150) {  /* Current RTT > 150% of baseline */
+            network_factor = 150;  /* 1.5x protection */
+        } else if (ratio_pct > 120) {  /* Current RTT > 120% of baseline */
+            network_factor = 125;  /* 1.25x protection */
+        }
+    } else {
+        /* Fallback to fixed thresholds when no baseline established yet */
+        if (srtt_ewma > 10000) {  /* >10ms absolute */
+            network_factor = 150;
+        } else if (srtt_ewma > 5000) {  /* >5ms absolute */
+            network_factor = 125;
+        }
+    }
+
+    /* Packet loss detected: apply modest protection boost only when RTT is also elevated
+     * Avoids over-protecting based on stale loss signals after network recovery */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        network_factor = (network_factor * 115) / 100;  /* additional 15% boost */
+    }
+
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+>>>>>>> REPLACE
+
+</DIFF>

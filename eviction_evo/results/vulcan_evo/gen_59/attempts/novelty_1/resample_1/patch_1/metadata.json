@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 4,
-  "patch_name": "adaptive_recency_decay_burstiness",
-  "patch_description": "The current program's time-decay loss mechanism added complexity without improving performance (1873.98 vs Generation 40's 2184.76). This edit implements the recommended adaptive recency decay calibration based on per-folio access burstiness to extend the proven 50% boost pattern from Generation 40.\n\nThe key insight is that folios with different access patterns should have different recency decay rates:\n- **Bursty folios** (high variance in inter-access intervals, ratio > 10) get extended protection with 70% boost - these are working-set pages accessed in clusters\n- **Normal folios** get the proven 50% boost from Generation 40\n- **Steady-access folios** (low variance, ratio < 3) get faster decay with 30% boost - these are background/sequential pages\n\nThis approach:\n1. Makes decay rates responsive to individual folio access patterns\n2. Should reduce throughput variance in dual_small_vs_large (currently std: 168.85)\n3. Extends the multi-scale temporal protection that worked well in Generation 40\n4. Removes the problematic time-decay loss tracking that hurt performance",
+  "num_applied": 2,
+  "patch_name": "refine_sequential_random_classification_with_cwnd",
+  "patch_description": "The current sequential vs random classification is too aggressive and hurts performance. The issue is that the inter_arrival threshold (50000ns = 50us) is too tight and the random-access penalty (1500 vs 5000) is too harsh.\n\nThis edit refines the classification logic by:\n1. Enabling MINMAX listener for GF_SND_CWND to track congestion window state\n2. Improving the sequential-hot detection: use inter_arrival < 100us (100000ns) instead of 50us, which better captures burst patterns from sequential scans\n3. Adding CWND state check: sequential scans perform better under good network conditions (high CWND), so we require cwnd_ewma > 20 segments\n4. Increasing sequential-hot bonus from 6000 to 6500 to more aggressively protect these folios\n5. Keeping the random-access bonus at 1500 (for high inter-arrival > 500us)\n6. But importantly: keeping the default case at 5000 instead of trying to classify everything, which avoids over-penalization\n\nThis asymmetric bonus scaling (6500 for sequential-hot vs 1500 for random-access) should improve YCSB-E performance while maintaining stability on mixed workloads.",
   "error_msg": null,
-  "timestamp": "2026-03-23T22:38:15.582240",
-  "llm_cost": 0.22101600000000002,
+  "timestamp": "2026-03-27T09:13:16.695446",
+  "llm_cost": 0.217677,
   "llm_model": null
 }

@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 1,
-  "patch_name": "recency_normalized_access_count",
-  "patch_description": "The current recency-weighted scoring applies recency as a percentage multiplier to access_count, but computes the final base_score immediately. This recommendation introduces an explicit intermediate `normalized_access_count` variable that combines access frequency with recency weighting. This makes the temporal locality component more explicit and allows better score discrimination between recently-active hot folios and old cold folios with similar historical access counts.\n\nThe key improvement is in how the normalized score flows through subsequent network-aware adjustments. By making `normalized_access_count` the foundation rather than immediately computing `base_score`, we ensure that recency-weighted frequency is consistently used as the primary metric before applying network factors. This should particularly help the dual_small_vs_large workload where the fast reader has a tight working set that benefits from aggressive recency-based protection.\n\nThe mathematical result is equivalent to the current formula but the code structure makes the recency normalization more prominent in the scoring logic, which the verifier and subsequent network adjustments can leverage more effectively.",
+  "patch_name": "continuous_regularity_scoring",
+  "patch_description": "Replace the binary variance check with a continuous variance-weighted regularity scoring mechanism that rewards highly predictable access patterns more aggressively. Instead of a fixed 2000-point bonus for variance < 50ms, implement a sliding scale bonus proportional to how regular the access pattern is.\n\nThe new approach:\n1. Only applies to hot folios (interval_ewma < 100ms) where regularity matters most\n2. Uses safe multiplication and bit-shifting instead of division to avoid BPF verifier issues\n3. Computes bonus as `(5000 * (interval_ewma - variance)) >> 32`\n4. This gives maximum bonus (~5000) for perfectly regular patterns (variance \u2248 0) and decreases linearly as variance approaches the mean interval\n\nThis rewards LevelDB's highly predictable sequential index scans more effectively than the current binary threshold, while maintaining BPF safety constraints. The bit shift by 32 (division by 2^32) normalizes the nanosecond-scale values to a reasonable bonus range.",
   "error_msg": null,
-  "timestamp": "2026-03-23T23:40:48.955698",
-  "llm_cost": 0.19540200000000002,
+  "timestamp": "2026-03-27T11:01:51.651328",
+  "llm_cost": 0.204609,
   "llm_model": null
 }

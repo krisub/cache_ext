@@ -1,37 +1,178 @@
 <NAME>
-recency_normalized_access_count
+dual_metric_sustained_congestion_detection
 </NAME>
 
 <DESCRIPTION>
-Calibrate the recency-weighted base score computation by introducing an explicit normalized access count variable. Instead of directly multiplying access_count by (100 + recency_factor) / 100, we compute a normalized_access_count that adds the recency boost as an additive component: `normalized_access_count = meta->access_count + (meta->access_count * recency_factor / 100)`. This makes the temporal locality contribution more explicit and allows network-aware protection factors to compound more effectively on top of the recency-adjusted value. The change better distinguishes between old cold folios (e.g., access_count=10, last_access=9s ago → normalized=10) and recently-active folios with similar historical counts (e.g., access_count=10, last_access=0.5s ago → normalized=15), addressing the working-set dynamics more precisely while maintaining the strong congested performance.
+Implement dual-metric sustained congestion detection by combining loss persistence with CWND collapse ratio for more reliable working-set expansion identification. This approach:
+
+1. Enables both MINMAX and EWMA listeners for GF_SND_CWND (currently only EWMA is enabled) to track historical CWND minimum
+2. Detects sustained congestion when CWND EWMA has collapsed below its historical minimum by comparing to a conservative 1.3x threshold AND packet loss persists
+3. Stacks a +1000 bonus additively with existing loss-triggered bonuses rather than replacing them
+
+This differs from previous attempts that compared CWND to SSTHRESH. Instead, it compares CWND to its own historical baseline, providing a more reliable signal of sustained congestion versus transient loss. The 1.3x ratio is more conservative than the 1.4x used in prior attempts, reducing false positives while still catching genuine sustained congestion episodes.
+
+The additive stacking ensures that protection increases progressively: base loss bonus + sustained congestion bonus, rather than choosing one or the other, making the policy more responsive to compound stress conditions.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    if (time_since_access < 1000000000ULL) {  /* < 1 second */
-        recency_factor = 50;  /* 50% boost for very recent accesses */
-    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
-        /* Linear decay: 50% at 1s, 0% at 10s */
-        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
-        recency_factor = 50 - (elapsed_seconds * 50 / 9);
-        if (recency_factor < 0) recency_factor = 0;
-    }
-
-    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 310 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 45 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
 =======
-    if (time_since_access < 1000000000ULL) {  /* < 1 second */
-        recency_factor = 50;  /* 50% boost for very recent accesses */
-    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
-        /* Linear decay: 50% at 1s, 0% at 10s */
-        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
-        recency_factor = 50 - (elapsed_seconds * 50 / 9);
-        if (recency_factor < 0) recency_factor = 0;
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 310 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 45 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Continuous variance-weighted regularity scoring for hot folios
+    // Uses safe arithmetic (multiplication and bit shifts) instead of division
+    // Rewards highly predictable access patterns (low variance) more than irregular ones
+    // Particularly important for LevelDB's sequential index scans with extremely low variance
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_ewma > 0 && interval_ewma < 100000000 && interval_min > 0 && interval_max > 0) {
+        // Only for hot folios (interval_ewma < 100ms)
+        s64 variance = interval_max - interval_min;
+        if (variance < interval_ewma) {
+            // Continuous regularity bonus: higher for lower variance
+            // Safe arithmetic: (5000 * diff) >> 32 scales appropriately
+            s64 regularity_diff = interval_ewma - variance;
+            s64 regularity_bonus = (5000 * regularity_diff) >> 32;
+            if (regularity_bonus > 0) {
+                score += regularity_bonus;
+            }
+        }
     }
 
-    /* Compute normalized access count: explicitly add recency boost to access_count.
-     * This makes temporal locality a first-class component and allows network factors
-     * to compound more effectively on the recency-adjusted value. */
-    s64 normalized_access_count = (s64)meta->access_count + ((s64)meta->access_count * recency_factor / 100);
-    s64 base_score = normalized_access_count;
+    // Recency: protect recently accessed folios (likely in working set)
+=======
+    // Variance-based regularity detection: low variance = predictable access pattern
+    // Variance = max_interval - min_interval; < 50ms spread = regular
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0) {
+        s64 variance = interval_max - interval_min;
+        if (variance < 50000000) {  // < 50ms variance = highly regular
+            // Predictable access pattern: add bonus to protect
+            score += 2000;
+        }
+    }
+
+    // Dual-metric sustained congestion detection: CWND collapsed below historical minimum AND loss persists
+    // This is more reliable than transient loss alone - indicates sustained network stress
+    // Stack +1000 bonus additively with existing loss bonuses for compound stress conditions
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    bool sustained_congestion = false;
+    if (cwnd_ewma > 0 && cwnd_min > 0 && lost_max > 0) {
+        // Check if cwnd_ewma < cwnd_min * 1.3 (multiply to avoid division)
+        // Conservative 1.3x threshold reduces false positives
+        if ((cwnd_ewma * 10) < (cwnd_min * 13)) {
+            sustained_congestion = true;
+        }
+    }
+
+    // Recency: protect recently accessed folios (likely in working set)
 >>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
+    }
+=======
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+        // Stack sustained congestion bonus additively (not replacing base bonus)
+        if (sustained_congestion) {
+            score += 1000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+        } else {
+            score += base_bonus;
+        }
+        // Stack sustained congestion bonus additively
+        if (sustained_congestion) {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
+    }
+>>>>>>> REPLACE
+
 </DIFF>

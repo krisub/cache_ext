@@ -262,14 +262,14 @@ static __always_inline bool is_folio_relevant(struct folio *folio) {
 // Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
 // listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
-                            .ewma_alpha = 150, .rw_size = 8 },
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
     [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
@@ -278,15 +278,16 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 
 // -- Per-folio listener configuration ----------------------------------------
 // Baseline: disabled. Evolution can enable for interval-based scoring.
 static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
-    .ewma_alpha    = 250,
+    .listener_mask = VULCAN_LISTENER_EWMA,
+    .ewma_alpha    = 200,
 };
 
 // -- Tunable constants --------------------------------------------------------
@@ -332,50 +333,56 @@ static s64 bpf_score_fn(struct cache_ext_list_node *node)
     if (!meta)
         return S64_MAX;
 
-    s64 base_score = (s64)meta->access_count;
+    // Base score: access count (higher = keep)
+    s64 score = (s64)meta->access_count;
 
-    /* Network-aware protection based on RTT trend, not absolute value */
-    s64 srtt_latest = vulcan_get_latest(GF_SRTT_US);
-    s64 srtt_prev = vulcan_get_kth_recent(GF_SRTT_US, 4);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+    // Network health factor: combine RTT and cwnd for adaptive protection
+    s64 rtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
 
-    /* If RTT is increasing (degrading network), protect more aggressively */
-    if (srtt_prev > 0 && srtt_latest > srtt_prev) {
-        s64 rtt_increase = srtt_latest - srtt_prev;
-        if (rtt_increase > 3000) {  /* >3ms increase */
-            network_factor = 140;  /* 1.4x protection during degradation */
-        } else if (rtt_increase > 1000) {  /* >1ms increase */
-            network_factor = 120;  /* 1.2x protection */
-        }
+    // RTT-based protection: typical LAN RTT is < 10ms (10000us)
+    // Scale bonus proportionally for high RTT (> 15ms indicates strain)
+    if (rtt_ewma > 15000) {
+        // Proportional bonus: higher RTT = stronger protection for hot pages
+        s64 rtt_bonus = (meta->access_count * (rtt_ewma - 15000)) / 30000;
+        if (rtt_bonus > meta->access_count)
+            rtt_bonus = meta->access_count;  // Cap at 2x frequency
+        score += rtt_bonus;
     }
 
-    /* Packet loss detected: be more conservative */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        network_factor = (network_factor * 125) / 100;  /* additional 25% boost */
+    // Cwnd-based congestion detection: low cwnd (< 10 segments) = congested
+    if (cwnd_ewma > 0 && cwnd_ewma < 10) {
+        // Network congestion: protect working set
+        score += meta->access_count / 2;
     }
 
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: protect pages accessed in last 2 seconds */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 2000000000ULL) {  /* 2 seconds in ns */
-        score += 50;  /* recency boost */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        score += meta->access_count / 3;
     }
 
-    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
+    // Per-folio heat: lower interval EWMA = hotter (more frequent accesses)
+    // Tighter thresholds to better distinguish hot vs warm folios
     s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
-        /* Hot folio: very frequent accesses */
-        score += 100;
-    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
+    if (interval_ewma > 0 && interval_ewma < 50000000) {  // < 50ms = very hot
+        score += 8000;
+    } else if (interval_ewma > 0 && interval_ewma < 500000000) {  // < 500ms = hot
+        score += 4000;
+    } else if (interval_ewma > 0 && interval_ewma < 2000000000) {  // < 2s = warm
+        score += 1000;
     }
 
-    /* LevelDB: protect index block (last page of file) */
+    // Reduced recency bonus: balance recency with frequency for write-heavy workloads
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 2000000000) {  // < 2 seconds
+        score += 1500;
+    } else if (age < 10000000000) {  // < 10 seconds
+        score += 500;
+    }
+
+    // LevelDB: protect index block (last page of file)
     if (is_last_page_in_file(folio))
         score += 100000;
 

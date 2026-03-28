@@ -1,14 +1,14 @@
 {
-  "generation": 39,
+  "generation": 18,
   "novelty_attempt": 1,
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 3,
-  "patch_name": "recency_weighted_access_rate",
-  "patch_description": "The current program's performance has regressed (1875.23 vs 2090.49) primarily in the dual_small_vs_large workload, where it scores only 1354.20 compared to the best program's 1601.83. The issue is that the raw `access_count` base score doesn't distinguish between recently-active hot folios and historically-accessed but now-cold folios.\n\nThe scaled cold penalty logic added complexity but failed to properly prioritize temporal locality. Instead, we should weight the base score itself by recency, making recently-accessed folios naturally score higher than equally-accessed but stale folios.\n\nThis change replaces the raw `access_count` base score with a recency-weighted metric:\n- `base_score = access_count * (100 + recency_factor) / 100`\n- `recency_factor` decays linearly from +50% (accessed <1s ago) to 0% (accessed >10s ago)\n\nFor example:\n- A folio with access_count=10 accessed 0.5s ago gets: 10 * 150/100 = 15\n- A folio with access_count=10 accessed 5s ago gets: 10 * 125/100 = 12.5\n- A folio with access_count=10 accessed 10s+ ago gets: 10 * 100/100 = 10\n\nThis directly captures working-set dynamics: recently-active folios are protected more strongly than cold ones with similar historical counts. The approach uses simple conditional branches and integer arithmetic (no division in hot path), maintaining BPF compatibility while providing fine-grained temporal discrimination.\n\nThis addresses the dual_small_vs_large regression by better protecting the fast reader's working set (recent accesses) while allowing eviction of the slow writer's stale pages (old accesses with similar counts).",
+  "num_applied": 1,
+  "patch_name": "optimize_ewma_alpha_timescales",
+  "patch_description": "This edit fine-tunes the EWMA alpha values for network features based on their characteristic timescales. The adjustments follow signal processing principles:\n\n1. **GF_SRTT_US alpha: 275 \u2192 310**: RTT changes occur rapidly (sub-second) when network conditions shift, so we need faster detection. A higher alpha (310) makes the EWMA more responsive to recent RTT spikes or improvements, allowing the eviction policy to quickly adapt protection levels when latency changes.\n\n2. **GF_INTER_ARRIVAL alpha: 60 \u2192 45**: Inter-arrival time between packets is inherently noisy due to packet batching, interrupt coalescing, and scheduling effects. A lower alpha (45) provides heavier smoothing to filter out high-frequency noise while still capturing genuine traffic pattern changes (e.g., burst vs. steady-state).\n\n3. **GF_SND_CWND alpha: 175 (unchanged)**: Congestion window evolves on a moderate timescale (multiple RTTs), so the existing alpha is appropriate for tracking congestion state transitions.\n\nThis multi-timescale tuning allows each metric's EWMA to match its natural dynamics: fast-reactive for RTT (which needs immediate response), slow-stable for inter-arrival (which needs noise filtering), and moderate for CWND (which needs balanced tracking). By optimizing each alpha independently based on the metric's temporal characteristics, we improve the signal-to-noise ratio of our network-aware eviction decisions, potentially capturing an additional 1-2% performance improvement.",
   "error_msg": null,
-  "timestamp": "2026-03-23T13:44:00.439389",
-  "llm_cost": 0.194238,
+  "timestamp": "2026-03-26T05:32:12.320834",
+  "llm_cost": 0.200379,
   "llm_model": null
 }

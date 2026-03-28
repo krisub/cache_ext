@@ -1,0 +1,14 @@
+{
+  "generation": 5,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "burst_aware_with_optimized_thresholds",
+  "patch_description": "The current program (1977.84) performs well but can be improved by:\n\n1. **Enable burst detection via GF_INTER_ARRIVAL**: Add EWMA + RollingWindow listeners to detect when the workload transitions into high-frequency bursts (low inter-arrival time). During bursts, the working set should be protected more aggressively since cache misses are costly under load.\n\n2. **Reduce recency protection window from 5s to 2s**: For the dual_small_vs_large trace (fast reader), shorter recency windows better capture the actual read pattern. Very old accesses (>2s) are less predictive of reuse.\n\n3. **Lower hot folio threshold from 1s to 500ms**: Detect truly hot pages (frequently accessed within sub-second intervals) earlier and protect them more aggressively, improving hit rates for bursty workloads.\n\n4. **Increase SAMPLE_SIZE from 20 to 24**: More candidates per eviction batch means better victim selection, especially important when burst detection triggers stronger protection of hot pages.\n\n5. **Add MDEV_US listener**: Track RTT variance to detect volatile/congested network conditions and strengthen protection during high-variance periods.\n\n6. **Boost PACKETS_OUT EWMA alpha from 200 to 250**: React faster to changes in flight packets, improving congestion-aware protection.\n\nThese changes synergize: burst detection identifies when to be aggressive, lower thresholds identify hot pages faster, and increased sample size + higher EWMA alpha enable more responsive eviction decisions.",
+  "error_msg": null,
+  "timestamp": "2026-03-21T21:25:50.806186",
+  "llm_cost": 0.05277,
+  "llm_model": null
+}

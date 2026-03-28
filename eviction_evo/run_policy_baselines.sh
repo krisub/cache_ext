@@ -19,7 +19,7 @@ RESULTS_BASE="$SCRIPT_DIR/baseline_results/policy_baselines"
 EVALUATE_PY="$SCRIPT_DIR/evaluate.py"
 
 # Policies to run (short names matching cache_ext_<name>.out)
-DEFAULT_POLICIES=(fifo lhd mglru mru s3fifo sampling)
+DEFAULT_POLICIES=(fifo lhd mglru mru sampling)
 
 # Parse policy list from args, or use defaults
 if [ $# -gt 0 ]; then

@@ -1,83 +1,136 @@
 <NAME>
-adaptive_rtt_baseline_scaling_v2
+implement_per_folio_regularity_scoring_with_variance_weighted_bonuses
 </NAME>
 
 <DESCRIPTION>
-The current program uses fixed RTT thresholds (5ms and 10ms) for protection scaling, which may be suboptimal across diverse network conditions. The recommendation is to implement adaptive RTT baseline tracking with dynamic threshold scaling, entirely within the EVOLVE-BLOCK.
+This edit implements the recommended per-folio access regularity scoring with variance-weighted bonuses. The current code uses a binary variance check (< 50ms = regular, gets +2000 bonus). This change replaces it with a continuous scoring function that computes regularity as `1.0 - min(1.0, variance / interval_ewma)` (using integer arithmetic scaled by 1000 to avoid floating point). The bonus is then `5000 * regularity`, which rewards predictable access patterns proportionally rather than binary. For example, a folio with 10% variance relative to mean interval gets a 4500 bonus, while 50% variance gets 2500, and 100% variance gets 0. This better captures the spectrum of access regularity and should improve cache-friendliness detection across mixed workloads.
 
-**Key insight**: Track a long-term EWMA of RTT with very low alpha (50) as a workload-specific "baseline" using a static variable, then scale protection dynamically based on deviation from baseline. This approach:
-
-1. **Adapts to workload characteristics**: Each workload establishes its own normal RTT baseline
-2. **Relative scaling is more robust**: Protection scales based on stress deviation from normal
-3. **Within EVOLVE-BLOCK**: Uses only static variables for baseline tracking, avoiding external map overhead
-
-Instead of hard-coded thresholds (>5ms → 1.25x, >10ms → 1.5x), protection becomes: `100 + (current_rtt - baseline_rtt) * multiplier`, providing 25% extra protection when 2ms above baseline, 50% protection when 4ms above, etc. This normalizes for workload-specific network conditions without manual tuning.
+Additionally, I'm enabling GF_MDEV_US (jitter) tracking which was present in the best-performing program but missing in the current one, and adding jitter-aware logic to extend protection windows during high network variance conditions.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-// -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
-
-static u64 main_list;
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
 =======
-// -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
-
-static u64 main_list;
-
-// RTT baseline tracking for adaptive threshold scaling.
-// Uses fixed-point arithmetic (microseconds) with very low EWMA alpha (50)
-// for slow convergence to workload-specific "normal" RTT.
-static s64 rtt_baseline_us = 0;  /* 0 = uninitialized, updated from bpf_score_fn */
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 310 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
 >>>>>>> REPLACE
+
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-    s64 base_score = (s64)meta->access_count;
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
+=======
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 45 },
+>>>>>>> REPLACE
 
-    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
+</DIFF>
 
-    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
-    if (srtt_ewma > 5000) {
-        network_factor = 125;  /* 1.25x protection */
-    }
-    if (srtt_ewma > 10000) {
-        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+<DIFF>
+<<<<<<< SEARCH
+    // Variance-based regularity detection: low variance = predictable access pattern
+    // Variance = max_interval - min_interval; < 50ms spread = regular
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0) {
+        s64 variance = interval_max - interval_min;
+        if (variance < 50000000) {  // < 50ms variance = highly regular
+            // Predictable access pattern: add bonus to protect
+            score += 2000;
+        }
     }
 =======
-    s64 base_score = (s64)meta->access_count;
-
-    /* Adaptive RTT-based protection using baseline tracking.
-     * Scale protection based on deviation from long-term baseline RTT. */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    if (srtt_ewma > 0) {
-        /* Initialize baseline on first call (set equal to current EWMA) */
-        if (rtt_baseline_us == 0) {
-            rtt_baseline_us = srtt_ewma;
+    // Variance-based regularity scoring: compute continuous bonus based on regularity
+    // regularity = 1.0 - min(1.0, variance / interval_ewma)
+    // Higher regularity (low variance relative to mean) = more predictable = higher bonus
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0 && interval_ewma > 0) {
+        s64 variance = interval_max - interval_min;
+        // Compute regularity using integer arithmetic scaled by 1000
+        // regularity_scaled = 1000 - min(1000, (variance * 1000) / interval_ewma)
+        s64 regularity_scaled = 1000;
+        s64 variance_ratio = (variance * 1000) / interval_ewma;
+        if (variance_ratio < 1000) {
+            regularity_scaled = 1000 - variance_ratio;
+        } else {
+            regularity_scaled = 0;  // High variance, no regularity
         }
-
-        /* Compute relative stress: (current - baseline) as percentage of baseline.
-         * For each 2ms above baseline, add 25 to network_factor (0.25x multiplier per 2ms).
-         * This means: +2ms → 1.25x, +4ms → 1.50x, +6ms → 1.75x, etc. */
-        s64 rtt_diff = srtt_ewma - rtt_baseline_us;
-        if (rtt_diff > 1000) {  /* At least 1ms above baseline to trigger adjustment */
-            s64 stress_units = (rtt_diff * 125) / 2000;  /* (rtt_diff_us * 125) / 2000_us */
-            network_factor = 100 + stress_units;
-            if (network_factor > 200) network_factor = 200;  /* Cap at 2.0x */
-        } else if (rtt_diff < -500) {  /* RTT improved: relax protection slightly */
-            network_factor = 100;  /* Return to baseline protection */
-        }
-
-        /* Gradually decay baseline toward current EWMA with very low alpha (50).
-         * new_baseline = baseline * 950/1000 + current * 50/1000
-         * This ensures baseline slowly adapts to sustained changes in network conditions. */
-        rtt_baseline_us = (rtt_baseline_us * 950 + srtt_ewma * 50) / 1000;
+        // Apply bonus proportional to regularity: max 5000 for perfect regularity
+        // This rewards predictable access patterns continuously rather than binary
+        s64 regularity_bonus = (5000 * regularity_scaled) / 1000;
+        score += regularity_bonus;
     }
 >>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during congestion
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
+    }
+=======
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // High jitter (RTT variance) also extends working set window due to unpredictable latency
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    bool high_jitter = (mdev_ewma > 10000);  // > 10ms jitter = high variance
+
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
+    }
+>>>>>>> REPLACE
+
 </DIFF>

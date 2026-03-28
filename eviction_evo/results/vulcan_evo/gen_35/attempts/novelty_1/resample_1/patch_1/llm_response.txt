@@ -1,140 +1,101 @@
 <NAME>
-loss_decay_adaptive_protection
+dual_metric_sustained_congestion_detection
 </NAME>
 
 <DESCRIPTION>
-The current loss-based protection applies a uniform 15% boost whenever packet loss is detected (via MaxMin listener on GF_LOST), but the loss counter in kernel TCP state can persist long after network conditions improve, causing sustained over-protection that hurts throughput especially under high-frequency workloads (dual_small_vs_large).
+The current program regressed from Generation 5's score of 5667.51 to 5386.91. The recommendation suggests implementing dual-metric congestion detection that combines loss persistence with CWND collapse ratio to more reliably identify sustained congestion versus transient congestion spikes.
 
-The proposed change implements time-decay for the loss boost:
-1. Track a global timestamp when packet loss was most recently detected
-2. In the scoring function, calculate elapsed time since last loss event
-3. Decay the 15% boost gradually over 150ms (full boost for 0-50ms, then linear decay to negligible by 150ms)
-4. This maintains responsiveness to transient congestion while preventing stale loss signals from locking the cache into overly conservative eviction
+The key insight is that transient congestion causes temporary CWND drops that recover quickly, while sustained congestion keeps CWND depressed below its historical minimum. By requiring BOTH persistent losses (lost_max > 0) AND CWND significantly below its historical minimum (< 1.3x), we can provide an additional protective signal that stacks with existing loss-triggered bonuses.
 
-This addresses the observation that the dual_congested trace (where loss is more persistent) performs better than dual_small_vs_large (where loss is transient). By allowing the boost to naturally decay, we can improve small_vs_large performance without sacrificing congested-scenario protection.
+This approach:
+1. Re-enables MINMAX listener on GF_SND_CWND to track historical minimum
+2. Detects sustained congestion when CWND_EWMA < CWND_MIN * 1.3 AND losses persist
+3. Applies an additional +1500 bonus (conservative, additive stacking)
+4. Uses a conservative 1.3x ratio threshold to avoid false positives
 
-The implementation uses a simple BPF map to store the last loss event timestamp and applies integer arithmetic for the decay calculation, remaining fully BPF-compatible.
+This complements the existing congestion detection by adding a duration-aware signal that protects the working set more aggressively during prolonged network degradation.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, u64);
-} debug_counters SEC(".maps");
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 275 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
 =======
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, u64);
-} debug_counters SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, u32);
-    __type(value, u64);
-} loss_event_ts_map SEC(".maps");
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 275 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
 >>>>>>> REPLACE
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Packet loss detected: be more conservative */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
-        network_factor = (network_factor * 115) / 100;  /* additional 15% boost */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
     }
 =======
-    /* Packet loss detected with time-decay: apply full protection for recent loss,
-     * then gradually decay to no boost over 150ms. This prevents stale loss signals
-     * from causing sustained over-protection while maintaining responsiveness to
-     * transient congestion events.
-     */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    s64 loss_boost_factor = 100;  /* baseline: 1.0x (no boost) */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
+    }
 
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss detected + RTT > 3ms */
-        /* Update timestamp of most recent loss event */
-        u32 loss_key = 0;
-        u64 now_ns = bpf_ktime_get_ns();
-        bpf_map_update_elem(&loss_event_ts_map, &loss_key, &now_ns, BPF_ANY);
-
-        /* Read back the timestamp (should be the one we just wrote) */
-        u64 *last_loss_ts_ptr = bpf_map_lookup_elem(&loss_event_ts_map, &loss_key);
-        if (last_loss_ts_ptr) {
-            u64 elapsed_ns = now_ns - *last_loss_ts_ptr;
-            u64 elapsed_ms = elapsed_ns / 1000000;  /* Convert to milliseconds */
-
-            /* Decay formula: full 15% boost for <= 50ms, linear decay to negligible by 150ms
-             * boost_factor = 115 - (elapsed_ms - 50) * 10 / 100, clamped to [100, 115]
-             * For elapsed_ms <= 50: boost_factor = 115
-             * For elapsed_ms == 150: boost_factor = 115 - 100*10/100 = 100 (no boost)
-             */
-            if (elapsed_ms <= 50) {
-                loss_boost_factor = 115;  /* Full boost for recent loss */
-            } else if (elapsed_ms >= 150) {
-                loss_boost_factor = 100;  /* No boost for stale loss (>150ms) */
-            } else {
-                /* Linear decay from 115 to 100 over 50-150ms interval */
-                s64 decay_region = elapsed_ms - 50;  /* 0 to 100 */
-                loss_boost_factor = 115 - (decay_region / 10);  /* Decays by 1 per 10ms */
-            }
+    // Dual-metric sustained congestion detection: combine loss persistence
+    // with CWND collapse ratio to identify prolonged congestion more reliably.
+    // Transient congestion causes temporary CWND drops that recover quickly,
+    // but sustained congestion keeps CWND depressed below historical minimum.
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    if (lost_max > 0 && cwnd_min > 0 && cwnd_ewma > 0) {
+        // Check if CWND is stuck below 1.3x of historical minimum
+        // (multiply to avoid division: cwnd_ewma < cwnd_min * 1.3)
+        if ((cwnd_ewma * 10) < (cwnd_min * 13)) {
+            // Sustained congestion detected: CWND collapsed AND losses persist
+            // Apply additional protective bonus (stacks with existing loss bonus)
+            score += 1500;
         }
-
-        network_factor = (network_factor * loss_boost_factor) / 100;
     }
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-    net_prev_packet_ts = last_packet_ts;
-    last_packet_ts     = bpf_ktime_get_ns();
-    net_recv_count    += 1;
-
-    struct tcp_sock *tp = (struct tcp_sock *)sk;
-
-    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
-=======
-    net_prev_packet_ts = last_packet_ts;
-    last_packet_ts     = bpf_ktime_get_ns();
-    net_recv_count    += 1;
-
-    struct tcp_sock *tp = (struct tcp_sock *)sk;
-
-    u32 new_lost = BPF_CORE_READ(tp, lost);
-    
-    /* Detect new loss event: if lost counter increased from zero or was zero, record it */
-    if (new_lost > 0 && new_lost > net_lost) {
-        u32 loss_key = 0;
-        u64 now_ts = bpf_ktime_get_ns();
-        bpf_map_update_elem(&loss_event_ts_map, &loss_key, &now_ts, BPF_ANY);
-    }
-
-    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
-    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
-    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
-    net_packets_out    = BPF_CORE_READ(tp, packets_out);
-    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
-    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
-    net_lost           = BPF_CORE_READ(tp, lost);
-=======
-    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
-    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
-    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
-    net_packets_out    = BPF_CORE_READ(tp, packets_out);
-    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
-    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
-    net_lost           = new_lost;
 >>>>>>> REPLACE
 </DIFF>

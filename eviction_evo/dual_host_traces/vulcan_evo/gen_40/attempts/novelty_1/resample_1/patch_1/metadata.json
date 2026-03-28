@@ -1,0 +1,14 @@
+{
+  "generation": 40,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "adaptive_rtt_baseline_tracking",
+  "patch_description": "Implement adaptive RTT baseline tracking with dynamic threshold scaling to better adapt to varying network conditions across different workloads.\n\nThe current program uses fixed RTT thresholds (5ms, 10ms) which may not be optimal for all network environments. This edit introduces:\n\n1. A long-term baseline RTT tracker using a slow-moving EWMA (alpha=50, ~5% weight to new samples)\n2. Dynamic threshold scaling based on how current RTT compares to the baseline\n3. Protection multipliers that scale with the deviation from baseline (e.g., 1.25x if 20% above, 1.5x if 50% above)\n\nThis allows the policy to automatically calibrate to workload-specific network conditions - a 5ms RTT might be elevated for one workload but normal for another. By comparing current RTT to the learned baseline, we apply appropriate protection without manual tuning.\n\nThe baseline is updated periodically (every 1 second) in the scoring function to minimize overhead while maintaining accurate tracking. We also add a condition to the loss-based protection (only apply if RTT > 3ms and reduce boost from 30% to 15%) to avoid over-protecting based on stale loss signals, matching the pattern from the best-performing programs.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T13:45:12.353557",
+  "llm_cost": 0.22785,
+  "llm_model": null
+}

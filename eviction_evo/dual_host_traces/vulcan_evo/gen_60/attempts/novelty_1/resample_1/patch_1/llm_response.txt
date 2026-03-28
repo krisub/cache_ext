@@ -1,0 +1,36 @@
+<NAME>
+packets_out_saturation_boost
+</NAME>
+
+<DESCRIPTION>
+The current program uses PACKETS_OUT EWMA (alpha=200) but doesn't actively utilize it in scoring decisions. This edit adds window saturation detection by comparing the smoothed packets_out value against snd_cwnd. When the congestion window is highly utilized (>80% or >95% saturation), we apply a secondary protection boost (+15 or +25 points) independent of the existing RTT-based network_factor. This addresses the recommendation to leverage the enabled PACKETS_OUT listener with conservative fixed-point arithmetic, helping protect the working set during periods of high network utilization without the complexity that caused Generation 42's underperformance (-101.28 points). The boost is small and only applied when window saturation is detected, avoiding sustained over-protection while improving dual_congested performance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+=======
+    /* Apply network-aware protection factor */
+    s64 score = (base_score * network_factor) / 100;
+
+    /* Window saturation detection: secondary congestion boost using PACKETS_OUT EWMA.
+     * When packets in flight approach cwnd, the window is saturated - additional cache
+     * misses will stall waiting for ACKs. Apply conservative protection boost independent
+     * of RTT-based network_factor to prevent thrashing during high utilization. */
+    s64 packets_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
+    if (packets_ewma > 0 && net_snd_cwnd > 0) {
+        /* Safe integer arithmetic: packets_ewma * 100 > net_snd_cwnd * 95 checks >95% saturation */
+        if (packets_ewma * 100 > (s64)net_snd_cwnd * 95) {
+            score += 25;  /* High saturation: strong secondary boost */
+        } else if (packets_ewma * 10 > (s64)net_snd_cwnd * 8) {
+            score += 15;  /* Moderate saturation (>80%): modest secondary boost */
+        }
+    }
+
+    /* Recency bonus: protect pages accessed in last 5 seconds */
+>>>>>>> REPLACE
+
+</DIFF>

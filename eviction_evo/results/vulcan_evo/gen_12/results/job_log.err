@@ -1,23 +1,22 @@
-2026-03-21 23:31:43,912 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate_0.lock ...
-2026-03-21 23:31:43,912 INFO Acquired evaluation lock.
-2026-03-21 23:31:43,961 INFO === Step 0: Drop page cache ===
-2026-03-21 23:31:43,983 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping copy
-2026-03-21 23:31:43,983 INFO CMD: sudo sync
-2026-03-21 23:31:44,089 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 23:31:44,205 INFO Page cache dropped.
-2026-03-21 23:31:44,205 INFO === Step 1: Compile evolved policy ===
-2026-03-21 23:31:44,207 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
-2026-03-21 23:31:44,527 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
-2026-03-21 23:31:47,775 ERROR Evaluation failed: RuntimeError: BPF compilation failed:
+2026-03-26 02:28:56,242 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate_0.lock ...
+2026-03-26 03:05:21,004 INFO Acquired evaluation lock.
+2026-03-26 03:05:21,049 INFO === Step 0: Drop page cache ===
+2026-03-26 03:05:21,049 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping copy
+2026-03-26 03:05:21,049 INFO CMD: sudo sync
+2026-03-26 03:05:21,233 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 03:05:21,447 INFO Page cache dropped.
+2026-03-26 03:05:21,448 INFO === Step 1: Compile evolved policy ===
+2026-03-26 03:05:21,461 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-26 03:05:21,753 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-26 03:05:24,989 ERROR Evaluation failed: RuntimeError: BPF compilation failed:
 STDOUT: 
-STDERR: Error at line 355: Unsupport signed division for DAG: 0x119c7b0: i64 = sdiv 0x119c610, Constant:i64<20>, build/cache_ext_evolved.bpf.c:355:65Please convert to unsigned div/mod.
-fatal error: error in backend: Cannot select: 0x119c7b0: i64 = sdiv 0x119c610, Constant:i64<20>, build/cache_ext_evolved.bpf.c:355:65
-  0x119c610: i64 = sub nsw 0x11266e8, 0x1ae8e10, build/cache_ext_evolved.bpf.c:354:35
-    0x11266e8: i64,ch = CopyFromReg 0x958528, Register:i64 %5, build/cache_ext_evolved.bpf.c:354:35
-      0x119d0d8: i64 = Register %5
-    0x1ae8e10: i64,ch = CopyFromReg 0x958528, Register:i64 %6, build/cache_ext_evolved.bpf.c:354:35
-      0x119a5f0: i64 = Register %6
-  0x119c880: i64 = Constant<20>
+STDERR: Error at line 365: Unsupport signed division for DAG: 0x1ee3048: i64 = sdiv 0x1ee3590, Constant:i64<2>, build/cache_ext_evolved.bpf.c:365:77Please convert to unsigned div/mod.
+fatal error: error in backend: Cannot select: 0x1ee3048: i64 = sdiv 0x1ee3590, Constant:i64<2>, build/cache_ext_evolved.bpf.c:365:77
+  0x1ee3590: i64 = mul nsw 0x1f567d8, Constant:i64<3>, build/cache_ext_evolved.bpf.c:365:72
+    0x1f567d8: i64,ch = CopyFromReg 0x1718528, Register:i64 %17, build/cache_ext_evolved.bpf.c:365:72
+      0x1ee1368: i64 = Register %17
+    0x1ee35f8: i64 = Constant<3>
+  0x1ee1160: i64 = Constant<2>
 In function: bpf_score_fn
 PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
 Stack dump:
@@ -26,44 +25,44 @@ Stack dump:
 2.	Code generation
 3.	Running pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.
 4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'
- #0 0x00007f22b643fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
- #1 0x00007f22b643da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
- #2 0x00007f22b643f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
- #3 0x00007f22b636bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
- #4 0x00007f22b636bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
- #5 0x00007f22b643a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
+ #0 0x00007f028043fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
+ #1 0x00007f028043da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
+ #2 0x00007f028043f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
+ #3 0x00007f028036bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
+ #4 0x00007f028036bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
+ #5 0x00007f028043a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
  #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)
- #7 0x00007f22b637a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
- #8 0x00007f22b6c60e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
- #9 0x00007f22b6c602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
-#10 0x00007f22b85650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
-#11 0x00007f22b6c58ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
-#12 0x00007f22b6c58594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
-#13 0x00007f22b6c579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
-#14 0x00007f22b6c55557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
-#15 0x00007f22b67c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
-#16 0x00007f22b657a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
-#17 0x00007f22b6581983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
-#18 0x00007f22b657af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
-#19 0x00007f22bd857201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
-#20 0x00007f22bdb7c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
-#21 0x00007f22bca04824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
-#22 0x00007f22bdb78b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
-#23 0x00007f22be514b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
-#24 0x00007f22be46c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
-#25 0x00007f22be58e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
+ #7 0x00007f028037a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
+ #8 0x00007f0280c60e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
+ #9 0x00007f0280c602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
+#10 0x00007f02825650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
+#11 0x00007f0280c58ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
+#12 0x00007f0280c58594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
+#13 0x00007f0280c579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
+#14 0x00007f0280c55557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
+#15 0x00007f02807c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
+#16 0x00007f028057a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
+#17 0x00007f0280581983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
+#18 0x00007f028057af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
+#19 0x00007f0287857201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
+#20 0x00007f0287b7c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
+#21 0x00007f0286a04824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
+#22 0x00007f0287b78b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
+#23 0x00007f0288514b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
+#24 0x00007f028846c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
+#25 0x00007f028858e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
 #26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)
 #27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)
-#28 0x00007f22be0eaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
-#29 0x00007f22b636bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
-#30 0x00007f22be0ea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
-#31 0x00007f22be0b5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
-#32 0x00007f22be0b540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
-#33 0x00007f22be0cf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
+#28 0x00007f02880eaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
+#29 0x00007f028036bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
+#30 0x00007f02880ea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
+#31 0x00007f02880b5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
+#32 0x00007f02880b540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
+#33 0x00007f02880cf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
 #34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)
-#35 0x00007f22b4e29d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
-#36 0x00007f22b4e29e40 call_init ./csu/../csu/libc-start.c:128:20
-#37 0x00007f22b4e29e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
+#35 0x00007f027ee29d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+#36 0x00007f027ee29e40 call_init ./csu/../csu/libc-start.c:128:20
+#37 0x00007f027ee29e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
 #38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)
 clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
 Ubuntu clang version 14.0.0-1ubuntu1.1
@@ -75,27 +74,26 @@ clang: note: diagnostic msg:
 
 PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
 Preprocessed source(s) and associated run script(s) are located at:
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-947168.c
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-947168.sh
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-1d0f3f.c
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-1d0f3f.sh
 clang: note: diagnostic msg: 
 
 ********************
 
 Traceback (most recent call last):
-  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 882, in evaluate
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 904, in evaluate
     loader_path = compile_bpf_policy(program_path, BUILD_DIR)
-  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 238, in compile_bpf_policy
+  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 250, in compile_bpf_policy
     raise RuntimeError(f"BPF compilation failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
 RuntimeError: BPF compilation failed:
 STDOUT: 
-STDERR: Error at line 355: Unsupport signed division for DAG: 0x119c7b0: i64 = sdiv 0x119c610, Constant:i64<20>, build/cache_ext_evolved.bpf.c:355:65Please convert to unsigned div/mod.
-fatal error: error in backend: Cannot select: 0x119c7b0: i64 = sdiv 0x119c610, Constant:i64<20>, build/cache_ext_evolved.bpf.c:355:65
-  0x119c610: i64 = sub nsw 0x11266e8, 0x1ae8e10, build/cache_ext_evolved.bpf.c:354:35
-    0x11266e8: i64,ch = CopyFromReg 0x958528, Register:i64 %5, build/cache_ext_evolved.bpf.c:354:35
-      0x119d0d8: i64 = Register %5
-    0x1ae8e10: i64,ch = CopyFromReg 0x958528, Register:i64 %6, build/cache_ext_evolved.bpf.c:354:35
-      0x119a5f0: i64 = Register %6
-  0x119c880: i64 = Constant<20>
+STDERR: Error at line 365: Unsupport signed division for DAG: 0x1ee3048: i64 = sdiv 0x1ee3590, Constant:i64<2>, build/cache_ext_evolved.bpf.c:365:77Please convert to unsigned div/mod.
+fatal error: error in backend: Cannot select: 0x1ee3048: i64 = sdiv 0x1ee3590, Constant:i64<2>, build/cache_ext_evolved.bpf.c:365:77
+  0x1ee3590: i64 = mul nsw 0x1f567d8, Constant:i64<3>, build/cache_ext_evolved.bpf.c:365:72
+    0x1f567d8: i64,ch = CopyFromReg 0x1718528, Register:i64 %17, build/cache_ext_evolved.bpf.c:365:72
+      0x1ee1368: i64 = Register %17
+    0x1ee35f8: i64 = Constant<3>
+  0x1ee1160: i64 = Constant<2>
 In function: bpf_score_fn
 PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
 Stack dump:
@@ -104,44 +102,44 @@ Stack dump:
 2.	Code generation
 3.	Running pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.
 4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'
- #0 0x00007f22b643fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
- #1 0x00007f22b643da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
- #2 0x00007f22b643f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
- #3 0x00007f22b636bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
- #4 0x00007f22b636bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
- #5 0x00007f22b643a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
+ #0 0x00007f028043fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
+ #1 0x00007f028043da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
+ #2 0x00007f028043f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
+ #3 0x00007f028036bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
+ #4 0x00007f028036bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
+ #5 0x00007f028043a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
  #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)
- #7 0x00007f22b637a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
- #8 0x00007f22b6c60e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
- #9 0x00007f22b6c602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
-#10 0x00007f22b85650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
-#11 0x00007f22b6c58ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
-#12 0x00007f22b6c58594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
-#13 0x00007f22b6c579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
-#14 0x00007f22b6c55557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
-#15 0x00007f22b67c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
-#16 0x00007f22b657a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
-#17 0x00007f22b6581983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
-#18 0x00007f22b657af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
-#19 0x00007f22bd857201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
-#20 0x00007f22bdb7c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
-#21 0x00007f22bca04824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
-#22 0x00007f22bdb78b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
-#23 0x00007f22be514b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
-#24 0x00007f22be46c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
-#25 0x00007f22be58e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
+ #7 0x00007f028037a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
+ #8 0x00007f0280c60e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
+ #9 0x00007f0280c602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
+#10 0x00007f02825650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
+#11 0x00007f0280c58ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
+#12 0x00007f0280c58594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
+#13 0x00007f0280c579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
+#14 0x00007f0280c55557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
+#15 0x00007f02807c628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
+#16 0x00007f028057a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
+#17 0x00007f0280581983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
+#18 0x00007f028057af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
+#19 0x00007f0287857201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
+#20 0x00007f0287b7c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
+#21 0x00007f0286a04824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
+#22 0x00007f0287b78b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
+#23 0x00007f0288514b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
+#24 0x00007f028846c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
+#25 0x00007f028858e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
 #26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)
 #27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)
-#28 0x00007f22be0eaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
-#29 0x00007f22b636bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
-#30 0x00007f22be0ea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
-#31 0x00007f22be0b5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
-#32 0x00007f22be0b540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
-#33 0x00007f22be0cf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
+#28 0x00007f02880eaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
+#29 0x00007f028036bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
+#30 0x00007f02880ea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
+#31 0x00007f02880b5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
+#32 0x00007f02880b540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
+#33 0x00007f02880cf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
 #34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)
-#35 0x00007f22b4e29d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
-#36 0x00007f22b4e29e40 call_init ./csu/../csu/libc-start.c:128:20
-#37 0x00007f22b4e29e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
+#35 0x00007f027ee29d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+#36 0x00007f027ee29e40 call_init ./csu/../csu/libc-start.c:128:20
+#37 0x00007f027ee29e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
 #38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)
 clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
 Ubuntu clang version 14.0.0-1ubuntu1.1
@@ -153,8 +151,8 @@ clang: note: diagnostic msg:
 
 PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
 Preprocessed source(s) and associated run script(s) are located at:
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-947168.c
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-947168.sh
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-1d0f3f.c
+clang: note: diagnostic msg: /tmp/cache_ext_evolved-1d0f3f.sh
 clang: note: diagnostic msg: 
 
 ********************

@@ -1,208 +1,50 @@
 <NAME>
-access_rate_normalization_with_recency_decay
+add_cwnd_collapse_protection
 </NAME>
 
 <DESCRIPTION>
-The current baseline uses raw `access_count` as the eviction score, which inherently favors long-lived folios that have accumulated many accesses over time, even if they are no longer active. This creates a bias against recently-accessed folios that haven't had time to accumulate high counts.
+Add congestion window (CWND) collapse detection to protect the working set during severe network congestion. The current implementation monitors RTT and packet loss, but doesn't explicitly detect congestion window collapse, which is a critical indicator of severe network degradation. When the minimum observed CWND drops below 10 segments, it indicates the TCP connection has experienced severe congestion (possibly multiple fast retransmits or timeout events). During such periods, every cache miss becomes extremely expensive due to network round-trip delays.
 
-This change implements access rate normalization with recency decay to address this bias:
+This change:
+1. Enables MINMAX listener for GF_SND_CWND (in addition to existing EWMA) to track the minimum congestion window observed
+2. Adds a +2000 protective bonus to all folios when cwnd_min < 10 segments, reducing eviction pressure during severe congestion
 
-1. **Enable per-folio interval tracking**: Configure EWMA listener to track inter-access intervals, which provides a measure of folio "temperature" (lower interval = hotter).
-
-2. **Recency-weighted scoring**: Apply exponential decay to access_count based on time since last access: `access_count * 1000 / (1000 + time_since_access_ms / decay_constant)`. This ensures recently-active folios are prioritized over stale ones with high historical counts.
-
-3. **Per-folio heat bonus**: Folios with low interval_ewma (frequently accessed) receive additional protection, independent of total access count.
-
-4. **Minimal network awareness**: Enable SRTT EWMA and LOST MINMAX for adaptive protection during high-RTT or lossy network conditions, where cache misses are more expensive.
-
-This approach shifts from pure frequency-based eviction (LFU) toward a frequency+recency hybrid that better captures current working set, especially under dynamic workloads where access patterns change over time.
+This specifically targets write-heavy and scan-heavy workloads (like YCSB-F) where congestion window collapse correlates with poor cache performance. The protective bonus is calibrated to be meaningful (2000) but not overwhelming compared to other bonuses in the scoring function.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-// -- Per-feature listener configuration --------------------------------------
-// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
-// listeners for vulcan_get_* accessors in bpf_score_fn.
-static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = 0 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
-    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
-    [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
-    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
-    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = 0 },
-    [GF_SEGS_IN]        = { .listener_mask = 0 },
-    [GF_SEGS_OUT]       = { .listener_mask = 0 },
-    [GF_DELIVERED]      = { .listener_mask = 0 },
-    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
-    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
-    [GF_RECV_COUNT]     = { .listener_mask = 0 },
-};
-=======
-// -- Per-feature listener configuration --------------------------------------
-// Enable minimal network monitoring for adaptive protection:
-// - SRTT EWMA: detect high-latency periods where cache misses are expensive
-// - LOST MINMAX: detect packet loss indicating network degradation
-static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
                             .ewma_alpha = 150 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
-    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
-    [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
-    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
-    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
-    [GF_SEGS_IN]        = { .listener_mask = 0 },
-    [GF_SEGS_OUT]       = { .listener_mask = 0 },
-    [GF_DELIVERED]      = { .listener_mask = 0 },
-    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
-    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
-    [GF_RECV_COUNT]     = { .listener_mask = 0 },
-};
+=======
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+                            .ewma_alpha = 150 },
 >>>>>>> REPLACE
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-// -- Per-folio listener configuration ----------------------------------------
-// Baseline: disabled. Evolution can enable for interval-based scoring.
-static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = 0,
-    .ewma_alpha    = 200,
-};
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
+    }
 =======
-// -- Per-folio listener configuration ----------------------------------------
-// Enable interval EWMA tracking to measure per-folio access frequency.
-// Lower interval_ewma = hotter folio (more frequent accesses).
-static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA,
-    .ewma_alpha    = 220,
-};
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-// -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
-
-static u64 main_list;
-=======
-// -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
-#define RECENCY_DECAY_MS 2000  // Decay constant: 2 seconds in milliseconds
-
-static u64 main_list;
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-/*
- * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Evolution can add vulcan_get_* calls and protection rules.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 score = (s64)meta->access_count;
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
-=======
-/*
- * Access rate normalization with recency decay.
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * 
- * Key improvements over pure LFU:
- * 1. Recency decay: weight access_count by time since last access
- * 2. Per-folio heat: bonus for low interval_ewma (hot folios)
- * 3. Network-aware: boost protection during high RTT or packet loss
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    u64 time_since_access_ms = time_since_access / 1000000;  /* convert ns to ms */
-
-    /* Base score with recency decay: access_count * decay_factor
-     * decay_factor = 1000 / (1000 + time_since_access_ms / RECENCY_DECAY_MS)
-     * This applies exponential decay - recent accesses weighted more heavily.
-     * After 2 seconds (RECENCY_DECAY_MS), weight is halved.
-     * After 4 seconds, weight is 1/3, etc. */
-    s64 decay_denominator = 1000 + (time_since_access_ms / RECENCY_DECAY_MS);
-    if (decay_denominator < 1) decay_denominator = 1;  /* safety */
-    s64 score = ((s64)meta->access_count * 1000) / decay_denominator;
-
-    /* Per-folio heat bonus: low interval_ewma = hot (frequently accessed)
-     * Interval < 1 second: strong protection
-     * Interval < 3 seconds: moderate protection */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        score += 80;  /* strong heat bonus */
-    } else if (interval_ewma > 0 && interval_ewma < 3000000000) {  /* < 3 seconds */
-        score += 40;  /* moderate heat bonus */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
     }
 
-    /* Network-aware protection: when RTT is elevated, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    if (srtt_ewma > 8000) {  /* > 8ms: significant latency */
-        score = (score * 130) / 100;  /* 30% boost */
-    } else if (srtt_ewma > 4000) {  /* > 4ms: moderate latency */
-        score = (score * 115) / 100;  /* 15% boost */
+    // Congestion window collapse detection: protect during severe congestion
+    // When min CWND < 10 segments, the connection has experienced severe
+    // degradation (fast retransmits/timeouts). Each cache miss is very expensive.
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    if (cwnd_min > 0 && cwnd_min < 10) {
+        // CWND collapse: add protective bonus to reduce eviction pressure
+        score += 2000;
     }
-
-    /* Packet loss detected: be more conservative */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        score = (score * 120) / 100;  /* 20% boost during loss */
-    }
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
 >>>>>>> REPLACE
 </DIFF>

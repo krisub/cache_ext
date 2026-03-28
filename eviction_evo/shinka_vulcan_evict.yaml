@@ -39,7 +39,7 @@ evo_config:
     - 1.0
 
   num_generations: 100
-  max_api_costs: 12.0
+  max_api_costs: 15.0
   max_patch_resamples: 5
   max_patch_attempts: 5
   max_novelty_attempts: 2
@@ -150,18 +150,15 @@ evo_config:
        customize only if needed.
 
     ## Multi-Workload Evaluation
-    Your policy is tested against 2 dual-client workload traces in sequence.
-    The combined score is the HARMONIC MEAN of throughputs across all traces.
+    Your policy is tested against ONE dual-client workload trace.
+    The combined score is the HARMONIC MEAN of throughputs across all runs of the trace.
     Scoring 0 on ANY trace severely penalizes your total score.
 
     Each trace runs TWO My-YCSB clients simultaneously against the SAME
     LevelDB server in the SAME cgroup.
 
-    The 2 traces are:
-    1. **dual_small_vs_large**: fast reader (200B, zipfian, direct) + slow
-       writer (4KB, uniform, 1ms delay, 500Mbps limit)
-    2. **dual_congested**: both clients behind delay proxies (2ms/5ms delay,
-       100/50 Mbps)
+    The trace is: ycsb_a_d_scheduled.yaml
+    
 
     ## Listener Configuration API
     You configure listeners per-feature using `gf_configs[]`, an array of
@@ -192,6 +189,12 @@ evo_config:
         // features with .listener_mask = 0 have no listeners (zero overhead)
     };
     ```
+
+    Important: the example snippet above is only a template to show *syntax*.
+    Do NOT copy these listener masks/parameters verbatim. You must reason
+    about which listeners to enable and why for the current trace set and
+    scoring objective, and set `.listener_mask`, `.ewma_alpha`, and `.rw_size`
+    accordingly.
 
     Per-folio configuration (struct vulcan_folio_config):
     ```c

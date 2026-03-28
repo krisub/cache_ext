@@ -263,14 +263,14 @@ static __always_inline bool is_folio_relevant(struct folio *folio) {
 // listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 275 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
                             .ewma_alpha = 150 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+                            .ewma_alpha = 175 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
     [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
@@ -279,215 +279,22 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 
 // -- Per-folio listener configuration ----------------------------------------
 // Baseline: disabled. Evolution can enable for interval-based scoring.
 static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
-    .ewma_alpha    = 250,
+    .listener_mask = VULCAN_LISTENER_MINMAX | VULCAN_LISTENER_EWMA,
+    .ewma_alpha    = 200,
 };
 
 // -- Tunable constants --------------------------------------------------------
 #define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
 
 static u64 main_list;
-
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-/*
- * Simplified LFU with workload-adaptive interval thresholds and network-aware protection.
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Thresholds adapt based on observed per-folio interval_ewma distribution.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 base_score = (s64)meta->access_count;
-
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT: protect working set more aggressively */
-    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
-        network_factor = 125;  /* 1.25x protection */
-    }
-
-    /* Packet loss detected: be more conservative */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        network_factor = (network_factor * 130) / 100;  /* additional 30% boost */
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: boost pages accessed very recently (< 3 seconds) */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 3000000000ULL) {  /* 3 seconds in ns */
-        score += 50;  /* recency boost */
-    }
-
-    /* Per-folio heat: use interval EWMA with adaptive thresholds based on workload.
-     * Compute dynamic hot/cold thresholds from observed interval_ewma statistics.
-     * Default fallback if no statistics yet: hot if < 1s, cold if > 10s.
-     */
-    s64 interval_ewma = meta->interval_ewma.value;
-
-    u32 stats_key = 0;
-    struct {
-        u64 interval_min;
-        u64 interval_max;
-        u64 interval_sum;
-        u32 interval_count;
-        u32 eviction_cycles;
-    } *stats = bpf_map_lookup_elem(&interval_stats_map, &stats_key);
-
-    s64 hot_threshold = 1000000000;      /* Default: < 1 second */
-    s64 cold_threshold = 10000000000;    /* Default: > 10 seconds */
-
-    if (stats && stats->interval_count > 10) {
-        /* Compute adaptive thresholds from observed distribution */
-        s64 mean_interval = stats->interval_sum / stats->interval_count;
-        /* Hot threshold: 0.5x median/mean (more frequent than average) */
-        hot_threshold = (mean_interval / 2);
-        if (hot_threshold < 500000000) hot_threshold = 500000000;  /* Floor at 0.5s */
-        /* Cold threshold: 5x median/mean (less frequent than average) */
-        cold_threshold = (mean_interval * 5);
-        if (cold_threshold > 15000000000ULL) cold_threshold = 15000000000ULL;  /* Cap at 15s */
-    }
-
-    if (interval_ewma > 0 && interval_ewma < hot_threshold) {
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > cold_threshold) {
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
-    }
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
-=======
-/*
- * Network-aware LFU with congestion-aware protection using PACKETS_OUT signal.
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Combines RTT sensitivity, packet loss detection, and window saturation detection.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 base_score = (s64)meta->access_count;
-
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT: protect working set more aggressively */
-    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
-        network_factor = 125;  /* 1.25x protection */
-    }
-
-    /* Packet loss detected: apply conservative protection boost */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
-        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
-    }
-
-    /* Congestion window saturation detection: secondary network signal.
-     * When packets_out approaches or exceeds cwnd, the window is saturated.
-     * Use safe unsigned arithmetic to compute congestion ratio. */
-    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
-    s64 snd_cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
-
-    if (packets_out_ewma > 0 && snd_cwnd_ewma > 0) {
-        /* Compute congestion ratio using unsigned arithmetic to avoid division issues.
-         * congestion_ratio = (packets_out_ewma * 100) / snd_cwnd_ewma
-         * Apply secondary boost when ratio indicates window saturation. */
-        u64 packets_out_u = (u64)packets_out_ewma;
-        u64 snd_cwnd_u = (u64)snd_cwnd_ewma;
-        if (snd_cwnd_u < 1) snd_cwnd_u = 1;  /* Avoid division by zero */
-
-        u64 congestion_ratio = (packets_out_u * 100) / snd_cwnd_u;
-
-        /* Apply scaled secondary boost based on congestion level */
-        if (congestion_ratio > 90) {
-            network_factor += 10;  /* +10% for severe congestion (>90% utilization) */
-        } else if (congestion_ratio > 70) {
-            network_factor += 5;   /* +5% for moderate congestion (>70% utilization) */
-        }
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: protect pages accessed very recently (< 5 seconds) */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;  /* recency boost */
-    }
-
-    /* Per-folio heat: use interval EWMA to distinguish hot vs cold folios.
-     * Low interval_ewma = frequent accesses (hot).
-     * High interval_ewma = infrequent accesses (cold). */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
-    }
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
 
 // LevelDB: index block is at end of file; protect last page (same as sampling).
 static inline bool is_last_page_in_file(struct folio *folio)
@@ -506,9 +313,9 @@ static inline bool is_last_page_in_file(struct folio *folio)
 }
 
 /*
- * Simplified LFU with workload-adaptive interval thresholds and network-aware protection.
+ * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
  * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Thresholds adapt based on observed per-folio interval_ewma distribution.
+ * Evolution can add vulcan_get_* calls and protection rules.
  */
 static s64 bpf_score_fn(struct cache_ext_list_node *node)
 {
@@ -527,73 +334,102 @@ static s64 bpf_score_fn(struct cache_ext_list_node *node)
     if (!meta)
         return S64_MAX;
 
-    s64 base_score = (s64)meta->access_count;
+    // Base score: access count (higher = keep)
+    s64 score = (s64)meta->access_count;
 
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT: protect working set more aggressively */
-    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
-        network_factor = 125;  /* 1.25x protection */
+    // Network-aware protection: when RTT is high, cache misses are expensive
+    // RTT is in usec; typical good RTT < 10ms (10000us), bad > 50ms (50000us)
+    s64 rtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+    if (rtt_ewma > 50000) {
+        // High RTT: add bonus to protect frequently accessed pages
+        score += meta->access_count / 2;
+    } else if (rtt_ewma > 35000) {
+        // Intermediate RTT: 37.5% bonus (3/8)
+        score += (meta->access_count * 3) / 8;
+    } else if (rtt_ewma > 20000) {
+        // Moderate RTT: small bonus
+        score += meta->access_count / 4;
     }
 
-    /* Packet loss detected: be more conservative */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        network_factor = (network_factor * 130) / 100;  /* additional 30% boost */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
     }
 
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: boost pages accessed very recently (< 3 seconds) */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 3000000000ULL) {  /* 3 seconds in ns */
-        score += 50;  /* recency boost */
-    }
-
-    /* Per-folio heat: use interval EWMA with adaptive thresholds based on workload.
-     * Compute dynamic hot/cold thresholds from observed interval_ewma statistics.
-     * Default fallback if no statistics yet: hot if < 1s, cold if > 10s.
-     */
+    // Per-folio heat: lower interval EWMA = hotter (more frequent accesses)
+    // Interval is in nanoseconds; < 100ms (100000000ns) = hot
     s64 interval_ewma = meta->interval_ewma.value;
-
-    u32 stats_key = 0;
-    struct {
-        u64 interval_min;
-        u64 interval_max;
-        u64 interval_sum;
-        u32 interval_count;
-        u32 eviction_cycles;
-    } *stats = bpf_map_lookup_elem(&interval_stats_map, &stats_key);
-
-    s64 hot_threshold = 1000000000;      /* Default: < 1 second */
-    s64 cold_threshold = 10000000000;    /* Default: > 10 seconds */
-
-    if (stats && stats->interval_count > 10) {
-        /* Compute adaptive thresholds from observed distribution */
-        s64 mean_interval = stats->interval_sum / stats->interval_count;
-        /* Hot threshold: 0.5x median/mean (more frequent than average) */
-        hot_threshold = (mean_interval / 2);
-        if (hot_threshold < 500000000) hot_threshold = 500000000;  /* Floor at 0.5s */
-        /* Cold threshold: 5x median/mean (less frequent than average) */
-        cold_threshold = (mean_interval * 5);
-        if (cold_threshold > 15000000000ULL) cold_threshold = 15000000000ULL;  /* Cap at 15s */
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed, add bonus
+        score += 5000;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
     }
 
-    if (interval_ewma > 0 && interval_ewma < hot_threshold) {
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > cold_threshold) {
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
+    // Variance-based regularity detection: low variance = predictable access pattern
+    // Variance = max_interval - min_interval; < 50ms spread = regular
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0) {
+        s64 variance = interval_max - interval_min;
+        if (variance < 50000000) {  // < 50ms variance = highly regular
+            // Predictable access pattern: add bonus to protect
+            score += 2000;
+        }
     }
 
-    /* LevelDB: protect index block (last page of file) */
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // High jitter (RTT variance) also extends working set window due to unpredictable latency
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    bool high_jitter = (mdev_ewma > 10000);  // > 10ms jitter = high variance
+
+    // CWND recovery detection: distinguish transient loss from sustained congestion
+    // When CWND is recovering (> 1.5x minimum), network has moved past congestion event
+    // and doesn't need maximum protection - scale down loss bonuses to 75%
+    bool cwnd_recovering = false;
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    if (lost_max > 0 && cwnd_ewma > 0 && cwnd_min > 0) {
+        // Check if cwnd_ewma > cwnd_min * 1.5 (multiply to avoid division)
+        if ((cwnd_ewma * 2) > (cwnd_min * 3)) {
+            cwnd_recovering = true;
+        }
+    }
+
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            // Modulate bonus based on CWND recovery state
+            score += cwnd_recovering ? 3375 : 4500;  // 75% during recovery, full during sustained congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            // Modulate loss bonus based on CWND recovery state
+            s64 loss_bonus = cwnd_recovering ? 375 : 500;  // 75% during recovery
+            score += base_bonus + loss_bonus;
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            // Modulate extended protection based on CWND recovery
+            score += cwnd_recovering ? 375 : 500;  // 75% during recovery
+        }
+    }
+
+    // LevelDB: protect index block (last page of file)
     if (is_last_page_in_file(folio))
         score += 100000;
 

@@ -1,210 +1,136 @@
 <NAME>
-adaptive_rtt_baseline_scaling
+implement_per_folio_regularity_scoring_with_variance_weighted_bonuses
 </NAME>
 
 <DESCRIPTION>
-The current program uses fixed RTT thresholds (5ms and 10ms) for protection scaling, which may be suboptimal across diverse network conditions. The recommendation is to implement adaptive RTT baseline tracking with dynamic threshold scaling.
+This edit implements the recommended per-folio access regularity scoring with variance-weighted bonuses. The current code uses a binary variance check (< 50ms = regular, gets +2000 bonus). This change replaces it with a continuous scoring function that computes regularity as `1.0 - min(1.0, variance / interval_ewma)` (using integer arithmetic scaled by 1000 to avoid floating point). The bonus is then `5000 * regularity`, which rewards predictable access patterns proportionally rather than binary. For example, a folio with 10% variance relative to mean interval gets a 4500 bonus, while 50% variance gets 2500, and 100% variance gets 0. This better captures the spectrum of access regularity and should improve cache-friendliness detection across mixed workloads.
 
-**Key insight**: Instead of fixed absolute thresholds, track a long-term EWMA of RTT with very low alpha (50) as a workload-specific "baseline," then scale protection dynamically based on deviation from baseline. This approach:
-
-1. **Adapts to workload characteristics**: Each workload (fast direct reader vs. congested dual clients) establishes its own normal RTT baseline
-2. **Relative scaling is more robust**: Protection scales based on stress deviation from normal, not absolute values
-3. **Smoother transitions**: Uses low-alpha EWMA (alpha=50) for baseline to avoid over-reaction to transient RTT spikes while still tracking long-term trends
-
-The protection factor becomes: `100 + (current_rtt - baseline_rtt) * multiplier`, where the multiplier is tuned to provide 25% extra protection when current RTT is 50% above baseline, and 50% extra protection when it's 100% above baseline.
-
-This replaces the hard-coded threshold checks (>5ms → 1.25x, >10ms → 1.5x) with a principled adaptive model that inherently normalizes for workload-specific network conditions.
-
-The baseline is stored in a single-entry BPF map and updated with fixed-point arithmetic in the kprobe (following the established pattern), ensuring minimal overhead while providing powerful adaptive behavior.
+Additionally, I'm enabling GF_MDEV_US (jitter) tracking which was present in the best-performing program but missing in the current one, and adding jitter-aware logic to extend protection windows during high network variance conditions.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, u64);
-} debug_counters SEC(".maps");
-
-// Include feature dispatch layer (needs maps declared above)
-#include "vulcan_bpf/vulcan_feature.h"
-=======
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, u64);
-} debug_counters SEC(".maps");
-
-// RTT baseline: single-entry map for adaptive threshold scaling
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, u32);
-    __type(value, struct vulcan_ewma);
-} rtt_baseline_map SEC(".maps");
-
-// Include feature dispatch layer (needs maps declared above)
-#include "vulcan_bpf/vulcan_feature.h"
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-// -- Per-feature listener configuration --------------------------------------
-// Enable high-performing listeners to track network conditions adaptively.
-// GF_LOST uses RollingWindow instead of MinMax to provide recency-aware loss
-// detection with natural time-decay. Recent loss → full boost; stale loss → reduced/no boost.
-static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
                             .ewma_alpha = 150 },
 =======
-// -- Per-feature listener configuration --------------------------------------
-// Enable high-performing listeners to track network conditions adaptively.
-// GF_LOST uses RollingWindow instead of MinMax to provide recency-aware loss
-// detection with natural time-decay. Recent loss → full boost; stale loss → reduced/no boost.
-// Note: SRTT listener provides the source for dynamic baseline adaptation.
-static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 310 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
                             .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
 >>>>>>> REPLACE
+
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-/*
- * Network-aware LFU with sophisticated adaptive protection.
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- *
- * Combines RTT sensitivity, per-folio heat tracking (via interval_ewma),
- * and recency to make intelligent eviction decisions under varying network
- * conditions. Loss detection applies modest protection to prevent thrashing.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 base_score = (s64)meta->access_count;
-
-    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
-    if (srtt_ewma > 5000) {
-        network_factor = 125;  /* 1.25x protection */
-    }
-    if (srtt_ewma > 10000) {
-        network_factor = 150;  /* 1.5x protection for >10ms RTT */
-    }
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
 =======
-/*
- * Network-aware LFU with adaptive RTT baseline tracking.
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- *
- * Combines adaptive RTT baseline scaling, per-folio heat tracking (via interval_ewma),
- * and recency to make intelligent eviction decisions. Protection scales based on
- * deviation from workload-specific RTT baseline rather than fixed thresholds.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 base_score = (s64)meta->access_count;
-
-    /* Adaptive RTT-based protection using baseline tracking.
-     * Scale protection based on deviation from long-term baseline RTT. */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    u32 baseline_key = 0;
-    struct vulcan_ewma *baseline = bpf_map_lookup_elem(&rtt_baseline_map, &baseline_key);
-    
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    if (baseline && baseline->value > 0 && srtt_ewma > 0) {
-        /* Compute relative stress: (current - baseline) as percentage of baseline
-         * If current > baseline by 50%, stress is 50 (meaning 50% above baseline)
-         * Apply graduated protection: 0.5x multiplier per 100% stress */
-        s64 rtt_diff = srtt_ewma - baseline->value;
-        if (rtt_diff > 1000) {  /* At least 1ms above baseline to trigger adjustment */
-            /* For each 2ms above baseline, add 25 to network_factor (0.25x multiplier per 2ms)
-             * This means: +2ms → 1.25x, +4ms → 1.50x, +6ms → 1.75x, etc. */
-            s64 stress_units = (rtt_diff * 125) / 2000;  /* (rtt_diff_us * 125) / 2000_us */
-            network_factor = 100 + stress_units;
-            if (network_factor > 200) network_factor = 200;  /* Cap at 2.0x */
-        }
-    } else if (srtt_ewma > 0) {
-        /* Baseline not yet initialized; use simple fixed thresholds as fallback
-         * This only occurs during initial warmup period */
-        if (srtt_ewma > 10000) {
-            network_factor = 150;
-        } else if (srtt_ewma > 5000) {
-            network_factor = 125;
-        }
-    }
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 45 },
 >>>>>>> REPLACE
+
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-    for (u32 i = 0; i < VULCAN_NUM_GLOBAL_FEATURES && i < 16; i++) {
-        if (gf_configs[i].listener_mask)
-            vulcan_update_feature(i, raw_values[i], &gf_configs[i]);
+    // Variance-based regularity detection: low variance = predictable access pattern
+    // Variance = max_interval - min_interval; < 50ms spread = regular
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0) {
+        s64 variance = interval_max - interval_min;
+        if (variance < 50000000) {  // < 50ms variance = highly regular
+            // Predictable access pattern: add bonus to protect
+            score += 2000;
+        }
     }
-
-    return 0;
-}</parameter>
 =======
-    for (u32 i = 0; i < VULCAN_NUM_GLOBAL_FEATURES && i < 16; i++) {
-        if (gf_configs[i].listener_mask)
-            vulcan_update_feature(i, raw_values[i], &gf_configs[i]);
-    }
-
-    /* Update RTT baseline with very low alpha (50) for slow adaptation.
-     * This establishes a long-term "normal" RTT for the workload. */
-    if (raw_values[GF_SRTT_US] > 0) {
-        u32 baseline_key = 0;
-        struct vulcan_ewma *baseline = bpf_map_lookup_elem(&rtt_baseline_map, &baseline_key);
-        if (!baseline) {
-            /* Initialize baseline on first call */
-            struct vulcan_ewma init_baseline = { .value = raw_values[GF_SRTT_US] };
-            bpf_map_update_elem(&rtt_baseline_map, &baseline_key, &init_baseline, BPF_ANY);
+    // Variance-based regularity scoring: compute continuous bonus based on regularity
+    // regularity = 1.0 - min(1.0, variance / interval_ewma)
+    // Higher regularity (low variance relative to mean) = more predictable = higher bonus
+    s64 interval_min = meta->interval_minmax.min_val;
+    s64 interval_max = meta->interval_minmax.max_val;
+    if (interval_min > 0 && interval_max > 0 && interval_ewma > 0) {
+        s64 variance = interval_max - interval_min;
+        // Compute regularity using integer arithmetic scaled by 1000
+        // regularity_scaled = 1000 - min(1000, (variance * 1000) / interval_ewma)
+        s64 regularity_scaled = 1000;
+        s64 variance_ratio = (variance * 1000) / interval_ewma;
+        if (variance_ratio < 1000) {
+            regularity_scaled = 1000 - variance_ratio;
         } else {
-            /* Update baseline with alpha=50 (very slow smoothing) using fixed-point arithmetic.
-             * new_value = (old_value * (1000 - alpha) + new_sample * alpha) / 1000
-             * With alpha=50: new = old * 950/1000 + sample * 50/1000 */
-            struct vulcan_ewma new_baseline;
-            new_baseline.value = (baseline->value * 950 + raw_values[GF_SRTT_US] * 50) / 1000;
-            bpf_map_update_elem(&rtt_baseline_map, &baseline_key, &new_baseline, BPF_ANY);
+            regularity_scaled = 0;  // High variance, no regularity
+        }
+        // Apply bonus proportional to regularity: max 5000 for perfect regularity
+        // This rewards predictable access patterns continuously rather than binary
+        s64 regularity_bonus = (5000 * regularity_scaled) / 1000;
+        score += regularity_bonus;
+    }
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during congestion
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
         }
     }
-
-    return 0;
+=======
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // High jitter (RTT variance) also extends working set window due to unpredictable latency
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    bool high_jitter = (mdev_ewma > 10000);  // > 10ms jitter = high variance
+    
+    // Primary recency tier: extend from 5s to 7s under high jitter
+    s64 primary_threshold = high_jitter ? 7000000000 : 5000000000;
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        // Increase bonus under high jitter to capture expanded working set
+        s64 base_bonus = high_jitter ? 1200 : 1000;
+        if (lost_max > 0) {
+            score += base_bonus + 500;  // 50% bonus during congestion
+        } else {
+            score += base_bonus;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
+    }
 >>>>>>> REPLACE
-</diff>
+
+</DIFF>

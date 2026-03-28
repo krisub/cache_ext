@@ -1,0 +1,207 @@
+<NAME>
+adaptive_recency_decay_burstiness
+</NAME>
+
+<DESCRIPTION>
+The current program's time-decay loss mechanism added complexity without improving performance (1873.98 vs Generation 40's 2184.76). This edit implements the recommended adaptive recency decay calibration based on per-folio access burstiness to extend the proven 50% boost pattern from Generation 40.
+
+The key insight is that folios with different access patterns should have different recency decay rates:
+- **Bursty folios** (high variance in inter-access intervals, ratio > 10) get extended protection with 70% boost - these are working-set pages accessed in clusters
+- **Normal folios** get the proven 50% boost from Generation 40
+- **Steady-access folios** (low variance, ratio < 3) get faster decay with 30% boost - these are background/sequential pages
+
+This approach:
+1. Makes decay rates responsive to individual folio access patterns
+2. Should reduce throughput variance in dual_small_vs_large (currently std: 168.85)
+3. Extends the multi-scale temporal protection that worked well in Generation 40
+4. Removes the problematic time-decay loss tracking that hurt performance
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+
+// Timestamp of last detected packet loss (for time-decay of loss protection)
+u64 last_loss_ts = 0;
+=======
+// -- Tunable constants --------------------------------------------------------
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
+
+static u64 main_list;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+/*
+ * Network-aware LFU with loss-triggered protection using exponential time-decay.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Loss boost decays over ~300ms to prevent sustained over-protection from stale signals.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    /* Recency-weighted access normalization: multiply access_count by time-decay factor
+     * to prioritize recently-active folios. This scales protection with actual hotness
+     * rather than applying a flat bonus that treats all recent folios equally.
+     */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_factor = 100;  /* baseline: 1.0x multiplier */
+
+    if (time_since_access < 1000000000ULL) {  /* < 1 second: very fresh */
+        recency_factor = 150;  /* 1.5x multiplier (50% bonus) */
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds: decay linearly */
+        /* Linear interpolation from 150 (at 1s) down to 100 (at 10s) */
+        s64 elapsed_s = (time_since_access - 1000000000ULL) / 1000000000ULL;  /* 0-9 range */
+        recency_factor = 150 - (elapsed_s * 5);  /* Decreases by 5 per second: 150→145→...→105→100 */
+        if (recency_factor < 100) recency_factor = 100;  /* Floor at 100 */
+    }
+    /* else: time_since_access >= 10s, recency_factor stays 100 (no bonus) */
+
+    s64 base_score = ((s64)meta->access_count * recency_factor) / 100;
+=======
+/*
+ * Network-aware LFU with adaptive recency decay based on per-folio burstiness.
+ * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Burstiness-calibrated decay extends protection for working-set folios with clustered accesses.
+ */
+static s64 bpf_score_fn(struct cache_ext_list_node *node)
+{
+    struct folio *folio = node->folio;
+    if (!folio)
+        return S64_MAX;
+
+    if (folio_test_dirty(folio) || folio_test_writeback(folio))
+        return S64_MAX;
+    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
+        return S64_MAX;
+
+    u64 key = (u64)folio;
+    struct vulcan_folio_metadata *meta =
+        bpf_map_lookup_elem(&folio_metadata_map, &key);
+    if (!meta)
+        return S64_MAX;
+
+    /* Adaptive recency decay calibrated by per-folio access burstiness.
+     * Burstiness = max_interval / min_interval measures access pattern variance.
+     * Bursty folios (high variance, ratio > 10) → extended protection (70% boost)
+     * Normal folios → proven 50% boost from Generation 40
+     * Steady folios (low variance, ratio < 3) → faster decay (30% boost)
+     */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    
+    /* Calculate burstiness from interval MINMAX listener */
+    s64 burstiness = 1;  /* default: normal (non-bursty) */
+    if (meta->interval_minmax.min_val > 0 && meta->interval_minmax.max_val > 0) {
+        burstiness = meta->interval_minmax.max_val / meta->interval_minmax.min_val;
+    }
+
+    /* Determine recency boost based on burstiness */
+    s64 recency_boost = 50;  /* baseline: 50% boost (Generation 40 proven value) */
+    if (burstiness > 10) {
+        recency_boost = 70;  /* Bursty: extended protection for working-set clusters */
+    } else if (burstiness < 3) {
+        recency_boost = 30;  /* Steady: faster decay for sequential/background pages */
+    }
+
+    s64 recency_factor = 0;
+    if (time_since_access < 1000000000ULL) {  /* < 1 second */
+        recency_factor = recency_boost;
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds */
+        /* Linear decay: recency_boost% at 1s, 0% at 10s */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = recency_boost - (elapsed_seconds * recency_boost / 9);
+        if (recency_factor < 0) recency_factor = 0;
+    }
+
+    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected with time-decay protection:
+     * Apply 15% boost only when loss is fresh AND RTT is elevated.
+     * Boost decays exponentially: after 100ms it's ~37% of peak, after 300ms negligible.
+     */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
+        u64 time_since_loss = now - last_loss_ts;
+
+        /* Exponential decay: decay_factor = 100 * exp(-(time_since_loss / 100ms))
+         * Approximated: decay_factor = 100 / (1 + time_since_loss / 100ms)
+         * This gives ~37% at 100ms, ~9% at 300ms, negligible after 500ms
+         */
+        s64 decay_factor = 100;
+        if (time_since_loss > 0 && time_since_loss < 500000000) {  /* Within 500ms window */
+            s64 elapsed_ms = time_since_loss / 1000000;  /* Convert ns to ms */
+            decay_factor = (100 * 100) / (100 + elapsed_ms);  /* Approximately exponential */
+            if (decay_factor < 1) decay_factor = 1;  /* Floor at 1 */
+        } else if (time_since_loss >= 500000000) {
+            decay_factor = 1;  /* Negligible boost after 500ms */
+        }
+
+        network_factor = (network_factor * (100 + (15 * decay_factor / 100))) / 100;
+    }
+=======
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated to avoid
+     * stale loss signals causing sustained over-protection.
+     */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+
+    /* Update last_loss_ts if loss has been detected (for time-decay calculation) */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0) {
+        last_loss_ts = bpf_ktime_get_ns();
+    }
+}
+=======
+// -- struct_ops: evict_folios -------------------------------------------------
+void BPF_STRUCT_OPS(evolved_evict_folios,
+                    struct cache_ext_eviction_ctx *eviction_ctx,
+                    struct mem_cgroup *memcg)
+{
+    bump_counter(0);
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
+    bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
+                  eviction_ctx);
+}
+>>>>>>> REPLACE
+</DIFF>

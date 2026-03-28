@@ -1,0 +1,14 @@
+{
+  "generation": 37,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 7,
+  "patch_name": "recency_weighted_access_rate",
+  "patch_description": "The current program's adaptive threshold mechanism adds complexity and overhead without improving performance (1874.82 vs 2090.49 best). The recommendation suggests integrating recency directly into the access rate calculation rather than as an additive bonus. This change:\n\n1. Removes the adaptive threshold complexity (interval_stats_map) that caused regression\n2. Implements recency-weighted access rate: `base_score = access_count * (1.0 + recency_factor)` where recency_factor decays from +50% (if <1s) to 0% (if >10s) linearly\n3. Reverts to proven fixed hot/cold thresholds (<1s hot, >10s cold) from best program\n4. Reduces recency bonus from +50 flat to 0 since it's now integrated into base_score\n5. Maintains proven network-aware protection (RTT-based, loss-based)\n\nThis distinguishes recently-active frequent pages from historically-frequent but now-cold pages at the fundamental scoring level, improving victim selection granularity under memory pressure.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T12:52:51.572415",
+  "llm_cost": 0.232896,
+  "llm_model": null
+}

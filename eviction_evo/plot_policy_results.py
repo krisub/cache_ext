@@ -18,8 +18,8 @@ import statistics
 from pathlib import Path
 
 
-TRACE_KEYS = ("dual_small_vs_large", "dual_congested")
-TRACE_LABELS = ("small_vs_large", "congested")
+TRACE_KEYS = ("ycsb_c_a", "ycsb_c_f", "ycsb_b_a", "ycsb_a_d")
+TRACE_LABELS = ("C_A", "C_F", "B_A", "A_D")
 
 
 def load_metrics(path: Path) -> dict | None:
@@ -72,8 +72,12 @@ def plot_figure(
     n_pol = len(policies)
     n_trace = len(TRACE_KEYS)
     x = np.arange(n_pol)
-    width = 0.36
-    colors_bar = ("#3b82f6", "#f97316")
+    # Keep all trace bars within a single policy group width.
+    group_width = 0.84
+    width = group_width / max(n_trace, 1)
+    # Ensure we always have one color per trace.
+    cmap = plt.get_cmap("tab10")
+    colors_bar = [cmap(i % cmap.N) for i in range(n_trace)]
 
     fig, ax = plt.subplots(figsize=(max(8, n_pol * 1.2), 5.5))
 

@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 2,
-  "patch_name": "packets_out_cwnd_saturation_boost",
-  "patch_description": "The current program enables GF_PACKETS_OUT listener but doesn't utilize it in the scoring function. The recommendation suggests leveraging window saturation (packets_out / cwnd ratio) as a complementary congestion signal to RTT trend detection.\n\n**Rationale:**\n- RTT trend detection catches degrading network conditions, but doesn't directly measure congestion window saturation\n- When packets_out_ewma approaches snd_cwnd_ewma, the sender is window-limited, making cache misses very expensive\n- During congested workloads (e.g., dual_congested), window saturation is a strong indicator that the working set should be protected more aggressively\n- Adding this secondary signal complements RTT-based protection and helps explain why the best prior program (1977.84) outperforms the current one (1868.97)\n\n**Changes:**\n1. Enable GF_SND_CWND EWMA listener (currently disabled)\n2. In bpf_score_fn, compute the packets_out / cwnd utilization ratio\n3. Apply scaled boosts (1.05x if ratio > 0.7, 1.15x if ratio > 0.9) to network_factor to protect more aggressively under window saturation\n\nThis leverages already-enabled listeners and requires minimal code changes, focusing specifically on the congested workload where performance is currently weaker than the best prior program.",
+  "num_applied": 1,
+  "patch_name": "loss_aware_recency_extension",
+  "patch_description": "This edit implements congestion-aware recency decay with loss-triggered boost. The current static recency bonuses (+3000 for <5s, +1000 for <30s) are modulated based on packet loss detection. When `vulcan_get_max(GF_LOST) > 0` indicates network congestion:\n\n1. Increase the <5s recency bonus by 50% (from +3000 to +4500)\n2. Increase the <30s recency bonus by 50% (from +1000 to +1500)\n3. Add a NEW third tier: extend protection window to <60s with +500 bonus\n\nThe rationale is that during congestion events (detected via packet loss), each cache miss becomes significantly more expensive due to elevated RTT and reduced throughput. By boosting recency protection during these periods, we keep the working set in cache longer when it matters most. The extended 60-second protection window catches pages that are moderately warm but would otherwise be evicted during sustained congestion episodes.\n\nThis builds on the existing RTT-aware and loss-aware protection mechanisms but adds a temporal dimension that adapts protection strength to current network conditions. The three-tier approach provides graduated protection: strongest for very recent accesses (<5s), moderate for recent accesses (<30s), and light extended protection (<60s) to handle sustained congestion periods without over-protecting cold pages during normal operation.",
   "error_msg": null,
-  "timestamp": "2026-03-21T23:01:14.757521",
-  "llm_cost": 0.065083,
+  "timestamp": "2026-03-26T01:53:33.446409",
+  "llm_cost": 0.199059,
   "llm_model": null
 }

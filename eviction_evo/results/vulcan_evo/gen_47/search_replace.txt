@@ -1,56 +1,159 @@
 <NAME>
-access_count_scaled_cold_penalty
+add_dual_metric_sustained_congestion_detection
 </NAME>
 
 <DESCRIPTION>
-The current program applies a fixed -100 penalty to all cold folios (interval_ewma > 5 seconds), which over-penalizes long-lived but valuable pages like LevelDB index structures that are accessed infrequently but remain critical to performance. This modification scales the cold folio penalty by historical access count to distinguish between truly unused pages (low access_count) and long-lived valuable structures (high access_count with infrequent but consistent access).
+The recommendation suggests adding a more reliable sustained congestion detection mechanism by combining loss persistence with CWND collapse ratio. The current code compares CWND to SSTHRESH, but a more reliable signal is to compare current CWND EWMA against historical minimum CWND. This detects when CWND is stuck below its baseline (sustained congestion) rather than just temporarily low.
 
-The scaling works as follows:
-- access_count < 5: Full -100 penalty (truly cold/unused pages)
-- access_count < 20: Reduced -50 penalty (moderately accessed over lifetime)
-- access_count >= 20: Minimal -25 penalty (frequently accessed historically, just not recently)
+Key improvements:
+1. Enable MINMAX listener for GF_SND_CWND (in addition to existing EWMA) to track historical CWND range
+2. Add new detection: when `vulcan_get_ewma(GF_SND_CWND) < vulcan_get_min(GF_SND_CWND) * 1.3` AND losses are present
+3. Apply +1000 bonus that stacks with existing loss bonuses (not replacing them)
+4. Use conservative 1.3x ratio threshold (more conservative than 1.4x or 1.5x)
 
-This asymmetric penalty structure preserves the existing +100 hot folio bonus while preventing excessive eviction of long-lived metadata structures. The thresholds are calibrated based on typical LevelDB access patterns where index blocks accumulate moderate access counts over time but have naturally high inter-access intervals.
-
-This change addresses the observed higher variance in dual_small_vs_large (std: 217.25 in best program) by providing more stable protection for persistent working set elements while still preferring genuinely cold pages as victims.
+This provides a more reliable congestion signal than CWND vs SSTHRESH because it identifies when CWND has collapsed below its historical norm and stays there, which is a strong indicator of sustained network stress requiring aggressive working-set protection.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold).
-     * Thresholds calibrated to align with recency decay window. */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 275 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+=======
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 275 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_MINMAX | VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Congestion phase detection: check if CWND collapsed below SSTHRESH
+    // indicating sustained congestion (not just transient loss)
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    bool in_congestion_phase = false;
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.4 (multiply to avoid division)
+        // More aggressive threshold to detect sustained congestion earlier
+        if ((cwnd_ewma * 5) < (ssthresh_min * 7)) {
+            in_congestion_phase = true;
+        }
     }
 =======
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold).
-     * Scale cold penalty by historical access_count to avoid over-penalizing
-     * long-lived but valuable pages (e.g., LevelDB index structures). */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
-        /* Cold folio: scale penalty by historical access count to distinguish
-         * truly unused pages from long-lived but occasionally-accessed valuable pages */
-        s64 cold_penalty = 100;  /* default for truly cold pages */
-        if (meta->access_count < 5) {
-            cold_penalty = 100;  /* truly unused: full penalty */
-        } else if (meta->access_count < 20) {
-            cold_penalty = 50;   /* moderately used over lifetime: reduced penalty */
-        } else {
-            cold_penalty = 25;   /* frequently accessed historically: minimal penalty */
+    // Dual-metric sustained congestion detection: combine loss persistence
+    // with CWND collapse ratio for more reliable working-set expansion
+    // Check if CWND has collapsed below its historical minimum (sustained stress)
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    bool sustained_congestion = false;
+    if (lost_max > 0 && cwnd_ewma > 0 && cwnd_min > 0) {
+        // Check if cwnd < cwnd_min * 1.3 (multiply to avoid division)
+        // Conservative threshold: CWND stuck below baseline indicates sustained congestion
+        if ((cwnd_ewma * 10) < (cwnd_min * 13)) {
+            sustained_congestion = true;
         }
-        if (score > cold_penalty) score -= cold_penalty;
+    }
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // When both loss AND congestion phase detected, amplify protection further
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during loss
+        }
+    }
+=======
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // Sustained congestion detection adds stacking bonus for reliable signal
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during loss
+        } else {
+            score += 3000;
+        }
+        // Stack additional bonus during sustained congestion
+        if (sustained_congestion) {
+            score += 1000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during loss
+        } else {
+            score += 1000;
+        }
+        // Stack additional bonus during sustained congestion
+        if (sustained_congestion) {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during loss
+        }
     }
 >>>>>>> REPLACE
 </DIFF>

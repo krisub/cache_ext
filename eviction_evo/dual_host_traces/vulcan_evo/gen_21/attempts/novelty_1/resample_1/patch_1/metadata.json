@@ -1,0 +1,14 @@
+{
+  "generation": 21,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "access_count_scaled_cold_penalty",
+  "patch_description": "The current program applies a uniform cold-folio penalty (-100) for all folios with low access frequency (interval_ewma > 10 seconds), regardless of their historical access count. This can over-penalize long-lived folios that have accumulated many accesses over time but happen to be infrequently accessed recently\u2014these may be valuable index structures or lookup tables in LevelDB.\n\nThe recommendation suggests implementing **asymmetric penalty scaling**: scale the cold-folio eviction penalty inversely with the folio's access_count. Folios with higher historical access_count are demonstrably valuable to the workload, so they deserve gentler eviction pressure even if they're currently infrequent.\n\nProposed scaling:\n- `access_count < 5`: apply full -100 penalty (truly cold/unused)\n- `access_count < 20`: apply -50 penalty (moderately accessed over lifetime)\n- `access_count >= 20`: apply -25 penalty (frequently accessed historically, should be preserved)\n\nThis refinement addresses the higher variance observed in the current program (dual_small_vs_large_std: 173.82 vs. best 138.46 in v5) by preventing the inadvertent eviction of moderately-valuable long-lived pages, while still aggressively evicting genuinely cold pages. The asymmetric approach aligns with LevelDB's access patterns where index blocks and metadata may be accessed infrequently but remain critical.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T01:40:36.988158",
+  "llm_cost": 0.061808,
+  "llm_model": null
+}

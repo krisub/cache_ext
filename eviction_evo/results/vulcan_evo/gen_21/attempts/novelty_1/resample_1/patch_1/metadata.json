@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 1,
-  "patch_name": "access_count_scaled_cold_penalty",
-  "patch_description": "The current program applies a uniform cold-folio penalty (-100) for all folios with low access frequency (interval_ewma > 10 seconds), regardless of their historical access count. This can over-penalize long-lived folios that have accumulated many accesses over time but happen to be infrequently accessed recently\u2014these may be valuable index structures or lookup tables in LevelDB.\n\nThe recommendation suggests implementing **asymmetric penalty scaling**: scale the cold-folio eviction penalty inversely with the folio's access_count. Folios with higher historical access_count are demonstrably valuable to the workload, so they deserve gentler eviction pressure even if they're currently infrequent.\n\nProposed scaling:\n- `access_count < 5`: apply full -100 penalty (truly cold/unused)\n- `access_count < 20`: apply -50 penalty (moderately accessed over lifetime)\n- `access_count >= 20`: apply -25 penalty (frequently accessed historically, should be preserved)\n\nThis refinement addresses the higher variance observed in the current program (dual_small_vs_large_std: 173.82 vs. best 138.46 in v5) by preventing the inadvertent eviction of moderately-valuable long-lived pages, while still aggressively evicting genuinely cold pages. The asymmetric approach aligns with LevelDB's access patterns where index blocks and metadata may be accessed infrequently but remain critical.",
+  "patch_name": "cwnd_ssthresh_threshold_refinement",
+  "patch_description": "Refine the congestion phase detection threshold from 1.5x to 1.4x to more aggressively detect sustained congestion. This makes the policy more sensitive to congestion window collapse, capturing cases where CWND has dropped below SSTHRESH but may not be at the most extreme level yet. The tighter threshold (1.4x instead of 1.5x) provides earlier detection of sustained congestion phases, allowing the cache to protect working set pages more proactively when the network is in congestion avoidance mode. This complements the existing loss detection by distinguishing between transient packet loss (CWND temporarily reduced but recovering) and sustained congestion (CWND stuck well below slow-start threshold).",
   "error_msg": null,
-  "timestamp": "2026-03-22T01:40:36.988158",
-  "llm_cost": 0.061808,
+  "timestamp": "2026-03-26T07:23:07.894598",
+  "llm_cost": 0.19641,
   "llm_model": null
 }

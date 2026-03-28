@@ -1,0 +1,14 @@
+{
+  "generation": 2,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "adaptive_burst_aware_lfu",
+  "patch_description": "Enhance LFU eviction by adding burst detection and per-folio recency tracking.\n\nThe improvement works by:\n1. Enabling GF_INTER_ARRIVAL listener (EWMA + RollingWindow) to detect request bursts\n2. Enabling per-folio interval_ewma tracking to distinguish hot (frequently-accessed) vs cold (stale) folios\n3. Modifying the scoring function to:\n   - Keep access_count as primary signal (LFU base)\n   - Subtract penalty based on interval_ewma (high interval = cold = low score = evict first)\n   - During burst patterns (low inter-arrival), add a boost to protect working set\n   - Retain LevelDB index block bonus\n\nThis balances frequency with recency and adapts protection based on network conditions. Expected to improve both workloads by keeping the working set in cache during bursty phases and evicting genuinely cold folios during steady states.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: '#if 1'\nAt position: 17614\n\nContext around found text:\n     Line 441: // tcp_recvmsg attached causes 0-throughput timeouts even with early-exit.\n     Line 442: // When the LLM enables any gf_configs listener, they MUST uncomment (change\n     Line 443: // #if 0 to #if 1) so vulcan_get_* accessors receive data.\n >>> Line 444: #if 1\n     Line 445: SEC(\"kprobe/tcp_recvmsg\")\n     Line 446: int trace_tcp_recvmsg(struct pt_regs *ctx)\n     Line 447: {\n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 10421-17097):\n    // =============================================================================\n    // EVICTION POLICY -- everything below (until the closing marker) is evolved\n    // =============================================================================\n    ... (174 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-21T19:54:00.231461",
+  "llm_cost": 0.043046,
+  "llm_model": null
+}

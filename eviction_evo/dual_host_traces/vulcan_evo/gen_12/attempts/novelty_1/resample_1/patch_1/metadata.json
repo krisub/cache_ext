@@ -1,0 +1,14 @@
+{
+  "generation": 12,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "adaptive_rtt_baseline_thresholds",
+  "patch_description": "Analyzing the prior programs, the best performer (1977.84) used simple static RTT thresholds (>10ms=1.5x, >5ms=1.25x) without time-decay. The current program (1823.69) introduced a decay_factor based on time_since_access, which degraded performance.\n\nThe recommendation suggests implementing adaptive RTT thresholds via baseline drift detection. The key insight: instead of fixed 5ms/10ms thresholds, establish a long-term RTT baseline (using very low EWMA alpha ~50) and apply adaptive protection multipliers based on deviation from baseline.\n\nThis approach:\n1. **Removes decay_factor** \u2014 it was over-penalizing aged pages, preventing good locality exploitation\n2. **Adds baseline RTT tracking** \u2014 maintains a slow-moving EWMA (alpha=50) of SRTT to establish \"normal\" RTT\n3. **Scales protection dynamically** \u2014 multipliers grow with RTT deviation from baseline, not absolute thresholds\n4. **Detects sustained congestion** \u2014 deviations > baseline*1.2 indicate degraded conditions requiring stronger working-set protection\n\nThis preserves the proven static logic while adapting to workload-specific network baselines, improving robustness across diverse network conditions.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: '    net_prev_packet_ts = last_packet_ts;'\nAt position: 20304\n\nContext around found text:\n     Line 510:             return 0;\n     Line 511:     }\n     Line 512: \n >>> Line 513:     net_prev_packet_ts = last_packet_ts;\n     Line 514:     last_packet_ts     = bpf_ktime_get_ns();\n     Line 515:     net_recv_count    += 1;\n     Line 516: \n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 10421-19053):\n    // =============================================================================\n    // EVICTION POLICY -- everything below (until the closing marker) is evolved\n    // =============================================================================\n    ... (219 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-21T23:31:12.475313",
+  "llm_cost": 0.074873,
+  "llm_model": null
+}

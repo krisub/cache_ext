@@ -1,0 +1,14 @@
+{
+  "generation": 11,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "packets_out_cwnd_saturation_boost",
+  "patch_description": "The current program enables GF_PACKETS_OUT listener but doesn't utilize it in the scoring function. The recommendation suggests leveraging window saturation (packets_out / cwnd ratio) as a complementary congestion signal to RTT trend detection.\n\n**Rationale:**\n- RTT trend detection catches degrading network conditions, but doesn't directly measure congestion window saturation\n- When packets_out_ewma approaches snd_cwnd_ewma, the sender is window-limited, making cache misses very expensive\n- During congested workloads (e.g., dual_congested), window saturation is a strong indicator that the working set should be protected more aggressively\n- Adding this secondary signal complements RTT-based protection and helps explain why the best prior program (1977.84) outperforms the current one (1868.97)\n\n**Changes:**\n1. Enable GF_SND_CWND EWMA listener (currently disabled)\n2. In bpf_score_fn, compute the packets_out / cwnd utilization ratio\n3. Apply scaled boosts (1.05x if ratio > 0.7, 1.15x if ratio > 0.9) to network_factor to protect more aggressively under window saturation\n\nThis leverages already-enabled listeners and requires minimal code changes, focusing specifically on the congested workload where performance is currently weaker than the best prior program.",
+  "error_msg": null,
+  "timestamp": "2026-03-21T23:01:14.757521",
+  "llm_cost": 0.065083,
+  "llm_model": null
+}

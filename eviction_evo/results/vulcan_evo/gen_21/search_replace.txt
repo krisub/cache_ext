@@ -1,55 +1,37 @@
 <NAME>
-access_count_scaled_cold_penalty
+cwnd_ssthresh_threshold_refinement
 </NAME>
 
 <DESCRIPTION>
-The current program applies a uniform cold-folio penalty (-100) for all folios with low access frequency (interval_ewma > 10 seconds), regardless of their historical access count. This can over-penalize long-lived folios that have accumulated many accesses over time but happen to be infrequently accessed recently—these may be valuable index structures or lookup tables in LevelDB.
-
-The recommendation suggests implementing **asymmetric penalty scaling**: scale the cold-folio eviction penalty inversely with the folio's access_count. Folios with higher historical access_count are demonstrably valuable to the workload, so they deserve gentler eviction pressure even if they're currently infrequent.
-
-Proposed scaling:
-- `access_count < 5`: apply full -100 penalty (truly cold/unused)
-- `access_count < 20`: apply -50 penalty (moderately accessed over lifetime)
-- `access_count >= 20`: apply -25 penalty (frequently accessed historically, should be preserved)
-
-This refinement addresses the higher variance observed in the current program (dual_small_vs_large_std: 173.82 vs. best 138.46 in v5) by preventing the inadvertent eviction of moderately-valuable long-lived pages, while still aggressively evicting genuinely cold pages. The asymmetric approach aligns with LevelDB's access patterns where index blocks and metadata may be accessed infrequently but remain critical.
+Refine the congestion phase detection threshold from 1.5x to 1.4x to more aggressively detect sustained congestion. This makes the policy more sensitive to congestion window collapse, capturing cases where CWND has dropped below SSTHRESH but may not be at the most extreme level yet. The tighter threshold (1.4x instead of 1.5x) provides earlier detection of sustained congestion phases, allowing the cache to protect working set pages more proactively when the network is in congestion avoidance mode. This complements the existing loss detection by distinguishing between transient packet loss (CWND temporarily reduced but recovering) and sustained congestion (CWND stuck well below slow-start threshold).
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold). */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
+    // Congestion phase detection: check if CWND collapsed below SSTHRESH
+    // indicating sustained congestion (not just transient loss)
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    bool in_congestion_phase = false;
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.5 (multiply to avoid division)
+        if ((cwnd_ewma * 2) < (ssthresh_min * 3)) {
+            in_congestion_phase = true;
+        }
     }
 =======
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold).
-     * Asymmetric penalty scaling: folios with higher access_count are more
-     * valuable (long-lived, proven useful), so apply gentler penalty. */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, but scale penalty by access history
-         * to avoid over-evicting valuable long-lived pages */
-        s64 cold_penalty = 100;  /* default for truly cold pages */
-        if (meta->access_count < 5) {
-            cold_penalty = 100;  /* truly unused: full penalty */
-        } else if (meta->access_count < 20) {
-            cold_penalty = 50;   /* moderately used over lifetime: 50% penalty */
-        } else {
-            cold_penalty = 25;   /* frequently used historically: 25% penalty */
+    // Congestion phase detection: check if CWND collapsed below SSTHRESH
+    // indicating sustained congestion (not just transient loss)
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    bool in_congestion_phase = false;
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.4 (multiply to avoid division)
+        // More aggressive threshold to detect sustained congestion earlier
+        if ((cwnd_ewma * 5) < (ssthresh_min * 7)) {
+            in_congestion_phase = true;
         }
-        if (score > cold_penalty) score -= cold_penalty;
     }
 >>>>>>> REPLACE
+
 </DIFF>

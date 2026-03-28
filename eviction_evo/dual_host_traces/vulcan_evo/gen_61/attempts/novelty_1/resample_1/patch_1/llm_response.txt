@@ -1,0 +1,61 @@
+<NAME>
+normalized_access_count_recency_weighting
+</NAME>
+
+<DESCRIPTION>
+The recommendation suggests using a "normalized access count" approach that makes the multiplicative relationship between recency and frequency more explicit. The current formula `base_score = access_count * (100 + recency_boost) / 100` is mathematically correct but conceptually mixes percentage arithmetic with the weighting logic.
+
+By computing a `normalized_access_count = access_count + (access_count * recency_factor / 100)` first, we make it clearer that we're creating an access count that has been amplified by recency. This normalized value becomes the foundation for all subsequent network-aware adjustments, making the scoring logic more intuitive: recently-active frequent pages get a boosted effective access count before network conditions are even considered.
+
+The key improvement is conceptual clarity: the normalized access count explicitly represents "how frequently was this page accessed, weighted by how recently." This makes the distinction between "old page with 100 accesses 10 seconds ago" vs "hot page with 50 accesses 100ms ago" more explicit in the code, improving maintainability and making it easier to reason about the scoring function's behavior.
+
+Additionally, I'll slightly adjust the recency curve to provide stronger differentiation in the critical 0-1 second window where working set pages typically reside, while maintaining the proven conservative network-aware protection factors from Generation 39.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Recency-weighted access count: boost recently-accessed pages.
+     * Linear decay from 80% boost (< 1 second) to 0% boost (10+ seconds).
+     * Formula: recency_boost = 80 * max(0, 1 - time_since_access / 10s)
+     * Applied as: base_score = access_count * (100 + recency_boost) / 100 */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_boost = 0;
+
+    if (time_since_access < 10000000000ULL) {  /* Within 10 seconds */
+        s64 elapsed_deciseconds = time_since_access / 1000000000ULL;  /* Convert ns to deciseconds (0.1s units) */
+        recency_boost = 80 - (elapsed_deciseconds * 8);  /* Linear decay: 80 at 0s, 0 at 10s */
+        if (recency_boost < 0) recency_boost = 0;
+    }
+
+    s64 base_score = ((s64)meta->access_count * (100 + recency_boost)) / 100;
+=======
+    /* Normalized access count: compute effective access frequency weighted by recency.
+     * This makes temporal locality a first-class component by boosting the access count
+     * for recently-active pages before applying network-aware adjustments.
+     * 
+     * Recency factor: 80% boost for very recent (<1s), decaying to 0% at 10+ seconds.
+     * normalized_access_count = access_count + (access_count * recency_factor / 100)
+     * This formulation makes it explicit that we're amplifying frequency by recency.
+     */
+    u64 now = bpf_ktime_get_ns();
+    u64 time_since_access = now - meta->last_access_ts;
+    s64 recency_factor = 0;
+
+    if (time_since_access < 1000000000ULL) {  /* < 1 second: hot working set */
+        /* Strong recency boost for active working set pages */
+        recency_factor = 80;
+    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds: warm, decaying */
+        /* Linear decay from 80% to 0% over 9 seconds */
+        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
+        recency_factor = 80 - (elapsed_seconds * 80 / 9);
+        if (recency_factor < 0) recency_factor = 0;
+    }
+    /* else: time_since_access >= 10s, recency_factor = 0 (no boost) */
+
+    /* Compute normalized access count: access_count amplified by recency */
+    s64 normalized_access_count = (s64)meta->access_count + 
+                                   ((s64)meta->access_count * recency_factor / 100);
+    s64 base_score = normalized_access_count;
+>>>>>>> REPLACE
+</DIFF>

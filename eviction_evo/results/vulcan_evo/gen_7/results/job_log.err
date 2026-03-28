@@ -1,162 +1,264 @@
-2026-03-21 21:57:16,972 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate_0.lock ...
-2026-03-21 22:27:44,714 INFO Acquired evaluation lock.
-2026-03-21 22:27:44,752 INFO === Step 0: Drop page cache ===
-2026-03-21 22:27:44,752 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping copy
-2026-03-21 22:27:44,752 INFO CMD: sudo sync
-2026-03-21 22:27:44,903 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
-2026-03-21 22:27:45,174 INFO Page cache dropped.
-2026-03-21 22:27:45,175 INFO === Step 1: Compile evolved policy ===
-2026-03-21 22:27:45,178 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
-2026-03-21 22:27:45,486 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
-2026-03-21 22:27:48,904 ERROR Evaluation failed: RuntimeError: BPF compilation failed:
-STDOUT: 
-STDERR: Error at line 375: Unsupport signed division for DAG: 0xf905c0: i64 = sdiv 0xf90898, Constant:i64<4>, build/cache_ext_evolved.bpf.c:375:37Please convert to unsigned div/mod.
-fatal error: error in backend: Cannot select: 0xf905c0: i64 = sdiv 0xf90898, Constant:i64<4>, build/cache_ext_evolved.bpf.c:375:37
-  0xf90898: i64 = sub nsw 0xf8dca8, 0x1043968, build/cache_ext_evolved.bpf.c:371:34
-    0xf8dca8: i64,ch = CopyFromReg 0x742528, Register:i64 %13, build/cache_ext_evolved.bpf.c:371:34
-      0xf8ff40: i64 = Register %13
-    0x1043968: i64,ch = CopyFromReg 0x742528, Register:i64 %12, build/cache_ext_evolved.bpf.c:371:34
-      0x1124808: i64 = Register %12
-  0xf907c8: i64 = Constant<4>
-In function: bpf_score_fn
-PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
-Stack dump:
-0.	Program arguments: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
-1.	<eof> parser at end of file
-2.	Code generation
-3.	Running pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.
-4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'
- #0 0x00007f57e0a3fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
- #1 0x00007f57e0a3da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
- #2 0x00007f57e0a3f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
- #3 0x00007f57e096bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
- #4 0x00007f57e096bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
- #5 0x00007f57e0a3a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
- #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)
- #7 0x00007f57e097a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
- #8 0x00007f57e1260e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
- #9 0x00007f57e12602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
-#10 0x00007f57e2b650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
-#11 0x00007f57e1258ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
-#12 0x00007f57e1258594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
-#13 0x00007f57e12579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
-#14 0x00007f57e1255557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
-#15 0x00007f57e0dc628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
-#16 0x00007f57e0b7a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
-#17 0x00007f57e0b81983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
-#18 0x00007f57e0b7af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
-#19 0x00007f57e7e57201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
-#20 0x00007f57e817c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
-#21 0x00007f57e7004824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
-#22 0x00007f57e8178b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
-#23 0x00007f57e8b14b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
-#24 0x00007f57e8a6c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
-#25 0x00007f57e8b8e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
-#26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)
-#27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)
-#28 0x00007f57e86eaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
-#29 0x00007f57e096bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
-#30 0x00007f57e86ea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
-#31 0x00007f57e86b5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
-#32 0x00007f57e86b540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
-#33 0x00007f57e86cf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
-#34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)
-#35 0x00007f57df429d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
-#36 0x00007f57df429e40 call_init ./csu/../csu/libc-start.c:128:20
-#37 0x00007f57df429e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
-#38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)
-clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
-Ubuntu clang version 14.0.0-1ubuntu1.1
-Target: bpf
-Thread model: posix
-InstalledDir: /usr/bin
-clang: note: diagnostic msg: 
-********************
-
-PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
-Preprocessed source(s) and associated run script(s) are located at:
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-4868e2.c
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-4868e2.sh
-clang: note: diagnostic msg: 
-
-********************
-
-Traceback (most recent call last):
-  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 882, in evaluate
-    loader_path = compile_bpf_policy(program_path, BUILD_DIR)
-  File "/mydata/cache_ext/eviction_evo/evaluate.py", line 238, in compile_bpf_policy
-    raise RuntimeError(f"BPF compilation failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
-RuntimeError: BPF compilation failed:
-STDOUT: 
-STDERR: Error at line 375: Unsupport signed division for DAG: 0xf905c0: i64 = sdiv 0xf90898, Constant:i64<4>, build/cache_ext_evolved.bpf.c:375:37Please convert to unsigned div/mod.
-fatal error: error in backend: Cannot select: 0xf905c0: i64 = sdiv 0xf90898, Constant:i64<4>, build/cache_ext_evolved.bpf.c:375:37
-  0xf90898: i64 = sub nsw 0xf8dca8, 0x1043968, build/cache_ext_evolved.bpf.c:371:34
-    0xf8dca8: i64,ch = CopyFromReg 0x742528, Register:i64 %13, build/cache_ext_evolved.bpf.c:371:34
-      0xf8ff40: i64 = Register %13
-    0x1043968: i64,ch = CopyFromReg 0x742528, Register:i64 %12, build/cache_ext_evolved.bpf.c:371:34
-      0x1124808: i64 = Register %12
-  0xf907c8: i64 = Constant<4>
-In function: bpf_score_fn
-PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
-Stack dump:
-0.	Program arguments: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
-1.	<eof> parser at end of file
-2.	Code generation
-3.	Running pass 'Function Pass Manager' on module '/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c'.
-4.	Running pass 'BPF DAG->DAG Pattern Instruction Selection' on function '@bpf_score_fn'
- #0 0x00007f57e0a3fd01 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3fd01)
- #1 0x00007f57e0a3da3e llvm::sys::RunSignalHandlers() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3da3e)
- #2 0x00007f57e0a3f0ab llvm::sys::CleanupOnSignal(unsigned long) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3f0ab)
- #3 0x00007f57e096bbea (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bbea)
- #4 0x00007f57e096bb8b (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb8b)
- #5 0x00007f57e0a3a007 llvm::sys::Process::Exit(int, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xe3a007)
- #6 0x00000000004136d2 (/usr/lib/llvm-14/bin/clang+0x4136d2)
- #7 0x00007f57e097a673 llvm::report_fatal_error(llvm::Twine const&, bool) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd7a673)
- #8 0x00007f57e1260e31 (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1660e31)
- #9 0x00007f57e12602d8 llvm::SelectionDAGISel::SelectCodeCommon(llvm::SDNode*, unsigned char const*, unsigned int) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16602d8)
-#10 0x00007f57e2b650bd (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x2f650bd)
-#11 0x00007f57e1258ecf llvm::SelectionDAGISel::DoInstructionSelection() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658ecf)
-#12 0x00007f57e1258594 llvm::SelectionDAGISel::CodeGenAndEmitDAG() (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1658594)
-#13 0x00007f57e12579c8 llvm::SelectionDAGISel::SelectAllBasicBlocks(llvm::Function const&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x16579c8)
-#14 0x00007f57e1255557 llvm::SelectionDAGISel::runOnMachineFunction(llvm::MachineFunction&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x1655557)
-#15 0x00007f57e0dc628e llvm::MachineFunctionPass::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0x11c628e)
-#16 0x00007f57e0b7a390 llvm::FPPassManager::runOnFunction(llvm::Function&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7a390)
-#17 0x00007f57e0b81983 llvm::FPPassManager::runOnModule(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf81983)
-#18 0x00007f57e0b7af36 llvm::legacy::PassManagerImpl::run(llvm::Module&) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xf7af36)
-#19 0x00007f57e7e57201 clang::EmitBackendOutput(clang::DiagnosticsEngine&, clang::HeaderSearchOptions const&, clang::CodeGenOptions const&, clang::TargetOptions const&, clang::LangOptions const&, llvm::StringRef, llvm::Module*, clang::BackendAction, std::unique_ptr<llvm::raw_pwrite_stream, std::default_delete<llvm::raw_pwrite_stream> >) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1857201)
-#20 0x00007f57e817c855 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b7c855)
-#21 0x00007f57e7004824 clang::ParseAST(clang::Sema&, bool, bool) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0xa04824)
-#22 0x00007f57e8178b71 clang::CodeGenAction::ExecuteAction() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x1b78b71)
-#23 0x00007f57e8b14b57 clang::FrontendAction::Execute() (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x2514b57)
-#24 0x00007f57e8a6c3a6 clang::CompilerInstance::ExecuteAction(clang::FrontendAction&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x246c3a6)
-#25 0x00007f57e8b8e45b clang::ExecuteCompilerInvocation(clang::CompilerInstance*) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x258e45b)
-#26 0x000000000041328b cc1_main(llvm::ArrayRef<char const*>, char const*, void*) (/usr/lib/llvm-14/bin/clang+0x41328b)
-#27 0x00000000004114bc (/usr/lib/llvm-14/bin/clang+0x4114bc)
-#28 0x00007f57e86eaed2 (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20eaed2)
-#29 0x00007f57e096bb6d llvm::CrashRecoveryContext::RunSafely(llvm::function_ref<void ()>) (/lib/x86_64-linux-gnu/libLLVM-14.so.1+0xd6bb6d)
-#30 0x00007f57e86ea9c0 clang::driver::CC1Command::Execute(llvm::ArrayRef<llvm::Optional<llvm::StringRef> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, bool*) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20ea9c0)
-#31 0x00007f57e86b5183 clang::driver::Compilation::ExecuteCommand(clang::driver::Command const&, clang::driver::Command const*&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b5183)
-#32 0x00007f57e86b540a clang::driver::Compilation::ExecuteJobs(clang::driver::JobList const&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) const (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20b540a)
-#33 0x00007f57e86cf507 clang::driver::Driver::ExecuteCompilation(clang::driver::Compilation&, llvm::SmallVectorImpl<std::pair<int, clang::driver::Command const*> >&) (/lib/x86_64-linux-gnu/libclang-cpp.so.14+0x20cf507)
-#34 0x0000000000410f26 main (/usr/lib/llvm-14/bin/clang+0x410f26)
-#35 0x00007f57df429d90 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
-#36 0x00007f57df429e40 call_init ./csu/../csu/libc-start.c:128:20
-#37 0x00007f57df429e40 __libc_start_main ./csu/../csu/libc-start.c:379:5
-#38 0x000000000040e3b5 _start (/usr/lib/llvm-14/bin/clang+0x40e3b5)
-clang: error: clang frontend command failed with exit code 70 (use -v to see invocation)
-Ubuntu clang version 14.0.0-1ubuntu1.1
-Target: bpf
-Thread model: posix
-InstalledDir: /usr/bin
-clang: note: diagnostic msg: 
-********************
-
-PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
-Preprocessed source(s) and associated run script(s) are located at:
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-4868e2.c
-clang: note: diagnostic msg: /tmp/cache_ext_evolved-4868e2.sh
-clang: note: diagnostic msg: 
-
-********************
-
-
+2026-03-25 23:26:26,915 INFO Waiting for evaluation lock /tmp/cache_ext_evaluate_0.lock ...
+2026-03-26 00:02:10,540 INFO Acquired evaluation lock.
+2026-03-26 00:02:10,581 INFO === Step 0: Drop page cache ===
+2026-03-26 00:02:10,584 INFO Database already exists at /mydata/leveldb_temp (CURRENT file found), skipping copy
+2026-03-26 00:02:10,584 INFO CMD: sudo sync
+2026-03-26 00:02:10,764 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:02:10,979 INFO Page cache dropped.
+2026-03-26 00:02:10,979 INFO === Step 1: Compile evolved policy ===
+2026-03-26 00:02:10,991 INFO CMD: sudo chown -R root: /mydata/cache_ext/eviction_evo/build
+2026-03-26 00:02:11,284 INFO CMD: clang-14 -O2 -target bpf -D__TARGET_ARCH_x86 -c -g -Wall -idirafter /usr/lib/llvm-14/lib/clang/14.0.0/include -idirafter /usr/local/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o
+2026-03-26 00:02:14,083 INFO CMD: /usr/local/sbin/bpftool gen skeleton /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.o name cache_ext_evolved_bpf
+2026-03-26 00:02:14,264 INFO CMD: clang-14 -O2 -g -Wall -I/mydata/cache_ext/eviction_evo/build -I/mydata/cache_ext/policies /mydata/cache_ext/eviction_evo/cache_ext_evolved.c -o /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out -L/usr/local/lib64 -lbpf
+2026-03-26 00:02:15,159 INFO Compilation successful: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out
+2026-03-26 00:02:15,160 INFO === Step 2: Disable MGLRU ===
+2026-03-26 00:02:15,161 INFO MGLRU watchdog started (PID 462792, will restore in 7800 s)
+2026-03-26 00:02:15,161 INFO MGLRU current state: 0x0007 - disabling
+2026-03-26 00:02:15,161 INFO CMD: sudo sh -c echo 0 > /sys/kernel/mm/lru_gen/enabled
+2026-03-26 00:02:15,201 INFO MGLRU disabled.
+2026-03-26 00:02:15,201 INFO === Step 3: Create cgroup ===
+2026-03-26 00:02:15,278 INFO CMD: sudo cgcreate -g memory:cache_ext_test
+2026-03-26 00:02:15,388 INFO CMD: sudo sh -c echo 536870912 > /sys/fs/cgroup/cache_ext_test/memory.max
+2026-03-26 00:02:15,402 INFO Created cgroup cache_ext_test with limit 536870912 bytes
+2026-03-26 00:02:15,402 INFO === Step 4: Load BPF policy ===
+2026-03-26 00:02:15,403 INFO Loading policy: sudo /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.out --watch_dir /mydata/leveldb_temp --cgroup_path /sys/fs/cgroup/cache_ext_test
+2026-03-26 00:02:25,414 INFO Policy loaded (PID 462813)
+2026-03-26 00:02:25,414 INFO === Step 5: Start server ===
+2026-03-26 00:02:25,414 INFO Starting server: sudo cgexec -g memory:cache_ext_test /mydata/cache_ext/net_leveldb_server 9100 /mydata/leveldb_temp
+2026-03-26 00:02:25,415 INFO Waiting for server on port 9100 ...
+2026-03-26 00:02:26,461 INFO Server ready (PID 462816) on port 9100
+2026-03-26 00:02:26,461 INFO === Step 6: Run 7 traces x 3 runs = 21 total benchmarks ===
+2026-03-26 00:02:26,494 INFO --- Trace 1/7 (ycsb_c_a) run 1/3  [1/21 overall] ---
+2026-03-26 00:02:26,495 INFO CMD: sudo sync
+2026-03-26 00:02:26,612 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:02:26,876 INFO Page cache dropped.
+2026-03-26 00:02:29,689 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_euafaf45.yaml'
+2026-03-26 00:02:29,956 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_8dquf2nk.yaml'
+2026-03-26 00:04:08,085 INFO Client client_ycsb_c: throughput=1102.85
+2026-03-26 00:04:08,350 INFO Client client_ycsb_a: throughput=2225.03
+2026-03-26 00:04:08,351 INFO Dual-client combined throughput: 3327.88 ops/sec
+2026-03-26 00:04:08,817 INFO Trace ycsb_c_a run 1: throughput=3327.88 ops/sec
+2026-03-26 00:04:08,817 INFO --- Trace 1/7 (ycsb_c_a) run 2/3  [2/21 overall] ---
+2026-03-26 00:04:08,817 INFO CMD: sudo sync
+2026-03-26 00:04:09,067 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:04:09,348 INFO Page cache dropped.
+2026-03-26 00:04:12,124 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_w1vdilhd.yaml'
+2026-03-26 00:04:12,376 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_ndq3uvf3.yaml'
+2026-03-26 00:05:50,502 INFO Client client_ycsb_c: throughput=1208.98
+2026-03-26 00:05:50,667 INFO Client client_ycsb_a: throughput=2379.26
+2026-03-26 00:05:50,667 INFO Dual-client combined throughput: 3588.24 ops/sec
+2026-03-26 00:05:51,121 INFO Trace ycsb_c_a run 2: throughput=3588.24 ops/sec
+2026-03-26 00:05:51,121 INFO --- Trace 1/7 (ycsb_c_a) run 3/3  [3/21 overall] ---
+2026-03-26 00:05:51,121 INFO CMD: sudo sync
+2026-03-26 00:05:51,302 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:05:51,597 INFO Page cache dropped.
+2026-03-26 00:05:54,373 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_submboio.yaml'
+2026-03-26 00:05:54,637 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_9j32qwuv.yaml'
+2026-03-26 00:07:32,810 INFO Client client_ycsb_c: throughput=1152.47
+2026-03-26 00:07:32,874 INFO Client client_ycsb_a: throughput=2302.93
+2026-03-26 00:07:32,875 INFO Dual-client combined throughput: 3455.40 ops/sec
+2026-03-26 00:07:33,357 INFO Trace ycsb_c_a run 3: throughput=3455.40 ops/sec
+2026-03-26 00:07:33,358 INFO Trace ycsb_c_a summary: mean=3457.17 std=130.19 min=3327.88 max=3588.24 (CV=3.8%)
+2026-03-26 00:07:33,393 INFO --- Trace 2/7 (ycsb_c_e) run 1/3  [4/21 overall] ---
+2026-03-26 00:07:33,394 INFO CMD: sudo sync
+2026-03-26 00:07:33,566 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:07:33,874 INFO Page cache dropped.
+2026-03-26 00:07:36,637 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_36fs4his.yaml'
+2026-03-26 00:07:36,884 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_gng_32b4.yaml'
+2026-03-26 00:09:14,856 INFO Client client_ycsb_c: throughput=1623.96
+2026-03-26 00:09:16,376 INFO Client client_ycsb_e: throughput=75111.14
+2026-03-26 00:09:16,376 INFO Dual-client combined throughput: 76735.10 ops/sec
+2026-03-26 00:09:16,829 INFO Trace ycsb_c_e run 1: throughput=76735.10 ops/sec
+2026-03-26 00:09:16,829 INFO --- Trace 2/7 (ycsb_c_e) run 2/3  [5/21 overall] ---
+2026-03-26 00:09:16,830 INFO CMD: sudo sync
+2026-03-26 00:09:17,028 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:09:17,283 INFO Page cache dropped.
+2026-03-26 00:09:20,053 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_m53hvnru.yaml'
+2026-03-26 00:09:20,307 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_5iqt41bs.yaml'
+2026-03-26 00:10:58,477 INFO Client client_ycsb_c: throughput=1712.36
+2026-03-26 00:10:59,746 INFO Client client_ycsb_e: throughput=76722.30
+2026-03-26 00:10:59,746 INFO Dual-client combined throughput: 78434.66 ops/sec
+2026-03-26 00:11:00,202 INFO Trace ycsb_c_e run 2: throughput=78434.66 ops/sec
+2026-03-26 00:11:00,202 INFO --- Trace 2/7 (ycsb_c_e) run 3/3  [6/21 overall] ---
+2026-03-26 00:11:00,202 INFO CMD: sudo sync
+2026-03-26 00:11:00,397 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:11:00,675 INFO Page cache dropped.
+2026-03-26 00:11:03,421 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_0n04b1fh.yaml'
+2026-03-26 00:11:03,680 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_324u2det.yaml'
+2026-03-26 00:12:58,478 INFO Client client_ycsb_c: throughput=1838.93
+2026-03-26 00:12:58,480 INFO Client client_ycsb_e: throughput=80753.80
+2026-03-26 00:12:58,480 INFO Dual-client combined throughput: 82592.73 ops/sec
+2026-03-26 00:12:58,961 INFO Trace ycsb_c_e run 3: throughput=82592.73 ops/sec
+2026-03-26 00:12:58,962 INFO Trace ycsb_c_e summary: mean=79254.16 std=3013.58 min=76735.10 max=82592.73 (CV=3.8%)
+2026-03-26 00:12:59,002 INFO --- Trace 3/7 (ycsb_c_f) run 1/3  [7/21 overall] ---
+2026-03-26 00:12:59,002 INFO CMD: sudo sync
+2026-03-26 00:12:59,222 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:12:59,501 INFO Page cache dropped.
+2026-03-26 00:13:02,273 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_s07rqowc.yaml'
+2026-03-26 00:13:02,520 INFO Starting remote client client_ycsb_f on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_f_80nxm0r2.yaml'
+2026-03-26 00:14:40,550 INFO Client client_ycsb_c: throughput=1172.51
+2026-03-26 00:14:40,866 INFO Client client_ycsb_f: throughput=149.47
+2026-03-26 00:14:40,866 INFO Dual-client combined throughput: 1321.98 ops/sec
+2026-03-26 00:14:41,341 INFO Trace ycsb_c_f run 1: throughput=1321.98 ops/sec
+2026-03-26 00:14:41,341 INFO --- Trace 3/7 (ycsb_c_f) run 2/3  [8/21 overall] ---
+2026-03-26 00:14:41,341 INFO CMD: sudo sync
+2026-03-26 00:14:41,553 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:14:41,819 INFO Page cache dropped.
+2026-03-26 00:14:44,581 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_86xv6xdd.yaml'
+2026-03-26 00:14:44,832 INFO Starting remote client client_ycsb_f on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_f_sgws0s9h.yaml'
+2026-03-26 00:16:22,866 INFO Client client_ycsb_c: throughput=1214.61
+2026-03-26 00:16:23,282 INFO Client client_ycsb_f: throughput=157.53
+2026-03-26 00:16:23,282 INFO Dual-client combined throughput: 1372.14 ops/sec
+2026-03-26 00:16:23,745 INFO Trace ycsb_c_f run 2: throughput=1372.14 ops/sec
+2026-03-26 00:16:23,745 INFO --- Trace 3/7 (ycsb_c_f) run 3/3  [9/21 overall] ---
+2026-03-26 00:16:23,745 INFO CMD: sudo sync
+2026-03-26 00:16:23,919 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:16:24,251 INFO Page cache dropped.
+2026-03-26 00:16:27,017 INFO Starting remote client client_ycsb_c on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_c_t75i955o.yaml'
+2026-03-26 00:16:27,268 INFO Starting remote client client_ycsb_f on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_f_1yz66smw.yaml'
+2026-03-26 00:18:05,151 INFO Client client_ycsb_c: throughput=1179.82
+2026-03-26 00:18:05,567 INFO Client client_ycsb_f: throughput=151.61
+2026-03-26 00:18:05,567 INFO Dual-client combined throughput: 1331.43 ops/sec
+2026-03-26 00:18:06,033 INFO Trace ycsb_c_f run 3: throughput=1331.43 ops/sec
+2026-03-26 00:18:06,033 INFO Trace ycsb_c_f summary: mean=1341.85 std=26.65 min=1321.98 max=1372.14 (CV=2.0%)
+2026-03-26 00:18:06,070 INFO --- Trace 4/7 (ycsb_b_a) run 1/3  [10/21 overall] ---
+2026-03-26 00:18:06,071 INFO CMD: sudo sync
+2026-03-26 00:18:06,302 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:18:06,580 INFO Page cache dropped.
+2026-03-26 00:18:09,329 INFO Starting remote client client_ycsb_b on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_b_ioal5ndt.yaml'
+2026-03-26 00:18:09,601 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_7fhzenv5.yaml'
+2026-03-26 00:19:47,573 INFO Client client_ycsb_b: throughput=1353.20
+2026-03-26 00:19:47,889 INFO Client client_ycsb_a: throughput=2476.61
+2026-03-26 00:19:47,889 INFO Dual-client combined throughput: 3829.81 ops/sec
+2026-03-26 00:19:48,349 INFO Trace ycsb_b_a run 1: throughput=3829.81 ops/sec
+2026-03-26 00:19:48,349 INFO --- Trace 4/7 (ycsb_b_a) run 2/3  [11/21 overall] ---
+2026-03-26 00:19:48,349 INFO CMD: sudo sync
+2026-03-26 00:19:48,542 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:19:48,857 INFO Page cache dropped.
+2026-03-26 00:19:51,608 INFO Starting remote client client_ycsb_b on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_b_f88c3kcm.yaml'
+2026-03-26 00:19:51,871 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_4toiinau.yaml'
+2026-03-26 00:21:29,947 INFO Client client_ycsb_b: throughput=1264.12
+2026-03-26 00:21:30,263 INFO Client client_ycsb_a: throughput=2331.45
+2026-03-26 00:21:30,263 INFO Dual-client combined throughput: 3595.57 ops/sec
+2026-03-26 00:21:30,729 INFO Trace ycsb_b_a run 2: throughput=3595.57 ops/sec
+2026-03-26 00:21:30,729 INFO --- Trace 4/7 (ycsb_b_a) run 3/3  [12/21 overall] ---
+2026-03-26 00:21:30,729 INFO CMD: sudo sync
+2026-03-26 00:21:30,919 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:21:31,232 INFO Page cache dropped.
+2026-03-26 00:21:34,012 INFO Starting remote client client_ycsb_b on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_b_dt6dgfl6.yaml'
+2026-03-26 00:21:34,284 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_xv1pqihx.yaml'
+2026-03-26 00:23:12,308 INFO Client client_ycsb_b: throughput=1234.86
+2026-03-26 00:23:12,624 INFO Client client_ycsb_a: throughput=2300.67
+2026-03-26 00:23:12,624 INFO Dual-client combined throughput: 3535.53 ops/sec
+2026-03-26 00:23:13,073 INFO Trace ycsb_b_a run 3: throughput=3535.53 ops/sec
+2026-03-26 00:23:13,073 INFO Trace ycsb_b_a summary: mean=3653.64 std=155.50 min=3535.53 max=3829.81 (CV=4.3%)
+2026-03-26 00:23:13,107 INFO --- Trace 5/7 (ycsb_a_d) run 1/3  [13/21 overall] ---
+2026-03-26 00:23:13,107 INFO CMD: sudo sync
+2026-03-26 00:23:13,368 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:23:13,641 INFO Page cache dropped.
+2026-03-26 00:23:16,389 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_61b4im4o.yaml'
+2026-03-26 00:23:16,652 INFO Starting remote client client_ycsb_d on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_d_pdewy_8i.yaml'
+2026-03-26 00:24:54,675 INFO Client client_ycsb_a: throughput=2310.09
+2026-03-26 00:24:54,941 INFO Client client_ycsb_d: throughput=1970.00
+2026-03-26 00:24:54,941 INFO Dual-client combined throughput: 4280.09 ops/sec
+2026-03-26 00:24:55,409 INFO Trace ycsb_a_d run 1: throughput=4280.09 ops/sec
+2026-03-26 00:24:55,409 INFO --- Trace 5/7 (ycsb_a_d) run 2/3  [14/21 overall] ---
+2026-03-26 00:24:55,410 INFO CMD: sudo sync
+2026-03-26 00:24:55,605 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:24:55,884 INFO Page cache dropped.
+2026-03-26 00:24:58,636 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_zup21v3_.yaml'
+2026-03-26 00:24:58,896 INFO Starting remote client client_ycsb_d on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_d_d2qvkpo6.yaml'
+2026-03-26 00:26:36,916 INFO Client client_ycsb_a: throughput=2298.10
+2026-03-26 00:26:37,282 INFO Client client_ycsb_d: throughput=2270.02
+2026-03-26 00:26:37,282 INFO Dual-client combined throughput: 4568.12 ops/sec
+2026-03-26 00:26:37,745 INFO Trace ycsb_a_d run 2: throughput=4568.12 ops/sec
+2026-03-26 00:26:37,745 INFO --- Trace 5/7 (ycsb_a_d) run 3/3  [15/21 overall] ---
+2026-03-26 00:26:37,745 INFO CMD: sudo sync
+2026-03-26 00:26:37,973 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:26:38,253 INFO Page cache dropped.
+2026-03-26 00:26:40,997 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_dq_xkz2w.yaml'
+2026-03-26 00:26:41,272 INFO Starting remote client client_ycsb_d on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_d_p664rupx.yaml'
+2026-03-26 00:28:19,390 INFO Client client_ycsb_a: throughput=2392.51
+2026-03-26 00:28:19,555 INFO Client client_ycsb_d: throughput=2318.03
+2026-03-26 00:28:19,556 INFO Dual-client combined throughput: 4710.54 ops/sec
+2026-03-26 00:28:20,049 INFO Trace ycsb_a_d run 3: throughput=4710.54 ops/sec
+2026-03-26 00:28:20,049 INFO Trace ycsb_a_d summary: mean=4519.58 std=219.29 min=4280.09 max=4710.54 (CV=4.9%)
+2026-03-26 00:28:20,094 INFO --- Trace 6/7 (ycsb_e_a) run 1/3  [16/21 overall] ---
+2026-03-26 00:28:20,094 INFO CMD: sudo sync
+2026-03-26 00:28:20,374 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:28:20,674 INFO Page cache dropped.
+2026-03-26 00:28:23,433 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_6io2ja2t.yaml'
+2026-03-26 00:28:23,684 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_d7xp5m_r.yaml'
+2026-03-26 00:30:02,668 INFO Client client_ycsb_e: throughput=71710.51
+2026-03-26 00:30:02,669 INFO Client client_ycsb_a: throughput=3338.31
+2026-03-26 00:30:02,670 INFO Dual-client combined throughput: 75048.82 ops/sec
+2026-03-26 00:30:03,153 INFO Trace ycsb_e_a run 1: throughput=75048.82 ops/sec
+2026-03-26 00:30:03,153 INFO --- Trace 6/7 (ycsb_e_a) run 2/3  [17/21 overall] ---
+2026-03-26 00:30:03,153 INFO CMD: sudo sync
+2026-03-26 00:30:03,354 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:30:03,631 INFO Page cache dropped.
+2026-03-26 00:30:06,392 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_u0pm9by1.yaml'
+2026-03-26 00:30:06,652 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_ghg0vta9.yaml'
+2026-03-26 00:31:45,730 INFO Client client_ycsb_e: throughput=73455.68
+2026-03-26 00:31:45,731 INFO Client client_ycsb_a: throughput=3500.42
+2026-03-26 00:31:45,731 INFO Dual-client combined throughput: 76956.10 ops/sec
+2026-03-26 00:31:46,201 INFO Trace ycsb_e_a run 2: throughput=76956.10 ops/sec
+2026-03-26 00:31:46,201 INFO --- Trace 6/7 (ycsb_e_a) run 3/3  [18/21 overall] ---
+2026-03-26 00:31:46,201 INFO CMD: sudo sync
+2026-03-26 00:31:46,464 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:31:46,715 INFO Page cache dropped.
+2026-03-26 00:31:49,469 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_89we8qo8.yaml'
+2026-03-26 00:31:49,732 INFO Starting remote client client_ycsb_a on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_a_rfw2pbcm.yaml'
+2026-03-26 00:33:28,615 INFO Client client_ycsb_e: throughput=73531.97
+2026-03-26 00:33:28,616 INFO Client client_ycsb_a: throughput=3494.47
+2026-03-26 00:33:28,616 INFO Dual-client combined throughput: 77026.44 ops/sec
+2026-03-26 00:33:29,101 INFO Trace ycsb_e_a run 3: throughput=77026.44 ops/sec
+2026-03-26 00:33:29,102 INFO Trace ycsb_e_a summary: mean=76343.79 std=1122.03 min=75048.82 max=77026.44 (CV=1.5%)
+2026-03-26 00:33:29,139 INFO --- Trace 7/7 (ycsb_e_f) run 1/3  [19/21 overall] ---
+2026-03-26 00:33:29,140 INFO CMD: sudo sync
+2026-03-26 00:33:29,409 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:33:29,673 INFO Page cache dropped.
+2026-03-26 00:33:32,416 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_dfd4cko3.yaml'
+2026-03-26 00:33:32,668 INFO Starting remote client client_ycsb_f on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_f_08p4qag6.yaml'
+2026-03-26 00:35:11,855 INFO Client client_ycsb_e: throughput=72889.78
+2026-03-26 00:35:11,856 INFO Client client_ycsb_f: throughput=208.82
+2026-03-26 00:35:11,856 INFO Dual-client combined throughput: 73098.60 ops/sec
+2026-03-26 00:35:12,325 INFO Trace ycsb_e_f run 1: throughput=73098.60 ops/sec
+2026-03-26 00:35:12,325 INFO --- Trace 7/7 (ycsb_e_f) run 2/3  [20/21 overall] ---
+2026-03-26 00:35:12,325 INFO CMD: sudo sync
+2026-03-26 00:35:12,511 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:35:12,813 INFO Page cache dropped.
+2026-03-26 00:35:15,572 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_z8dzc2r1.yaml'
+2026-03-26 00:35:15,832 INFO Starting remote client client_ycsb_f on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_f_xffftifs.yaml'
+2026-03-26 00:36:54,809 INFO Client client_ycsb_e: throughput=75787.88
+2026-03-26 00:36:54,810 INFO Client client_ycsb_f: throughput=212.55
+2026-03-26 00:36:54,810 INFO Dual-client combined throughput: 76000.43 ops/sec
+2026-03-26 00:36:55,269 INFO Trace ycsb_e_f run 2: throughput=76000.43 ops/sec
+2026-03-26 00:36:55,269 INFO --- Trace 7/7 (ycsb_e_f) run 3/3  [21/21 overall] ---
+2026-03-26 00:36:55,269 INFO CMD: sudo sync
+2026-03-26 00:36:55,502 INFO CMD: sudo sh -c echo 3 > /proc/sys/vm/drop_caches
+2026-03-26 00:36:55,805 INFO Page cache dropped.
+2026-03-26 00:36:58,405 INFO Starting remote client client_ycsb_e on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_e_bh9hpk2_.yaml'
+2026-03-26 00:36:58,648 INFO Starting remote client client_ycsb_f on krisub@node1: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i /users/krisub/.ssh/id_ed25519 krisub@node1 sh -lc 'exec /mydata/cache_ext/My-YCSB/build/run_net_leveldb /tmp/dual_client_ycsb_f_b_6zvcrb.yaml'
+2026-03-26 00:38:37,728 INFO Client client_ycsb_e: throughput=75535.10
+2026-03-26 00:38:37,729 INFO Client client_ycsb_f: throughput=210.98
+2026-03-26 00:38:37,729 INFO Dual-client combined throughput: 75746.08 ops/sec
+2026-03-26 00:38:38,201 INFO Trace ycsb_e_f run 3: throughput=75746.08 ops/sec
+2026-03-26 00:38:38,201 INFO Trace ycsb_e_f summary: mean=74948.37 std=1606.99 min=73098.60 max=76000.43 (CV=2.1%)
+2026-03-26 00:38:38,209 INFO === Evaluation complete (3 runs per trace) ===
+2026-03-26 00:38:38,209 INFO Combined score (harmonic mean of means): 4462.83  (7/7 traces passed)
+2026-03-26 00:38:38,209 INFO   ycsb_c_a: mean=3457.17 std=130.19 [3327.88 .. 3588.24]
+2026-03-26 00:38:38,209 INFO   ycsb_c_e: mean=79254.16 std=3013.58 [76735.10 .. 82592.73]
+2026-03-26 00:38:38,209 INFO   ycsb_c_f: mean=1341.85 std=26.65 [1321.98 .. 1372.14]
+2026-03-26 00:38:38,209 INFO   ycsb_b_a: mean=3653.64 std=155.50 [3535.53 .. 3829.81]
+2026-03-26 00:38:38,209 INFO   ycsb_a_d: mean=4519.58 std=219.29 [4280.09 .. 4710.54]
+2026-03-26 00:38:38,209 INFO   ycsb_e_a: mean=76343.79 std=1122.03 [75048.82 .. 77026.44]
+2026-03-26 00:38:38,209 INFO   ycsb_e_f: mean=74948.37 std=1606.99 [73098.60 .. 76000.43]
+2026-03-26 00:38:38,209 INFO Stopping net_leveldb_server (PID 462816)
+2026-03-26 00:38:38,210 INFO CMD: sudo kill 462816
+2026-03-26 00:38:38,376 INFO Unloading BPF policy (PID 462813)
+2026-03-26 00:38:38,376 INFO CMD: sudo kill -2 462813
+2026-03-26 00:38:38,657 INFO CMD: sudo rm -f /sys/fs/bpf/cache_ext/scan_pids
+2026-03-26 00:38:38,747 INFO CMD: sudo sh -c echo 0x0007 > /sys/kernel/mm/lru_gen/enabled
+2026-03-26 00:38:38,822 INFO MGLRU re-enabled (restored to 0x0007).
+2026-03-26 00:38:38,823 INFO MGLRU watchdog stopped (PID 462792)

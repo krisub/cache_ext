@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 4,
-  "patch_name": "add_packets_out_congestion_detection",
-  "patch_description": "This edit integrates PACKETS_OUT congestion signal with safe unsigned arithmetic to detect window saturation as a secondary network factor. The current program scores 1874.82, significantly below Generation 5's 2090.49. Analysis shows the adaptive threshold complexity (interval_stats_map) adds overhead without benefit, particularly hurting the dual_congested workload (2981.31 vs 3008.18 in Gen 5).\n\nThis change:\n1. Enables SND_CWND EWMA listener (needed for congestion ratio computation)\n2. Removes the adaptive threshold statistics gathering that added complexity\n3. Reverts to proven fixed thresholds from high-performing Generation 5 (hot < 1s, cold > 10s)\n4. Adds PACKETS_OUT-based window saturation detection using safe unsigned arithmetic\n5. Applies scaled secondary boost (+5 if ratio > 70%, +10 if ratio > 90%) when congestion is detected\n\nThe congestion ratio (packets_out_ewma * 100 / max(snd_cwnd_ewma, 1)) provides a complementary signal to RTT for detecting when the congestion window is saturated. This is particularly valuable during congested workloads where RTT alone may not capture full congestion state. The unsigned arithmetic avoids potential signed division verification failures.",
+  "num_applied": 2,
+  "patch_name": "cwnd_recovery_modulated_loss_protection",
+  "patch_description": "The current policy applies fixed aggressive bonuses during packet loss (+4500/+1500/+500) regardless of whether the network is recovering or stuck in sustained congestion. This change adds CWND recovery state detection to distinguish between brief transient loss events (where CWND is actively recovering) and sustained congestion (where CWND remains suppressed).\n\nRationale:\n- When CWND is recovering (cwnd_ewma > min_cwnd * 1.5), the network has moved past the congestion event and doesn't require maximum protection - reduce bonuses by 25%\n- When CWND is stuck near minimum, we're in sustained congestion where aggressive working-set protection is most valuable - keep full bonuses\n- This adaptive approach should improve mixed workload performance (YCSB-A/B/D) by 3-5% by allowing more efficient eviction during recovery periods while maintaining protection during true congestion\n\nImplementation:\n1. Enable MINMAX listener for GF_SND_CWND to track minimum congestion window\n2. Add CWND recovery detection logic in scoring function\n3. Scale loss-triggered bonuses down to 75% (3375/1125/375) when recovery is detected",
   "error_msg": null,
-  "timestamp": "2026-03-23T13:43:21.301088",
-  "llm_cost": 0.249084,
+  "timestamp": "2026-03-26T15:58:14.979281",
+  "llm_cost": 0.212667,
   "llm_model": null
 }

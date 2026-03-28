@@ -1,8 +1,26 @@
 #include <chrono>
 #include <thread>
+#include <vector>
+#include <cmath>
 #include "worker.h"
 
-void worker_thread_fn(Client *client, Workload *workload, OpMeasurement *measurement, long next_op_interval_ns) {
+static long qps_to_interval_ns(double qps, int nr_thread) {
+	if (nr_thread < 1)
+		nr_thread = 1;
+	if (qps <= 1e-9)
+		return 1000000000L;
+	double per_thread = qps / static_cast<double>(nr_thread);
+	if (per_thread < 1e-9)
+		return 1000000000L;
+	double ns = 1e9 / per_thread;
+	if (ns > 1e15) return 1000000000L;
+	return static_cast<long>(ns);
+}
+
+void worker_thread_fn(Client *client, Workload *workload, OpMeasurement *measurement, long next_op_interval_ns,
+                      const std::vector<double> *rate_schedule,
+                      std::chrono::steady_clock::time_point bench_start,
+                      int nr_thread) {
 	Operation op = {};  // Zero-initialize to prevent stale stack values on thread stack reuse
 	op.key_buffer = new char[workload->key_size];
 	op.value_buffer = new char[workload->value_size];
@@ -38,7 +56,19 @@ void worker_thread_fn(Client *client, Workload *workload, OpMeasurement *measure
 		long latency = std::chrono::duration_cast<std::chrono::nanoseconds>(finish_time - start_time).count();
 		measurement->record_op(op.type, (double) latency, client->id);
 		measurement->record_progress(1);
-		next_op_time += std::chrono::nanoseconds(next_op_interval_ns);
+		if (rate_schedule != nullptr && !rate_schedule->empty()) {
+			auto now2 = std::chrono::steady_clock::now();
+			long sec = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(now2 - bench_start).count());
+			if (sec < 0)
+				sec = 0;
+			if (sec >= static_cast<long>(rate_schedule->size()))
+				sec = static_cast<long>(rate_schedule->size()) - 1;
+			double qps = (*rate_schedule)[static_cast<size_t>(sec)];
+			long iv = qps_to_interval_ns(qps, nr_thread);
+			next_op_time += std::chrono::nanoseconds(iv);
+		} else {
+			next_op_time += std::chrono::nanoseconds(next_op_interval_ns);
+		}
 	}
 	measurement->finish_measure();
 	client->reset();
@@ -101,8 +131,26 @@ void monitor_thread_fn(const char *task, OpMeasurement *measurement, long runtim
 	std::cout << std::flush;
 }
 
+void run_uniform_workload_with_op_measurement(const char *task, ClientFactory *factory, long nr_entry, long key_size, long value_size,
+                                              long scan_length, int nr_thread, struct OpProportion op_prop, long nr_op, long runtime_seconds, long next_op_interval_ns,
+                                              const char *latency_file,
+                                              const std::vector<double> *rate_schedule) {
+	UniformWorkload **workload_arr = new UniformWorkload *[nr_thread];
+	for (unsigned int thread_index = 0; thread_index < nr_thread; ++thread_index) {
+		workload_arr[thread_index] = new UniformWorkload(key_size, value_size, scan_length, nr_entry, nr_op, op_prop, thread_index);
+	}
+
+	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file, rate_schedule);
+
+	for (int thread_index = 0; thread_index < nr_thread; ++thread_index) {
+		delete workload_arr[thread_index];
+	}
+	delete[] workload_arr;
+}
+
 void run_workload_with_op_measurement(const char *task, ClientFactory *factory, Workload **workload_arr, int nr_thread, long nr_op, long runtime_seconds, long max_progress,
-                                      long next_op_interval_ns, const char *latency_file) {
+                                      long next_op_interval_ns, const char *latency_file,
+                                      const std::vector<double> *rate_schedule) {
 	/* allocate resources */
 	Client **client_arr = new Client *[nr_thread];
 	std::thread **thread_arr = new std::thread *[nr_thread];
@@ -114,8 +162,9 @@ void run_workload_with_op_measurement(const char *task, ClientFactory *factory, 
 
 	/* start running workload */
 	measurement.set_max_progress(max_progress);
+	std::chrono::steady_clock::time_point bench_start = std::chrono::steady_clock::now();
 	for (int thread_index = 0; thread_index < nr_thread; ++thread_index) {
-		thread_arr[thread_index] = new std::thread(worker_thread_fn, client_arr[thread_index], workload_arr[thread_index], &measurement, next_op_interval_ns);
+		thread_arr[thread_index] = new std::thread(worker_thread_fn, client_arr[thread_index], workload_arr[thread_index], &measurement, next_op_interval_ns, rate_schedule, bench_start, nr_thread);
 	}
 	std::thread stat_thread(monitor_thread_fn, task, &measurement, runtime_seconds);
 	for (int thread_index = 0; thread_index < nr_thread; ++thread_index) {
@@ -144,7 +193,7 @@ void run_init_workload_with_op_measurement(const char *task, ClientFactory *fact
 		workload_arr[thread_index] = new InitWorkload(end_key - start_key, start_key, key_size, value_size, thread_index);
 	}
 
-	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_entry, 0, nr_entry, 0, nullptr);
+	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_entry, 0, nr_entry, 0, nullptr, nullptr);
 
 	for (int thread_index = 0; thread_index < nr_thread; ++thread_index) {
 		delete workload_arr[thread_index];
@@ -157,29 +206,14 @@ void run_init_trace_workload_with_op_measurement(const char *task, ClientFactory
 	int64_t nr_op = workload->nr_op;
 	int nr_thread = 1;
 	fprintf(stderr, "nr_op: %ld\n", nr_op);
-	run_workload_with_op_measurement(task, factory, (Workload **)&workload, nr_thread, nr_op, 0, nr_thread * nr_op, 0, nullptr);
+	run_workload_with_op_measurement(task, factory, (Workload **)&workload, nr_thread, nr_op, 0, nr_thread * nr_op, 0, nullptr, nullptr);
 	delete workload;
-}
-
-void run_uniform_workload_with_op_measurement(const char *task, ClientFactory *factory, long nr_entry, long key_size, long value_size,
-                                              long scan_length, int nr_thread, struct OpProportion op_prop, long nr_op, long runtime_seconds, long next_op_interval_ns,
-                                              const char *latency_file) {
-	UniformWorkload **workload_arr = new UniformWorkload *[nr_thread];
-	for (unsigned int thread_index = 0; thread_index < nr_thread; ++thread_index) {
-		workload_arr[thread_index] = new UniformWorkload(key_size, value_size, scan_length, nr_entry, nr_op, op_prop, thread_index);
-	}
-
-	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file);
-
-	for (int thread_index = 0; thread_index < nr_thread; ++thread_index) {
-		delete workload_arr[thread_index];
-	}
-	delete[] workload_arr;
 }
 
 void run_zipfian_workload_with_op_measurement(const char *task, ClientFactory *factory, long nr_entry, long key_size, long value_size,
                                               long scan_length, int nr_thread, struct OpProportion op_prop, double zipfian_constant, long nr_op,
-											  long runtime_seconds, long next_op_interval_ns, const char *latency_file) {
+											  long runtime_seconds, long next_op_interval_ns, const char *latency_file,
+											  const std::vector<double> *rate_schedule) {
 	//int scan_worker_count = 1;
 	ZipfianWorkload **workload_arr = new ZipfianWorkload *[nr_thread];
 	printf("ZipfianWorkload: start initializing zipfian variables, might take a while\n");
@@ -194,7 +228,7 @@ void run_zipfian_workload_with_op_measurement(const char *task, ClientFactory *f
 		// }
 	}
 
-	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file);
+	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file, rate_schedule);
 
 	// // If record_keys is set, dump all keys into a file.
 	// // Format as a json array of numbers.
@@ -223,7 +257,8 @@ void run_zipfian_workload_with_op_measurement(const char *task, ClientFactory *f
 
 void run_latest_workload_with_op_measurement(const char *task, ClientFactory *factory, long nr_entry, long key_size, long value_size,
                                              int nr_thread, double read_ratio, double zipfian_constant, long nr_op, long runtime_seconds,
-											 long next_op_interval_ns, const char *latency_file) {
+											 long next_op_interval_ns, const char *latency_file,
+											 const std::vector<double> *rate_schedule) {
 	LatestWorkload **workload_arr = new LatestWorkload *[nr_thread];
 	printf("LatestWorkload: start initializing zipfian variables, might take a while\n");
 	LatestWorkload base_workload(key_size, value_size, nr_entry, nr_op, read_ratio, zipfian_constant, 0);
@@ -231,7 +266,7 @@ void run_latest_workload_with_op_measurement(const char *task, ClientFactory *fa
 		workload_arr[thread_index] = base_workload.clone(thread_index);
 	}
 
-	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file);
+	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file, rate_schedule);
 
 	for (int thread_index = 0; thread_index < nr_thread; ++thread_index) {
 		delete workload_arr[thread_index];
@@ -243,7 +278,8 @@ TraceIterator *global_trace_iter = nullptr;
 
 void run_trace_workload_with_op_measurement(const char *task, ClientFactory *factory, long key_size, long value_size,
                                             int nr_thread, std::string trace_file, std::string trace_type, long runtime_seconds,
-											long next_op_interval_ns, const char *latency_file) {
+											long next_op_interval_ns, const char *latency_file,
+											const std::vector<double> *rate_schedule) {
 	TraceWorkload **workload_arr = new TraceWorkload *[nr_thread];
 	// Create a new TraceWorkload object shared by all threads. Use new operator
 	// to allocate memory for the object.
@@ -261,7 +297,7 @@ void run_trace_workload_with_op_measurement(const char *task, ClientFactory *fac
 		workload_arr[thread_index]->trace_iterator = trace_iter;
 	}
 
-	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file);
+	run_workload_with_op_measurement(task, factory, (Workload **)workload_arr, nr_thread, nr_op, runtime_seconds, nr_thread * nr_op, next_op_interval_ns, latency_file, rate_schedule);
 
 	for (int thread_index = 0; thread_index < nr_thread; ++thread_index) {
 		delete workload_arr[thread_index];

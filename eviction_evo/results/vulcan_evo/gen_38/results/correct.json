@@ -1,4 +1,4 @@
 {
-  "correct": false,
-  "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:298:1: error: expected identifier or '('\n>>>>>>> REPLACE\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:397:1: error: expected identifier or '('\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:572:37: error: use of undeclared identifier 'interval_stats_map'\n    } *stats = bpf_map_lookup_elem(&interval_stats_map, &stats_key);\n                                    ^\n3 errors generated.\n"
+  "correct": true,
+  "error": null
 }

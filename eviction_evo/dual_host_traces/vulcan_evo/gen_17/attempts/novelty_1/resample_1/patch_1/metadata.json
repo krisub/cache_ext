@@ -1,0 +1,14 @@
+{
+  "generation": 17,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "loss_decay_with_rolling_window",
+  "patch_description": "The current loss detection uses `vulcan_get_max(GF_LOST)`, which tracks the maximum loss value ever observed. This causes sustained over-protection even after the network recovers and loss clears. \n\nThe recommendation suggests time-decay: stale loss signals should gradually lose their protective effect. Since we cannot add new maps to track timestamps, we use the RollingWindow listener (already available in vulcan_bpf) instead of MinMax for GF_LOST. This naturally provides recency-aware loss tracking:\n\n- Recent loss (latest window entries non-zero) \u2192 full 15% boost\n- Older loss (earlier window entries had loss, but latest is zero) \u2192 partial/no boost\n- Clean period (no loss in entire window) \u2192 no boost\n\nWe check both the most recent loss value and earlier entries with partial weight to implement approximate exponential decay using window position as a proxy for age. A window size of 4-6 entries gives us roughly 100-150ms of history depending on packet frequency.\n\nThis change shifts from binary (loss ever detected) to continuous (how recent was the loss), preventing stale loss signals from indefinitely locking the cache into overly conservative eviction.",
+  "error_msg": null,
+  "timestamp": "2026-03-22T00:35:52.247431",
+  "llm_cost": 0.06892,
+  "llm_model": null
+}

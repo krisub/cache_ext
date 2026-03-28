@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 1,
-  "patch_name": "access_count_scaled_cold_penalty",
-  "patch_description": "The current program applies a fixed -100 penalty to all cold folios (interval_ewma > 5 seconds), which over-penalizes long-lived but valuable pages like LevelDB index structures that are accessed infrequently but remain critical to performance. This modification scales the cold folio penalty by historical access count to distinguish between truly unused pages (low access_count) and long-lived valuable structures (high access_count with infrequent but consistent access).\n\nThe scaling works as follows:\n- access_count < 5: Full -100 penalty (truly cold/unused pages)\n- access_count < 20: Reduced -50 penalty (moderately accessed over lifetime)\n- access_count >= 20: Minimal -25 penalty (frequently accessed historically, just not recently)\n\nThis asymmetric penalty structure preserves the existing +100 hot folio bonus while preventing excessive eviction of long-lived metadata structures. The thresholds are calibrated based on typical LevelDB access patterns where index blocks accumulate moderate access counts over time but have naturally high inter-access intervals.\n\nThis change addresses the observed higher variance in dual_small_vs_large (std: 217.25 in best program) by providing more stable protection for persistent working set elements while still preferring genuinely cold pages as victims.",
+  "num_applied": 3,
+  "patch_name": "add_dual_metric_sustained_congestion_detection",
+  "patch_description": "The recommendation suggests adding a more reliable sustained congestion detection mechanism by combining loss persistence with CWND collapse ratio. The current code compares CWND to SSTHRESH, but a more reliable signal is to compare current CWND EWMA against historical minimum CWND. This detects when CWND is stuck below its baseline (sustained congestion) rather than just temporarily low.\n\nKey improvements:\n1. Enable MINMAX listener for GF_SND_CWND (in addition to existing EWMA) to track historical CWND range\n2. Add new detection: when `vulcan_get_ewma(GF_SND_CWND) < vulcan_get_min(GF_SND_CWND) * 1.3` AND losses are present\n3. Apply +1000 bonus that stacks with existing loss bonuses (not replacing them)\n4. Use conservative 1.3x ratio threshold (more conservative than 1.4x or 1.5x)\n\nThis provides a more reliable congestion signal than CWND vs SSTHRESH because it identifies when CWND has collapsed below its historical norm and stays there, which is a strong indicator of sustained network stress requiring aggressive working-set protection.",
   "error_msg": null,
-  "timestamp": "2026-03-23T16:50:01.689200",
-  "llm_cost": 0.185334,
+  "timestamp": "2026-03-27T02:31:04.837538",
+  "llm_cost": 0.22344,
   "llm_model": null
 }

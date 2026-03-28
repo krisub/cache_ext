@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 1,
-  "patch_name": "adaptive_recency_decay_burstiness",
-  "patch_description": "This edit implements adaptive recency decay calibration based on per-folio access burstiness, extending the proven 50% boost within 1s pattern from Generation 39 (which scored 2184.76). \n\nThe key insight is that Generation 39's simpler linear decay (50% boost at 1s, decaying to 0% at 10s) outperforms the current multi-scale approach. However, we can improve upon Generation 39 by making the recency boost adaptive to individual folio characteristics.\n\nWe compute a burstiness metric from the already-enabled interval_minmax listener: `burstiness = max_interval / min_interval`. This quantifies how variable a folio's access pattern is:\n- High burstiness (>10): Access pattern is bursty/irregular \u2192 Apply 70% recency boost to protect during active periods\n- Normal burstiness (3-10): Regular access pattern \u2192 Apply 50% boost (proven effective in Gen 39)\n- Low burstiness (<3): Very steady/predictable access \u2192 Apply 30% boost (less aggressive protection)\n\nThis adaptive approach should reduce throughput variance in dual_small_vs_large (current std: 161.38) by better distinguishing between the fast reader's bursty accesses and the slow writer's steady pattern, while maintaining the proven temporal protection strategy.",
+  "num_applied": 3,
+  "patch_name": "dual_metric_sustained_congestion_detection",
+  "patch_description": "This change implements dual-metric sustained congestion detection by combining loss persistence with CWND collapse ratio. The current policy already detects congestion using CWND vs SSTHRESH comparison, but this adds a complementary signal that identifies when CWND has collapsed below its historical minimum during packet loss - a strong indicator of sustained network stress.\n\nThe key improvements are:\n1. Enable MINMAX listener for GF_SND_CWND to track historical min/max values (currently only EWMA is enabled)\n2. Detect sustained CWND collapse: when CWND_EWMA < CWND_MIN * 1.3 AND loss is present\n3. Stack an additional +1000 bonus (in primary tier), +1000 (in secondary tier), and +500 (in tertiary tier) with existing congestion bonuses rather than replacing them\n\nThis provides more reliable working-set expansion during genuine sustained congestion while avoiding false positives from transient conditions. The conservative 1.3x ratio threshold ensures we only trigger on true CWND collapse, not normal fluctuations.",
   "error_msg": null,
-  "timestamp": "2026-03-23T19:31:40.781979",
-  "llm_cost": 0.193749,
+  "timestamp": "2026-03-27T05:34:11.060266",
+  "llm_cost": 0.230001,
   "llm_model": null
 }

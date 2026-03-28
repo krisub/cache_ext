@@ -1,70 +1,22 @@
 <NAME>
-adaptive_rtt_baseline_threshold
+re_enable_cwnd_ssthresh_ratio_congestion_detection
 </NAME>
 
 <DESCRIPTION>
-Implement adaptive RTT baseline tracking with dynamic threshold scaling to improve performance across workloads. The current program applies a fixed 30% loss boost unconditionally, which may over-protect during low-RTT workloads like dual_small_vs_large and under-protect during congested scenarios.
-
-The recommendation suggests maintaining a separate long-term EWMA baseline of SRTT (with low smoothing alpha around 50) to establish a "normal" RTT profile for the workload. Then dynamically scale protection factors based on how much current RTT deviates from this baseline:
-- When current RTT > baseline × 1.2: apply 1.25x protection multiplier
-- When current RTT > baseline × 1.5: apply 1.5x protection multiplier  
-- Loss boost only applied when both loss is detected AND current RTT > baseline × 1.1
-
-This avoids over-protection during naturally low-RTT workloads and focuses protection efforts during actual degradation.
-
-Changes:
-1. Add a map to track long-term RTT baseline EWMA
-2. Update kprobe to compute baseline EWMA alongside listeners
-3. Modify bpf_score_fn to dynamically scale thresholds based on RTT deviation from baseline
-4. Reduce unconditional loss boost to conditional baseline-relative boost
+The current program has regressed by disabling the GF_SND_SSTHRESH listener that was crucial in the best-performing generation (5527.07). This edit re-enables SSTHRESH monitoring with MINMAX listener and reintroduces the congestion phase detection logic that checks when CWND has collapsed below SSTHRESH * 1.5. This captures sustained congestion more precisely than loss alone - when CWND is stuck below the slow-start threshold, it indicates the connection is in congestion avoidance mode rather than experiencing transient packet loss. The additional +2000 bonus during sustained congestion stacks with existing loss-triggered bonuses, providing stronger working set protection when the network is genuinely degraded.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, u64);
-} debug_counters SEC(".maps");
-
-// Include feature dispatch layer (needs maps declared above)
-#include "vulcan_bpf/vulcan_feature.h"
-=======
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
-    __type(key, u32);
-    __type(value, u64);
-} debug_counters SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, u32);
-    __type(value, u64);
-} srtt_baseline_map SEC(".maps");
-
-// Include feature dispatch layer (needs maps declared above)
-#include "vulcan_bpf/vulcan_feature.h"
->>>>>>> REPLACE
-
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-// -- Per-feature listener configuration --------------------------------------
-// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
-// listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 150 },
+                            .ewma_alpha = 275 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
     [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
@@ -73,22 +25,20 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 =======
-// -- Per-feature listener configuration --------------------------------------
-// Enable adaptive listeners: fast EWMA (150) for current RTT, loss detection.
-// Baseline EWMA (50) computed separately in kprobe for trend comparison.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 150 },
+                            .ewma_alpha = 275 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
-    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = VULCAN_LISTENER_MINMAX },
     [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
     [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
@@ -97,266 +47,78 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 >>>>>>> REPLACE
-
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-/*
- * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Evolution can add vulcan_get_* calls and protection rules.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 base_score = (s64)meta->access_count;
-
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT (>10ms smoothed): protect working set more aggressively */
-    if (srtt_ewma > 10000) {
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {
-        network_factor = 125;  /* 1.25x protection */
-    }
-
-    /* Packet loss detected: be more conservative */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        network_factor = (network_factor * 130) / 100;  /* additional 30% boost */
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: protect pages accessed in last 5 seconds */
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
     u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;  /* recency boost */
-    }
-
-    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
-    }
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
-=======
-/*
- * Adaptive RTT baseline-aware LFU with dynamic threshold scaling.
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- *
- * Uses short-term EWMA (alpha=150) for current RTT and long-term EWMA (alpha=50)
- * baseline to detect RTT deviations. Protection scales dynamically:
- * - When current > baseline*1.2: 1.25x protection
- * - When current > baseline*1.5: 1.5x protection
- * - Loss boost only when both loss detected AND current > baseline*1.1
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 base_score = (s64)meta->access_count;
-
-    /* Adaptive RTT protection based on baseline deviation */
-    s64 srtt_current = vulcan_get_ewma(GF_SRTT_US);
-    
-    /* Retrieve long-term baseline RTT */
-    u32 idx = 0;
-    u64 *baseline_ptr = bpf_map_lookup_elem(&srtt_baseline_map, &idx);
-    s64 srtt_baseline = baseline_ptr ? (s64)(*baseline_ptr) : srtt_current;
-    
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Apply dynamic thresholds based on deviation from baseline.
-     * Only scale up protection when current RTT exceeds baseline,
-     * avoiding over-protection during naturally low-RTT workloads. */
-    if (srtt_baseline > 0) {
-        /* Check if current RTT has elevated significantly (>1.5x baseline) */
-        if (srtt_current > (srtt_baseline * 150) / 100) {
-            network_factor = 150;  /* 1.5x protection during major degradation */
-        } 
-        /* Check if current RTT moderately elevated (>1.2x baseline) */
-        else if (srtt_current > (srtt_baseline * 120) / 100) {
-            network_factor = 125;  /* 1.25x protection during moderate elevation */
-        }
-    } else {
-        /* Fallback to absolute thresholds if baseline not yet established */
-        if (srtt_current > 10000) {
-            network_factor = 150;  /* 1.5x protection for >10ms RTT */
-        } else if (srtt_current > 5000) {
-            network_factor = 125;  /* 1.25x protection for >5ms RTT */
-        }
-    }
-
-    /* Packet loss with adaptive boost: only boost when loss + elevated RTT */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_baseline > 0) {
-        /* Apply loss boost only when current RTT > baseline*1.1 (10% elevation) */
-        if (srtt_current > (srtt_baseline * 110) / 100) {
-            network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
-        }
-    } else if (max_lost > 0 && srtt_current > 3000) {
-        /* Fallback to absolute RTT threshold if baseline not available */
-        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: protect pages accessed in last 5 seconds */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;  /* recency boost */
-    }
-
-    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
-    }
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
->>>>>>> REPLACE
-
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-u64 last_packet_ts     = 0;
-u64 net_prev_packet_ts = 0;
-u64 net_recv_count     = 0;
-u32 net_srtt_us        = 0;
-=======
-u64 last_packet_ts      = 0;
-u64 net_prev_packet_ts  = 0;
-u64 net_recv_count      = 0;
-u32 net_srtt_us         = 0;
-u64 srtt_baseline_ewma  = 0;
->>>>>>> REPLACE
-
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
-    net_mdev_us        = BPF_CORE_READ(tp, mdev_us);
-    net_bytes_received = BPF_CORE_READ(tp, bytes_received);
-    net_bytes_acked    = BPF_CORE_READ(tp, bytes_acked);
-    net_segs_in        = BPF_CORE_READ(tp, segs_in);
-    net_segs_out       = BPF_CORE_READ(tp, segs_out);
-    net_delivered      = BPF_CORE_READ(tp, delivered);
-    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
-    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
-    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
-    net_packets_out    = BPF_CORE_READ(tp, packets_out);
-    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
-    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
-    net_lost           = BPF_CORE_READ(tp, lost);
-
-    s64 inter_arrival = 0;
-    if (net_prev_packet_ts > 0)
-        inter_arrival = (s64)(last_packet_ts - net_prev_packet_ts);
-
-    // Pack raw values into an array matching GF_* enum order, then dispatch
-    // to only the listeners each feature has enabled via gf_configs[].
-    s64 raw_values[VULCAN_NUM_GLOBAL_FEATURES];
-    raw_values[GF_SRTT_US]        = (s64)net_srtt_us;
-=======
-    net_srtt_us        = BPF_CORE_READ(tp, srtt_us);
-    net_mdev_us        = BPF_CORE_READ(tp, mdev_us);
-    net_bytes_received = BPF_CORE_READ(tp, bytes_received);
-    net_bytes_acked    = BPF_CORE_READ(tp, bytes_acked);
-    net_segs_in        = BPF_CORE_READ(tp, segs_in);
-    net_segs_out       = BPF_CORE_READ(tp, segs_out);
-    net_delivered      = BPF_CORE_READ(tp, delivered);
-    net_snd_cwnd       = BPF_CORE_READ(tp, snd_cwnd);
-    net_snd_ssthresh   = BPF_CORE_READ(tp, snd_ssthresh);
-    net_rcv_wnd        = BPF_CORE_READ(tp, rcv_wnd);
-    net_packets_out    = BPF_CORE_READ(tp, packets_out);
-    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
-    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
-    net_lost           = BPF_CORE_READ(tp, lost);
-
-    s64 inter_arrival = 0;
-    if (net_prev_packet_ts > 0)
-        inter_arrival = (s64)(last_packet_ts - net_prev_packet_ts);
-
-    /* Update long-term RTT baseline with very low alpha (50) for stable trend */
-    {
-        s64 srtt_val = (s64)net_srtt_us;
-        if (srtt_baseline_ewma == 0) {
-            srtt_baseline_ewma = srtt_val;
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
         } else {
-            /* alpha=50 means: new = (50/1000)*srtt + (950/1000)*baseline
-             * Very slow adaptation, tracks long-term average */
-            srtt_baseline_ewma = (srtt_baseline_ewma * 950 + srtt_val * 50) / 1000;
+            score += 3000;
         }
-        
-        /* Store baseline in map for access in bpf_score_fn */
-        u32 idx = 0;
-        bpf_map_update_elem(&srtt_baseline_map, &idx, &srtt_baseline_ewma, BPF_ANY);
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during congestion
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
+        }
+    }
+=======
+    // Congestion phase detection: check if CWND collapsed below SSTHRESH
+    // indicating sustained congestion (not just transient loss)
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    bool in_congestion_phase = false;
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.5 (multiply to avoid division)
+        if ((cwnd_ewma * 2) < (ssthresh_min * 3)) {
+            in_congestion_phase = true;
+        }
     }
 
-    // Pack raw values into an array matching GF_* enum order, then dispatch
-    // to only the listeners each feature has enabled via gf_configs[].
-    s64 raw_values[VULCAN_NUM_GLOBAL_FEATURES];
-    raw_values[GF_SRTT_US]        = (s64)net_srtt_us;
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // When both loss AND congestion phase detected, amplify protection further
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during loss
+        }
+    }
 >>>>>>> REPLACE
-
 </DIFF>

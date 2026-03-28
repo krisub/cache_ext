@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 2,
-  "patch_name": "simplify_loss_protection_remove_decay",
-  "patch_description": "The current implementation of time-decay for loss-triggered protection is performing worse than the previous simpler approach (2090.49 vs 1880.24). The time-decay calculation is overly conservative and appears to be suppressing protection too aggressively.\n\nAnalysis shows:\n1. The decay formula `decay_factor = (100 * 100) / (100 + elapsed_ms)` gives 50% at 100ms, not the intended 37% exponential decay\n2. Both workload traces show regression, suggesting the mechanism is incorrectly penalizing folios\n3. The previous best implementation (5th prior, 2090.49) used simpler RTT+loss detection without time-decay\n\nThe fix is to revert to the simpler, proven approach: apply a fixed 15% loss boost only when both loss is detected AND RTT is elevated (>3ms). This condition is sufficient to avoid stale loss signals\u2014if RTT is low, loss is less impactful and doesn't warrant protection. If loss persists but RTT returns to normal, network has likely recovered and we shouldn't protect aggressively.",
+  "patch_name": "optimize_ewma_alphas_and_restore_jitter_awareness",
+  "patch_description": "Looking at the performance trajectory, the current program (5012.71) is significantly worse than Generation 15 (5667.51). The key differences are:\n\n1. **EWMA alpha values**: Gen 15 had optimal tuning (SRTT 310, INTER_ARRIVAL 45, SND_CWND 175) based on the natural timescales of each metric. The current program reverted to suboptimal values (SRTT 200, INTER_ARRIVAL 100, SND_CWND 150).\n\n2. **Missing MDEV_US listener**: Gen 15 tracked RTT jitter via MDEV_US EWMA (alpha 150), which helped detect high-variance network conditions. The current program disabled this.\n\n3. **Jitter-aware recency protection**: Gen 15 extended the primary recency threshold from 5s to 7s under high jitter conditions, recognizing that unpredictable latency requires broader working set protection. The current program lost this logic.\n\nThe recommendation explicitly calls for these optimizations:\n- SRTT alpha 300-325 (faster response to RTT changes)\n- INTER_ARRIVAL alpha 40-50 (slower response to packet timing noise)\n- SND_CWND alpha 175 (moderate timescale for congestion events)\n\nI'll restore these proven optimizations from Gen 15, which should recover the ~13% performance gain.",
   "error_msg": null,
-  "timestamp": "2026-03-22T01:38:59.590455",
-  "llm_cost": 0.072833,
+  "timestamp": "2026-03-26T06:45:22.115943",
+  "llm_cost": 0.211563,
   "llm_model": null
 }

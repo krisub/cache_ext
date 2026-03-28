@@ -1,0 +1,14 @@
+{
+  "generation": 50,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "loss_signal_time_decay_via_rolling_window",
+  "patch_description": "The current program uses MINMAX listener for packet loss (GF_LOST), which causes the max_lost value to persist indefinitely once loss is observed, leading to sustained over-protection. The best-performing prior program (2184.76 combined score) used a RollingWindow listener instead, providing natural time-decay as old loss events age out of the window.\n\nThis change implements time-decayed loss protection by:\n1. Switching GF_LOST from MINMAX to RollingWindow (size 5) to provide automatic aging\n2. Implementing graduated loss protection that checks multiple positions in the rolling window:\n   - Latest loss (position 0): 15% boost (full protection)\n   - Recent loss (position 1): 8% boost (moderate protection) \n   - Older loss (position 2): 3% boost (minimal protection)\n   - Loss events >2 positions old: no boost (aged out)\n\nThis provides responsive protection during active congestion while preventing stale loss signals from causing sustained over-protection. The rolling window naturally implements time-decay without requiring explicit per-folio timestamp tracking, matching the approach that achieved the highest combined score in prior generations.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T18:59:53.404788",
+  "llm_cost": 0.18657300000000002,
+  "llm_model": null
+}

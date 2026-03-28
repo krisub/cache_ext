@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 2,
-  "patch_name": "loss_signal_time_decay_via_rolling_window",
-  "patch_description": "The current program uses MINMAX listener for packet loss (GF_LOST), which causes the max_lost value to persist indefinitely once loss is observed, leading to sustained over-protection. The best-performing prior program (2184.76 combined score) used a RollingWindow listener instead, providing natural time-decay as old loss events age out of the window.\n\nThis change implements time-decayed loss protection by:\n1. Switching GF_LOST from MINMAX to RollingWindow (size 5) to provide automatic aging\n2. Implementing graduated loss protection that checks multiple positions in the rolling window:\n   - Latest loss (position 0): 15% boost (full protection)\n   - Recent loss (position 1): 8% boost (moderate protection) \n   - Older loss (position 2): 3% boost (minimal protection)\n   - Loss events >2 positions old: no boost (aged out)\n\nThis provides responsive protection during active congestion while preventing stale loss signals from causing sustained over-protection. The rolling window naturally implements time-decay without requiring explicit per-folio timestamp tracking, matching the approach that achieved the highest combined score in prior generations.",
+  "num_applied": 3,
+  "patch_name": "dual_metric_sustained_congestion_detection",
+  "patch_description": "The current program shows a regression (5223.20) compared to the fifth-best program (5667.51) due to the sequential vs random classification logic that uses inter-arrival patterns. This classification is too aggressive and misidentifies access patterns.\n\nInstead, I'm implementing a more reliable congestion detection mechanism that combines two signals:\n1. CWND collapse: When the EWMA of congestion window falls significantly below its historical minimum (indicating sustained window reduction, not just a transient dip)\n2. Loss persistence: When packet losses are observed (vulcan_get_max(GF_LOST) > 0)\n\nThis dual-metric approach distinguishes between:\n- Transient congestion: CWND temporarily low but recovering quickly\n- Sustained congestion: CWND stuck below historical minimum while losses persist\n\nThe implementation:\n1. Enable MINMAX listener for GF_SND_CWND (currently only has EWMA)\n2. Add detection logic: when cwnd_ewma < cwnd_min * 1.3 AND lost_max > 0\n3. Stack an additional +1000 bonus with existing loss-triggered bonuses (not replacing them)\n4. Use conservative 1.3x ratio threshold to avoid false positives\n\nThis complements the existing jitter-aware protection and provides more reliable working-set expansion identification during genuine sustained congestion periods.",
   "error_msg": null,
-  "timestamp": "2026-03-23T18:59:53.404788",
-  "llm_cost": 0.18657300000000002,
+  "timestamp": "2026-03-27T04:20:42.350937",
+  "llm_cost": 0.214959,
   "llm_model": null
 }

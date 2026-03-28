@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 1,
-  "patch_name": "simplify_congestion_detection_with_raw_cwnd",
-  "patch_description": "The current congestion window saturation detection compares EWMA of packets_out against EWMA of snd_cwnd, which introduces complexity and potential instability (division by potentially small EWMA values). The recommendation suggests a simpler approach: compare the smoothed packets_out_ewma directly against thresholds based on the raw net_snd_cwnd value.\n\nThis change:\n1. Removes the division operation and percentage calculation\n2. Compares packets_out_ewma directly against raw net_snd_cwnd thresholds (80% and 95%)\n3. Applies more aggressive additive boosts (+15 and +25 instead of +5 and +10)\n4. Uses simpler, more conservative fixed-point arithmetic\n\nThis addresses the dual_congested throughput regression by providing a more stable congestion signal that doesn't depend on EWMA of cwnd, which can be noisy or lag behind actual conditions.",
+  "patch_name": "add_cwnd_aware_sequential_hot_classification",
+  "patch_description": "This edit adds per-folio CWND-aware access pattern classification to distinguish between sequential-hot folios (like LevelDB's sequential index scans) and random-access folios. The classification uses inter-packet arrival regularity from the network combined with per-folio access patterns and congestion window state.\n\nSequential-hot folios are identified by:\n- Regular inter-packet arrival times (< 50\u03bcs EWMA) indicating sequential workload\n- High access count (> 50 accesses) indicating importance\n- Good network conditions (CWND > 20 segments) indicating no severe congestion\n\nThese folios receive a +6500 bonus because sequential scans benefit greatly from cache retention.\n\nRandom-access folios are identified by:\n- Irregular inter-packet arrival times (> 500\u03bcs EWMA) indicating sporadic access\nThese receive only a +1500 bonus as they are less cache-sensitive.\n\nThis asymmetric bonus scaling (6500 vs 1500) allows the policy to aggressively protect sequential working sets (critical for YCSB-E's scan-heavy workloads) while being less protective of random one-shot accesses. The classification is placed after congestion phase detection to reuse the cwnd_ewma variable, and before recency-based scoring to provide an orthogonal protection dimension.",
   "error_msg": null,
-  "timestamp": "2026-03-23T21:36:21.541384",
-  "llm_cost": 0.194268,
+  "timestamp": "2026-03-27T08:00:35.504486",
+  "llm_cost": 0.210729,
   "llm_model": null
 }

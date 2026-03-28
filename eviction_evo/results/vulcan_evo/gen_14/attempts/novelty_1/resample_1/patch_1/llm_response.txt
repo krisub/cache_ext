@@ -1,64 +1,28 @@
 <NAME>
-loss_detection_decay
+cwnd_ssthresh_congestion_phase_detection
 </NAME>
 
 <DESCRIPTION>
-The current program has lost performance by reverting to pure LFU with no network listeners. Looking at the prior evolution, Program 5 (score 1977.84) achieved the best performance by enabling smart network-aware listeners and per-folio heat tracking. 
+Add CWND-to-SSTHRESH ratio monitoring to detect congestion phase more precisely. The slow-start threshold (ssthresh) marks the boundary between slow-start and congestion avoidance phases. When CWND drops below ssthresh (typically after packet loss/timeout), the connection enters congestion avoidance where throughput is limited.
 
-The recommendation is to implement **time-decay for loss-triggered protection** to prevent sustained over-protection after transient loss events. Currently, if max_lost > 0 is detected, a constant 30% boost is applied indefinitely until loss clears. This can lock the cache into overly conservative eviction during/after brief loss spikes.
+By enabling MINMAX listener for GF_SND_SSTHRESH and comparing cwnd_ewma to ssthresh_min, we can detect when the connection is stuck in congestion avoidance (cwnd_ewma < ssthresh_min * 1.5). This captures sustained congestion better than just loss detection, which only catches transient events.
 
-The solution is to:
-1. Re-enable the high-performing listener configuration from Program 5 (SRTT_US with EWMA+RW, PACKETS_OUT with EWMA, LOST with MINMAX, plus per-folio EWMA+MINMAX)
-2. Add per-folio tracking of last_loss_event_ts to detect when loss was last observed relative to each folio
-3. Implement exponential decay: when loss is old, the protection boost decays toward 0 (e.g., ~37% boost after 100ms, ~5% after 300ms)
-4. Restore the sophisticated scoring function that combines recency, network conditions, and per-folio heat
+During congestion avoidance phase, cache misses are extremely expensive because the connection's throughput is already constrained. We add a +1500 protective bonus to prioritize keeping the working set in cache and avoid additional latency from evictions.
 
-This prevents the cache from over-protecting folios based on stale loss information while maintaining strong protection during active network degradation.
+This approach is more precise than Generation 9's cwnd_min < 10 heuristic because it uses the relative comparison against ssthresh, which adapts to different network conditions and connection states.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-// -- Per-feature listener configuration --------------------------------------
-// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
-// listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = 0 },
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
     [GF_PACKETS_OUT]    = { .listener_mask = 0 },
-    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
-    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = 0 },
-    [GF_SEGS_IN]        = { .listener_mask = 0 },
-    [GF_SEGS_OUT]       = { .listener_mask = 0 },
-    [GF_DELIVERED]      = { .listener_mask = 0 },
-    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
-    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
-    [GF_RECV_COUNT]     = { .listener_mask = 0 },
-};
-
-// -- Per-folio listener configuration ----------------------------------------
-// Baseline: disabled. Evolution can enable for interval-based scoring.
-static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = 0,
-    .ewma_alpha    = 200,
-};
-=======
-// -- Per-feature listener configuration --------------------------------------
-// Enable high-performing listener set from best prior program (score 1977.84).
-// These enable network-aware adaptive cache protection.
-static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 150 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
-    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
-    [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
     [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
@@ -67,208 +31,65 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
-
-// -- Per-folio listener configuration ----------------------------------------
-// Track per-folio heat via EWMA + MINMAX of inter-access intervals.
-static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
-    .ewma_alpha    = 250,
+=======
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 >>>>>>> REPLACE
+
 </DIFF>
 
 <DIFF>
 <<<<<<< SEARCH
-// =============================================================================
-// RAW NETWORK GLOBALS (updated by kprobe)
-// =============================================================================
-
-u64 last_packet_ts     = 0;
-u64 net_prev_packet_ts = 0;
-u64 net_recv_count     = 0;
-u32 net_srtt_us        = 0;
-u32 net_mdev_us        = 0;
-u64 net_bytes_received = 0;
-u64 net_bytes_acked    = 0;
-u32 net_segs_in        = 0;
-u32 net_segs_out       = 0;
-u32 net_delivered      = 0;
-u32 net_snd_cwnd       = 0;
-u32 net_snd_ssthresh   = 0;
-u32 net_rcv_wnd        = 0;
-u32 net_packets_out    = 0;
-u32 net_total_retrans  = 0;
-u32 net_retrans_out    = 0;
-u32 net_lost           = 0;
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
+    }
 =======
-// =============================================================================
-// RAW NETWORK GLOBALS (updated by kprobe)
-// =============================================================================
-
-u64 last_packet_ts     = 0;
-u64 net_prev_packet_ts = 0;
-u64 net_recv_count     = 0;
-u64 last_loss_event_ts = 0;  /* Tracks when loss was last detected for decay */
-u32 net_srtt_us        = 0;
-u32 net_mdev_us        = 0;
-u64 net_bytes_received = 0;
-u64 net_bytes_acked    = 0;
-u32 net_segs_in        = 0;
-u32 net_segs_out       = 0;
-u32 net_delivered      = 0;
-u32 net_snd_cwnd       = 0;
-u32 net_snd_ssthresh   = 0;
-u32 net_rcv_wnd        = 0;
-u32 net_packets_out    = 0;
-u32 net_total_retrans  = 0;
-u32 net_retrans_out    = 0;
-u32 net_lost           = 0;
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-/*
- * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Evolution can add vulcan_get_* calls and protection rules.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 score = (s64)meta->access_count;
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
-=======
-/*
- * Network-aware LFU with time-decayed loss protection.
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * 
- * Loss detection applies adaptive protection boost that decays over time,
- * preventing sustained over-protection after transient loss events.
- * Combines RTT sensitivity, per-folio heat tracking, and recency.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 base_score = (s64)meta->access_count;
-
-    /* Network-aware protection: boost when RTT is high (cache misses are expensive) */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT (>5ms smoothed): protect working set more aggressively */
-    if (srtt_ewma > 5000) {
-        network_factor = 125;  /* 1.25x protection */
-    } else if (srtt_ewma > 10000) {
-        network_factor = 150;  /* 1.5x protection for >10ms RTT */
+    // Loss detection: if we've seen packet loss, be conservative
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        // Network congestion: protect working set
+        score += meta->access_count / 3;
     }
 
-    /* Packet loss detected with time-decay: boost decays over time to prevent
-     * sustained over-protection after transient loss events.
-     * Decay formula: boost_factor = 100 + decay * 30, where decay declines
-     * exponentially. After ~100ms, boost is ~37% (37 extra). After ~300ms, ~5%.
-     */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        u64 now = bpf_ktime_get_ns();
-        u64 time_since_loss_ns = now - last_loss_event_ts;
-        s64 loss_boost = 30;  /* 30% base boost when loss detected */
-        
-        /* Exponential decay: boost *= exp(-(time_since_loss / 100ms))
-         * Use fixed-point approximation: decay ~= 1000 / (1000 + time_ms / 2)
-         * for simplicity (avoids expensive exponential in BPF). */
-        if (time_since_loss_ns > 1000000) {  /* > 1ms */
-            u64 time_since_loss_ms = time_since_loss_ns / 1000000;
-            u64 decay_denom = 1000 + (time_since_loss_ms >> 1);  /* /2 for aggressive decay */
-            loss_boost = (loss_boost * 1000) / decay_denom;
+    // Congestion phase detection: CWND vs SSTHRESH ratio
+    // When cwnd is below ssthresh, connection is in congestion avoidance/recovery
+    // This indicates sustained congestion vs transient loss events
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.5 (connection in congestion avoidance)
+        // Multiply cwnd by 3 and ssthresh by 2 to avoid division
+        if ((cwnd_ewma * 2) < (ssthresh_min * 3)) {
+            // Connection stuck in congestion avoidance: protect working set aggressively
+            score += 1500;
         }
-        
-        network_factor = (network_factor * (100 + loss_boost)) / 100;
     }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: protect pages accessed in last 5 seconds */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;
-    }
-
-    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
-    }
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
 >>>>>>> REPLACE
-</DIFF>
 
-<DIFF>
-<<<<<<< SEARCH
-    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
-    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
-    net_lost           = BPF_CORE_READ(tp, lost);
-
-    s64 inter_arrival = 0;
-=======
-    net_total_retrans  = BPF_CORE_READ(tp, total_retrans);
-    net_retrans_out    = BPF_CORE_READ(tp, retrans_out);
-    net_lost           = BPF_CORE_READ(tp, lost);
-
-    /* Update loss event timestamp for decay calculation */
-    if (net_lost > 0) {
-        last_loss_event_ts = bpf_ktime_get_ns();
-    }
-
-    s64 inter_arrival = 0;
->>>>>>> REPLACE
 </DIFF>

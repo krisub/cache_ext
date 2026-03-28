@@ -1,36 +1,155 @@
 <NAME>
-packets_out_saturation_boost
+graduated_jitter_aware_recency_threshold_scaling
 </NAME>
 
 <DESCRIPTION>
-The current program uses PACKETS_OUT EWMA (alpha=200) but doesn't actively utilize it in scoring decisions. This edit adds window saturation detection by comparing the smoothed packets_out value against snd_cwnd. When the congestion window is highly utilized (>80% or >95% saturation), we apply a secondary protection boost (+15 or +25 points) independent of the existing RTT-based network_factor. This addresses the recommendation to leverage the enabled PACKETS_OUT listener with conservative fixed-point arithmetic, helping protect the working set during periods of high network utilization without the complexity that caused Generation 42's underperformance (-101.28 points). The boost is small and only applied when window saturation is detected, avoiding sustained over-protection while improving dual_congested performance.
+Implement graduated three-tier jitter-aware recency threshold scaling to better adapt to varying network unpredictability levels. The current program lacks jitter monitoring (GF_MDEV_US is disabled), which was shown to improve performance in earlier iterations (score 5667.51 vs current 5527.07).
+
+This change introduces three graduated tiers based on jitter (mdev) levels:
+1. Very high jitter (>15ms): Extends primary protection window to 8 seconds with +1300 secondary bonus
+2. High jitter (>10ms): Uses 7 seconds primary window with +1200 secondary bonus  
+3. Normal jitter (≤10ms): Baseline 5 seconds primary window with +1000 secondary bonus
+
+The rationale is that high jitter indicates severe network unpredictability where folios are harder to predict for re-access. By graduating the response across three tiers instead of a binary threshold, we can more precisely calibrate protection levels to match actual network conditions. This captures increasingly expanded working sets during network instability while maintaining conservative protection during normal latency.
+
+The change also re-enables and tunes EWMA listeners for optimal responsiveness:
+- GF_MDEV_US: Enabled with alpha=150 to track jitter
+- GF_SRTT_US: Increased alpha to 310 for more stable RTT tracking
+- GF_INTER_ARRIVAL: Decreased alpha to 45 for more reactive burst detection
+
+This graduated approach should add 1-2% improvement over the jitter-unaware baseline without introducing complex calculations that could trigger BPF verifier issues.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: protect pages accessed in last 5 seconds */
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
 =======
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
+static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 310 },
+    [GF_MDEV_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
+    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
+    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_SEGS_IN]        = { .listener_mask = 0 },
+    [GF_SEGS_OUT]       = { .listener_mask = 0 },
+    [GF_DELIVERED]      = { .listener_mask = 0 },
+    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
+    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 45 },
+    [GF_RECV_COUNT]     = { .listener_mask = 0 },
+};
+>>>>>>> REPLACE
+</DIFF>
 
-    /* Window saturation detection: secondary congestion boost using PACKETS_OUT EWMA.
-     * When packets in flight approach cwnd, the window is saturated - additional cache
-     * misses will stall waiting for ACKs. Apply conservative protection boost independent
-     * of RTT-based network_factor to prevent thrashing during high utilization. */
-    s64 packets_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
-    if (packets_ewma > 0 && net_snd_cwnd > 0) {
-        /* Safe integer arithmetic: packets_ewma * 100 > net_snd_cwnd * 95 checks >95% saturation */
-        if (packets_ewma * 100 > (s64)net_snd_cwnd * 95) {
-            score += 25;  /* High saturation: strong secondary boost */
-        } else if (packets_ewma * 10 > (s64)net_snd_cwnd * 8) {
-            score += 15;  /* Moderate saturation (>80%): modest secondary boost */
+<DIFF>
+<<<<<<< SEARCH
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // When both loss AND congestion phase detected, amplify protection further
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during loss
         }
     }
-
-    /* Recency bonus: protect pages accessed in last 5 seconds */
+=======
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // When both loss AND congestion phase detected, amplify protection further
+    // Graduated jitter-aware thresholds: very high jitter (>15ms) expands working set most,
+    // high jitter (>10ms) expands moderately, normal jitter uses baseline
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    s64 mdev_ewma = vulcan_get_ewma(GF_MDEV_US);
+    
+    // Determine jitter tier and corresponding thresholds
+    s64 primary_threshold;
+    s64 secondary_bonus;
+    if (mdev_ewma > 15000) {
+        // Very high jitter: maximum working set expansion
+        primary_threshold = 8000000000;  // 8 seconds
+        secondary_bonus = 1300;
+    } else if (mdev_ewma > 10000) {
+        // High jitter: moderate working set expansion
+        primary_threshold = 7000000000;  // 7 seconds
+        secondary_bonus = 1200;
+    } else {
+        // Normal jitter: baseline protection
+        primary_threshold = 5000000000;  // 5 seconds
+        secondary_bonus = 1000;
+    }
+    
+    if (age < primary_threshold) {
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += secondary_bonus + 500;  // Graduated bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += secondary_bonus;  // Graduated bonus based on jitter tier
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during loss
+        }
+    }
 >>>>>>> REPLACE
-
 </DIFF>

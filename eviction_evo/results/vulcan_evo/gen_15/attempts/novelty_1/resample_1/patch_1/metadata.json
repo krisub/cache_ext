@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 5,
-  "patch_name": "congestion_window_saturation_boost",
-  "patch_description": "The current program uses adaptive interval thresholds collected during early eviction cycles, but this adds complexity and may have race conditions in the statistics updates. Looking at the best prior performer (1977.84 score), it used simpler fixed thresholds and pure network-aware protection.\n\nThe recommendation to integrate PACKETS_OUT congestion signal with dynamic boost scaling based on cwnd utilization ratio is well-motivated: when packets_out approaches snd_cwnd, the congestion window is saturated, indicating network backpressure. In such situations, protecting the working set more aggressively reduces cache misses during periods when each miss is especially expensive.\n\nThis edit:\n1. **Enables GF_SND_CWND EWMA listener** to track congestion window smoothly\n2. **Simplifies scoring** by removing the problematic adaptive threshold collection (which adds BPF state complexity and potential races) and reverting to fixed, proven thresholds\n3. **Adds window saturation boost** in bpf_score_fn: computes packets_out_ewma / snd_cwnd_ewma ratio and scales network_factor by 1.05x (if ratio > 0.7) or 1.15x (if ratio > 0.9)\n4. **Maintains per-folio interval tracking** (which was beneficial in prior programs) to detect hot vs cold folios\n\nThe congestion window saturation ratio is a direct signal of how close we are to TCP send limits\u2014much more precise than static thresholds. Combined with RTT-based and loss-based protection, this provides adaptive, multi-signal eviction decisions that should improve performance on both small-vs-large (fast readers need protection when network is busy) and congested (both clients compete for limited window) workloads.",
+  "num_applied": 2,
+  "patch_name": "revert_to_congestion_aware_recency",
+  "patch_description": "The current program's tiered access classification approach (differentiating by access_count thresholds) has hurt performance compared to Generation 5 (5099.34 vs current 4661.77). The key regression is removing the congestion-aware recency bonuses that Generation 5 had, which dynamically extended protection windows during packet loss events.\n\nThe tiered approach with hard access_count thresholds (>100, >50) is too rigid and doesn't adapt well to workload diversity. Reverting to the simpler heat-based interval classification plus restoring the congestion-aware recency logic should recover the lost performance.\n\nThis change:\n1. Simplifies the heat-based scoring back to Gen 5's approach (hot < 100ms, warm < 1s)\n2. Restores congestion-aware recency bonuses that increase protection by 50% during packet loss\n3. Extends the protection window to 60 seconds during congestion to capture working set under stress",
   "error_msg": null,
-  "timestamp": "2026-03-22T00:03:41.915945",
-  "llm_cost": 0.080708,
+  "timestamp": "2026-03-26T03:43:07.022770",
+  "llm_cost": 0.19947600000000001,
   "llm_model": null
 }

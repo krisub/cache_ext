@@ -1,0 +1,58 @@
+<NAME>
+loss_signal_time_decay_via_rolling_window
+</NAME>
+
+<DESCRIPTION>
+The current program uses MINMAX listener for packet loss (GF_LOST), which causes the max_lost value to persist indefinitely once loss is observed, leading to sustained over-protection. The best-performing prior program (2184.76 combined score) used a RollingWindow listener instead, providing natural time-decay as old loss events age out of the window.
+
+This change implements time-decayed loss protection by:
+1. Switching GF_LOST from MINMAX to RollingWindow (size 5) to provide automatic aging
+2. Implementing graduated loss protection that checks multiple positions in the rolling window:
+   - Latest loss (position 0): 15% boost (full protection)
+   - Recent loss (position 1): 8% boost (moderate protection)
+   - Older loss (position 2): 3% boost (minimal protection)
+   - Loss events >2 positions old: no boost (aged out)
+
+This provides responsive protection during active congestion while preventing stale loss signals from causing sustained over-protection. The rolling window naturally implements time-decay without requiring explicit per-folio timestamp tracking, matching the approach that achieved the highest combined score in prior generations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+=======
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_RW,
+                            .rw_size = 5 },
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    /* Packet loss detected: apply conservative protection boost.
+     * Only boost when loss is detected AND RTT is elevated to avoid
+     * stale loss signals causing sustained over-protection.
+     */
+    s64 max_lost = vulcan_get_max(GF_LOST);
+    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
+        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
+    }
+=======
+    /* Packet loss with time-decay via rolling window: recent loss triggers full boost,
+     * older loss triggers reduced boost, providing natural decay without sustained
+     * over-protection. RollingWindow automatically ages out old loss events.
+     */
+    s64 latest_lost = vulcan_get_latest(GF_LOST);
+    if (latest_lost > 0 && srtt_ewma > 3000) {
+        /* Active loss detected: full boost */
+        network_factor = (network_factor * 115) / 100;  /* 15% boost */
+    } else if (srtt_ewma > 3000) {
+        /* No active loss, check for recent (but not current) loss for graduated decay */
+        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
+        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
+        if (prev_lost_1 > 0) {
+            network_factor = (network_factor * 108) / 100;  /* 8% boost for very recent loss */
+        } else if (prev_lost_2 > 0) {
+            network_factor = (network_factor * 103) / 100;  /* 3% boost for older loss */
+        }
+    }
+>>>>>>> REPLACE
+</DIFF>

@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 4,
-  "patch_name": "add_packets_out_congestion_ratio_secondary_boost",
-  "patch_description": "This change implements the recommended PACKETS_OUT congestion signal integration as a secondary network factor. The key improvements:\n\n1. Enable SND_CWND EWMA listener to track congestion window alongside PACKETS_OUT\n2. Compute a congestion ratio using safe unsigned arithmetic: (packets_out * 100) / max(snd_cwnd, 1)\n3. Apply graduated secondary boost to network_factor:\n   - +5 to network_factor if congestion ratio > 70% (window nearly saturated)\n   - +10 to network_factor if congestion ratio > 90% (window fully saturated)\n4. Simplify loss handling by removing complex time-decay logic and reverting to Generation 5's simpler approach (which achieved 2090.49 score)\n\nThe congestion ratio provides a complementary signal to RTT for detecting network pressure. During window saturation, protecting the working set prevents expensive cache misses from compounding congestion. Using unsigned arithmetic avoids division-by-zero issues and signed overflow problems.\n\nThis approach combines the proven Gen 5 logic with the new congestion detection, providing multi-dimensional network awareness without the complexity that hurt the current program's performance.",
+  "num_applied": 2,
+  "patch_name": "three_tier_jitter_aware_recency_protection",
+  "patch_description": "This edit implements three-tier jitter-aware recency threshold scaling with graduated window extension. The current program lacks jitter awareness (GF_MDEV_US is disabled), while the best-performing prior program (5667.51) showed a +2.5% gain using two-tier jitter thresholds. \n\nThis enhancement adds a third tier to better handle severe network unpredictability:\n- Very high jitter (>15ms): Extends primary window to 9s and secondary bonus to +1400\n- High jitter (>10ms): Extends primary window to 7s and secondary bonus to +1200  \n- Normal jitter (\u226410ms): Uses baseline 5s primary window and +1000 secondary bonus\n\nThe rationale is that during severe network unpredictability, working sets expand as the system compensates for increased latency variance. Graduated thresholds capture this more effectively than binary switches, potentially adding 1-2% improvement over the current configuration by protecting the expanded working set during sustained jitter while maintaining conservative protection during normal latency conditions.",
   "error_msg": null,
-  "timestamp": "2026-03-22T04:18:24.844529",
-  "llm_cost": 0.237147,
+  "timestamp": "2026-03-26T10:28:34.765044",
+  "llm_cost": 0.219567,
   "llm_model": null
 }

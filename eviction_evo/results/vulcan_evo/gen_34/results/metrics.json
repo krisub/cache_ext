@@ -1,81 +1,200 @@
 {
-  "combined_score": 1916.594649270633,
+  "combined_score": 5521.515965574682,
   "public": {
-    "dual_small_vs_large_throughput_mean": 1421.78,
-    "dual_small_vs_large_throughput_std": 134.11031019276632,
-    "dual_small_vs_large_throughput_min": 1328.15,
-    "dual_small_vs_large_throughput_max": 1649.45,
-    "dual_small_vs_large_read_p99_ns_mean": 37772983.252,
-    "dual_congested_throughput_mean": 2939.674,
-    "dual_congested_throughput_std": 56.06803617035291,
-    "dual_congested_throughput_min": 2865.21,
-    "dual_congested_throughput_max": 3015.41,
-    "dual_congested_read_p99_ns_mean": 46479228.458,
-    "combined_score_harmonic_mean": 1916.594649270633,
-    "traces_passed": 2,
-    "traces_total": 2,
-    "runs_per_trace": 5
+    "ycsb_c_a_throughput_mean": 3986.2433333333333,
+    "ycsb_c_a_throughput_std": 116.44617397464496,
+    "ycsb_c_a_throughput_min": 3904.8,
+    "ycsb_c_a_throughput_max": 4119.62,
+    "ycsb_c_a_read_p99_ns_mean": 84675533.31333333,
+    "ycsb_c_e_throughput_mean": 78925.12333333334,
+    "ycsb_c_e_throughput_std": 1208.8662984107602,
+    "ycsb_c_e_throughput_min": 77614.18000000001,
+    "ycsb_c_e_throughput_max": 79995.84000000001,
+    "ycsb_c_e_read_p99_ns_mean": 49697917.85,
+    "ycsb_c_f_throughput_mean": 1773.2766666666666,
+    "ycsb_c_f_throughput_std": 178.1392369281213,
+    "ycsb_c_f_throughput_min": 1661.21,
+    "ycsb_c_f_throughput_max": 1978.69,
+    "ycsb_c_f_read_p99_ns_mean": 91424232.89,
+    "ycsb_b_a_throughput_mean": 4524.533333333334,
+    "ycsb_b_a_throughput_std": 201.62314210757958,
+    "ycsb_b_a_throughput_min": 4350.110000000001,
+    "ycsb_b_a_throughput_max": 4745.29,
+    "ycsb_b_a_read_p99_ns_mean": 82607525.87666667,
+    "ycsb_a_d_throughput_mean": 5196.943333333333,
+    "ycsb_a_d_throughput_std": 436.36891380268304,
+    "ycsb_a_d_throughput_min": 4695.65,
+    "ycsb_a_d_throughput_max": 5491.71,
+    "ycsb_a_d_read_p99_ns_mean": 84402974.56333333,
+    "ycsb_e_a_throughput_mean": 76879.01333333334,
+    "ycsb_e_a_throughput_std": 808.2431095489396,
+    "ycsb_e_a_throughput_min": 76049.62,
+    "ycsb_e_a_throughput_max": 77664.3,
+    "ycsb_e_a_read_p99_ns_mean": 45733039.79,
+    "ycsb_e_f_throughput_mean": 72142.46333333333,
+    "ycsb_e_f_throughput_std": 2205.75799135656,
+    "ycsb_e_f_throughput_min": 69674.39,
+    "ycsb_e_f_throughput_max": 73921.31999999999,
+    "ycsb_e_f_read_p99_ns_mean": 188789.66666666666,
+    "combined_score_harmonic_mean": 5521.515965574682,
+    "traces_passed": 7,
+    "traces_total": 7,
+    "runs_per_trace": 3
   },
   "private": {
-    "dual_small_vs_large": {
+    "ycsb_c_a": {
       "runs": [
         {
-          "total_throughput": 1649.45,
-          "read_latency_p99_ns": 36224787.4
+          "total_throughput": 3904.8,
+          "read_latency_p99_ns": 84188184.05
         },
         {
-          "total_throughput": 1435.75,
-          "read_latency_p99_ns": 34828728.31
+          "total_throughput": 4119.62,
+          "read_latency_p99_ns": 84174734.54
         },
         {
-          "total_throughput": 1328.15,
-          "read_latency_p99_ns": 39765152.08
-        },
-        {
-          "total_throughput": 1337.94,
-          "read_latency_p99_ns": 40731717.04
-        },
-        {
-          "total_throughput": 1357.61,
-          "read_latency_p99_ns": 37314531.43
+          "total_throughput": 3934.3100000000004,
+          "read_latency_p99_ns": 85663681.35
         }
       ],
-      "throughput_mean": 1421.78,
-      "throughput_std": 134.11031019276632,
-      "throughput_min": 1328.15,
-      "throughput_max": 1649.45,
-      "throughput_cv": 9.432564123335982,
-      "read_p99_ns_mean": 37772983.252
+      "throughput_mean": 3986.2433333333333,
+      "throughput_std": 116.44617397464496,
+      "throughput_min": 3904.8,
+      "throughput_max": 4119.62,
+      "throughput_cv": 2.921200845942127,
+      "read_p99_ns_mean": 84675533.31333333
     },
-    "dual_congested": {
+    "ycsb_c_e": {
       "runs": [
         {
-          "total_throughput": 2910.6899999999996,
-          "read_latency_p99_ns": 45481830.64
+          "total_throughput": 77614.18000000001,
+          "read_latency_p99_ns": 50636590.01
         },
         {
-          "total_throughput": 2959.4300000000003,
-          "read_latency_p99_ns": 46363952.86
+          "total_throughput": 79995.84000000001,
+          "read_latency_p99_ns": 49239199.04
         },
         {
-          "total_throughput": 3015.41,
-          "read_latency_p99_ns": 46358576.34
-        },
-        {
-          "total_throughput": 2947.63,
-          "read_latency_p99_ns": 47234734.44
-        },
-        {
-          "total_throughput": 2865.21,
-          "read_latency_p99_ns": 46957048.01
+          "total_throughput": 79165.34999999999,
+          "read_latency_p99_ns": 49217964.5
         }
       ],
-      "throughput_mean": 2939.674,
-      "throughput_std": 56.06803617035291,
-      "throughput_min": 2865.21,
-      "throughput_max": 3015.41,
-      "throughput_cv": 1.9072875485633072,
-      "read_p99_ns_mean": 46479228.458
+      "throughput_mean": 78925.12333333334,
+      "throughput_std": 1208.8662984107602,
+      "throughput_min": 77614.18000000001,
+      "throughput_max": 79995.84000000001,
+      "throughput_cv": 1.5316622228200005,
+      "read_p99_ns_mean": 49697917.85
+    },
+    "ycsb_c_f": {
+      "runs": [
+        {
+          "total_throughput": 1978.69,
+          "read_latency_p99_ns": 82125351.73
+        },
+        {
+          "total_throughput": 1679.93,
+          "read_latency_p99_ns": 96415145.56
+        },
+        {
+          "total_throughput": 1661.21,
+          "read_latency_p99_ns": 95732201.38
+        }
+      ],
+      "throughput_mean": 1773.2766666666666,
+      "throughput_std": 178.1392369281213,
+      "throughput_min": 1661.21,
+      "throughput_max": 1978.69,
+      "throughput_cv": 10.045766702777419,
+      "read_p99_ns_mean": 91424232.89
+    },
+    "ycsb_b_a": {
+      "runs": [
+        {
+          "total_throughput": 4745.29,
+          "read_latency_p99_ns": 82540068.86
+        },
+        {
+          "total_throughput": 4478.2,
+          "read_latency_p99_ns": 81973875.41
+        },
+        {
+          "total_throughput": 4350.110000000001,
+          "read_latency_p99_ns": 83308633.36
+        }
+      ],
+      "throughput_mean": 4524.533333333334,
+      "throughput_std": 201.62314210757958,
+      "throughput_min": 4350.110000000001,
+      "throughput_max": 4745.29,
+      "throughput_cv": 4.456219619870475,
+      "read_p99_ns_mean": 82607525.87666667
+    },
+    "ycsb_a_d": {
+      "runs": [
+        {
+          "total_throughput": 4695.65,
+          "read_latency_p99_ns": 88135468.2
+        },
+        {
+          "total_throughput": 5491.71,
+          "read_latency_p99_ns": 80703191.03
+        },
+        {
+          "total_throughput": 5403.469999999999,
+          "read_latency_p99_ns": 84370264.46
+        }
+      ],
+      "throughput_mean": 5196.943333333333,
+      "throughput_std": 436.36891380268304,
+      "throughput_min": 4695.65,
+      "throughput_max": 5491.71,
+      "throughput_cv": 8.396645601344183,
+      "read_p99_ns_mean": 84402974.56333333
+    },
+    "ycsb_e_a": {
+      "runs": [
+        {
+          "total_throughput": 76049.62,
+          "read_latency_p99_ns": 45379152.93
+        },
+        {
+          "total_throughput": 76923.12,
+          "read_latency_p99_ns": 45706797.74
+        },
+        {
+          "total_throughput": 77664.3,
+          "read_latency_p99_ns": 46113168.7
+        }
+      ],
+      "throughput_mean": 76879.01333333334,
+      "throughput_std": 808.2431095489396,
+      "throughput_min": 76049.62,
+      "throughput_max": 77664.3,
+      "throughput_cv": 1.051318265551283,
+      "read_p99_ns_mean": 45733039.79
+    },
+    "ycsb_e_f": {
+      "runs": [
+        {
+          "total_throughput": 69674.39,
+          "read_latency_p99_ns": 198414.0
+        },
+        {
+          "total_throughput": 72831.68000000001,
+          "read_latency_p99_ns": 183501.0
+        },
+        {
+          "total_throughput": 73921.31999999999,
+          "read_latency_p99_ns": 184454.0
+        }
+      ],
+      "throughput_mean": 72142.46333333333,
+      "throughput_std": 2205.75799135656,
+      "throughput_min": 69674.39,
+      "throughput_max": 73921.31999999999,
+      "throughput_cv": 3.057503014784626,
+      "read_p99_ns_mean": 188789.66666666666
     }
   }
 }

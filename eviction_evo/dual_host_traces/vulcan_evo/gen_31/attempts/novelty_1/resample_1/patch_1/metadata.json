@@ -1,0 +1,14 @@
+{
+  "generation": 31,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": false,
+  "num_applied": 0,
+  "patch_name": "adaptive_rtt_baseline_scaling",
+  "patch_description": "The current program has regressed from 2090.49 to 1874.82, primarily due to the interval statistics collection overhead and complexity introduced in the adaptive thresholds approach. \n\nThe recommendation suggests implementing **adaptive RTT baseline tracking with dynamic threshold scaling**. This approach:\n\n1. **Maintains a long-term RTT baseline** (stored in a single-entry map) using slow EWMA (alpha=50) to establish what \"normal\" network latency is for the workload\n2. **Scales protection multipliers dynamically** based on deviation from baseline:\n   - If current SRTT > baseline * 1.5: apply 1.5x protection (significant degradation)\n   - If current SRTT > baseline * 1.2: apply 1.25x protection (moderate degradation)\n   - Otherwise: baseline 1.0x protection\n3. **Combines with proven strategies** from Generation 5 (best performer at 2090.49):\n   - Remove the problematic interval_stats_map overhead\n   - Revert to simple fixed thresholds for per-folio heat (<1s hot, >10s cold)\n   - Keep SRTT EWMA, PACKETS_OUT EWMA, and LOST MINMAX listeners\n\nThis extends Generation 5's fixed-threshold approach while adapting to diverse network conditions without per-workload statistics gathering, improving dual_small_vs_large throughput by better distinguishing between normal and congested states.",
+  "error_msg": "Attempted to edit outside EVOLVE-BLOCK regions\n\nFound text: '    for (u32 i = 0; i < VULCAN_NUM_GLOBAL_FEATURES && i < 16; i++) {'\nAt position: 22834\n\nContext around found text:\n     Line 568:     raw_values[GF_INTER_ARRIVAL]  = inter_arrival;\n     Line 569:     raw_values[GF_RECV_COUNT]     = (s64)net_recv_count;\n     Line 570: \n >>> Line 571:     for (u32 i = 0; i < VULCAN_NUM_GLOBAL_FEATURES && i < 16; i++) {\n     Line 572:         if (gf_configs[i].listener_mask)\n     Line 573:             vulcan_update_feature(i, raw_values[i], &gf_configs[i]);\n     Line 574:     }\n\nThis text was found in an immutable (non-editable) region.\n\nAvailable editable regions (EVOLVE-BLOCK content):\n  Region 1 (chars 10421-19423):\n    // =============================================================================\n    // EVICTION POLICY -- everything below (until the closing marker) is evolved\n    // =============================================================================\n    ... (232 more lines)\n\nSuggestions:\n1. Move your edit to within an EVOLVE-BLOCK region\n2. Check if similar code exists in the editable regions above\n3. Ensure your search text targets code within # EVOLVE-BLOCK-START/END markers",
+  "timestamp": "2026-03-22T05:21:32.934464",
+  "llm_cost": 0.080765,
+  "llm_model": null
+}

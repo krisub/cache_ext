@@ -1,0 +1,14 @@
+{
+  "generation": 59,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 4,
+  "patch_name": "adaptive_recency_decay_burstiness",
+  "patch_description": "The current program's time-decay loss mechanism added complexity without improving performance (1873.98 vs Generation 40's 2184.76). This edit implements the recommended adaptive recency decay calibration based on per-folio access burstiness to extend the proven 50% boost pattern from Generation 40.\n\nThe key insight is that folios with different access patterns should have different recency decay rates:\n- **Bursty folios** (high variance in inter-access intervals, ratio > 10) get extended protection with 70% boost - these are working-set pages accessed in clusters\n- **Normal folios** get the proven 50% boost from Generation 40\n- **Steady-access folios** (low variance, ratio < 3) get faster decay with 30% boost - these are background/sequential pages\n\nThis approach:\n1. Makes decay rates responsive to individual folio access patterns\n2. Should reduce throughput variance in dual_small_vs_large (currently std: 168.85)\n3. Extends the multi-scale temporal protection that worked well in Generation 40\n4. Removes the problematic time-decay loss tracking that hurt performance",
+  "error_msg": null,
+  "timestamp": "2026-03-23T22:38:15.582240",
+  "llm_cost": 0.22101600000000002,
+  "llm_model": null
+}

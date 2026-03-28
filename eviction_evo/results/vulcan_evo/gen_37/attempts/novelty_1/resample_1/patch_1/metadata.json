@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 7,
-  "patch_name": "recency_weighted_access_rate",
-  "patch_description": "The current program's adaptive threshold mechanism adds complexity and overhead without improving performance (1874.82 vs 2090.49 best). The recommendation suggests integrating recency directly into the access rate calculation rather than as an additive bonus. This change:\n\n1. Removes the adaptive threshold complexity (interval_stats_map) that caused regression\n2. Implements recency-weighted access rate: `base_score = access_count * (1.0 + recency_factor)` where recency_factor decays from +50% (if <1s) to 0% (if >10s) linearly\n3. Reverts to proven fixed hot/cold thresholds (<1s hot, >10s cold) from best program\n4. Reduces recency bonus from +50 flat to 0 since it's now integrated into base_score\n5. Maintains proven network-aware protection (RTT-based, loss-based)\n\nThis distinguishes recently-active frequent pages from historically-frequent but now-cold pages at the fundamental scoring level, improving victim selection granularity under memory pressure.",
+  "num_applied": 3,
+  "patch_name": "dual_metric_cwnd_congestion_detection",
+  "patch_description": "The current program's sequential vs random access classification using inter-arrival patterns caused a significant regression (5667.51 \u2192 5223.20). We should revert this complex logic and instead implement a more targeted improvement: dual-metric congestion detection that combines loss persistence with CWND collapse ratio.\n\nThis change:\n1. Enables MINMAX listener for GF_SND_CWND (in addition to existing EWMA) to track historical CWND minimum\n2. Reverts the problematic sequential vs random classification logic back to the simpler per-folio heat detection from the best-performing program\n3. Adds a conservative dual-metric congestion signal: when CWND_EWMA drops below 1.3x the historical CWND_MIN while losses persist, apply an additional +1500 stacking bonus on top of existing loss-triggered bonuses\n\nThis approach distinguishes transient congestion (temporary CWND drops that recover quickly) from sustained congestion (CWND stuck below historical baseline with persistent losses), providing a more reliable congestion signal without the complexity that caused the recent regression.",
   "error_msg": null,
-  "timestamp": "2026-03-23T12:52:51.572415",
-  "llm_cost": 0.232896,
+  "timestamp": "2026-03-26T15:22:02.355476",
+  "llm_cost": 0.223209,
   "llm_model": null
 }

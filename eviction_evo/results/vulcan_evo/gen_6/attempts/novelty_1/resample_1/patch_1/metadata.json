@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 2,
-  "patch_name": "adaptive_heat_thresholds_via_inter_arrival",
-  "patch_description": "The current implementation uses fixed time-based thresholds for heat classification:\n- Hot folios: interval_ewma < 1 second\n- Cold folios: interval_ewma > 10 seconds\n- Recency window: 5 seconds\n\nThese hard-coded values don't adapt to different workload patterns. The recommendation suggests using data-driven, adaptive thresholds based on observed inter-access intervals.\n\nThe key insight is that the global inter-arrival EWMA (smoothed packet arrival time) provides a workload-specific baseline. By deriving per-folio heat thresholds as multiples of this global baseline, we make the policy adaptive:\n\n- If packets arrive frequently (low inter-arrival), then:\n  - Hot = folio accessed more frequently than most packets (interval_ewma < 2\u00d7 inter_arrival_ewma)\n  - Cold = folio accessed much less frequently (interval_ewma > 10\u00d7 inter_arrival_ewma)\n- If packets arrive sparsely (high inter-arrival), then:\n  - Hot thresholds scale up proportionally\n  - Cold thresholds scale up proportionally\n\nThis way, under burst traffic the working set is tighter; under sparse traffic the definitions relax.\n\nAdditionally, reduce the fixed recency window from 5s to 3s to be more selective during eviction pressure.\n\nChanges:\n1. Enable GF_INTER_ARRIVAL listener with EWMA to track global packet inter-arrival patterns\n2. In bpf_score_fn, compute dynamic hot/cold thresholds as multiples of inter_arrival_ewma\n3. Adjust recency window to 3 seconds for tighter adaptation",
+  "num_applied": 1,
+  "patch_name": "add_intermediate_rtt_threshold",
+  "patch_description": "The current program uses two RTT thresholds (>50ms and >20ms) for network-aware protection, creating a coarse-grained scaling. By introducing a third intermediate tier at 35ms with a +37.5% bonus (calculated as 3*access_count/8), we create smoother protection scaling as network latency increases. This finer granularity should capture additional performance gains in the 20-50ms RTT range, which is common in many network configurations. The intermediate tier sits precisely between the current +50% (at >50ms) and +25% (at >20ms) thresholds, providing more nuanced adaptation to network conditions without introducing complex floating-point arithmetic or division operations that could impact BPF verifier compliance.",
   "error_msg": null,
-  "timestamp": "2026-03-21T21:26:58.323339",
-  "llm_cost": 0.049594,
+  "timestamp": "2026-03-25T23:25:58.152098",
+  "llm_cost": 0.08102999999999999,
   "llm_model": null
 }

@@ -17,7 +17,9 @@ For single-client traces, runs run_net_leveldb directly.
 For dual-client traces, starts proxies, runs clients in parallel, combines results.
 """
 
+import copy
 import os
+import random
 import re
 import shlex
 import subprocess
@@ -170,9 +172,30 @@ def run_dual(trace_config):
 
         # Write temp configs and start clients
         client_procs = []
+        base_dir = trace_config.get("_schedule_base_dir") or os.getcwd()
         for client in clients:
-            config = client["config"]
+            config = copy.deepcopy(client["config"])
+            wl = config.setdefault("workload", {})
             remote_host = client.get("host")
+            rs = wl.get("rate_schedule_file")
+            if rs:
+                if os.path.isabs(rs):
+                    local_sched = rs
+                else:
+                    local_sched = os.path.normpath(os.path.join(base_dir, rs))
+                if not os.path.isfile(local_sched):
+                    raise FileNotFoundError(
+                        f"rate_schedule_file not found: {local_sched} (from {rs!r})"
+                    )
+                if remote_host:
+                    remote_sched = (
+                        f"/tmp/rate_sched_{client['name']}_{os.getpid()}_"
+                        f"{random.randrange(1 << 30)}.csv"
+                    )
+                    scp_to_remote(local_sched, remote_host, remote_sched)
+                    wl["rate_schedule_file"] = remote_sched
+                else:
+                    wl["rate_schedule_file"] = local_sched
 
             fd, local_path = tempfile.mkstemp(suffix=".yaml",
                                               prefix=f"dual_{client['name']}_")
@@ -260,6 +283,7 @@ def run_trace(config_path):
     import yaml as pyyaml
     with open(config_path) as f:
         trace_config = pyyaml.safe_load(f)
+    trace_config["_schedule_base_dir"] = os.path.dirname(os.path.abspath(config_path))
 
     if trace_config.get("type") == "dual_client":
         return run_dual(trace_config)

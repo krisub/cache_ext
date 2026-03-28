@@ -1,96 +1,38 @@
 <NAME>
-adaptive_per_folio_heat_thresholds
+congestion_aware_recency_decay
 </NAME>
 
 <DESCRIPTION>
-The current program uses fixed global thresholds for determining folio "heat" (1s for hot, 10s for cold). This proposal implements adaptive thresholds based on each folio's own access pattern history using the interval_minmax listener data that we're already tracking.
-
-**Rationale**: Different folios have different natural access patterns. A folio accessed every 100ms shouldn't be treated the same as one accessed every 5s using the same global threshold. By using each folio's min/max inter-access intervals, we can detect when a folio is "hot" (accessing near its historical minimum) vs "cold" (accessing near its historical maximum) relative to its own pattern rather than a global constant.
-
-**Implementation**: 
-1. Use the per-folio `interval_minmax.min_val` and `interval_minmax.max_val` to define a range
-2. If `interval_ewma` is in the lower 25% of the range (closer to min), mark as hot
-3. If `interval_ewma` is in the upper 75% of the range (closer to max), mark as cold
-4. Fall back to fixed thresholds only if minmax data is unavailable or invalid
-
-This makes the heat scoring workload-adaptive rather than using hard-coded time constants.
-
-**Additional improvement**: Tighten the recency window from 5 seconds to 2 seconds. Looking at the prior programs, the one with a 2-second recency window (program 2) performed well. A tighter window better identifies truly recent accesses in the fast-paced network workload.
+The current program uses static recency bonuses (+3000 for <5s, +1000 for <30s). This change implements congestion-aware recency decay by modulating these bonuses based on packet loss detection. When `vulcan_get_max(GF_LOST) > 0` indicates network congestion, the recency bonuses are increased by 50% (+4500 and +1500 respectively). This makes the eviction policy more conservative during network stress, protecting recently accessed folios more aggressively when cache misses are most expensive. The `lost_max` value is already computed earlier in the function, so this change reuses it to conditionally adjust recency protection without additional overhead.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
-    }
-=======
-    /* Per-folio heat: adaptive thresholds based on folio's own access pattern */
-    s64 interval_ewma = meta->interval_ewma.value;
-    s64 interval_min = meta->interval_minmax.min_val;
-    s64 interval_max = meta->interval_minmax.max_val;
-    
-    /* Use adaptive thresholds if we have valid min/max data */
-    if (interval_min > 0 && interval_max > interval_min && interval_ewma > 0) {
-        s64 range = interval_max - interval_min;
-        s64 position = interval_ewma - interval_min;
-        
-        /* Hot: interval_ewma in lower 25% of range (accessing near minimum) */
-        if (position < (range * 25) / 100) {
-            score += 100;
-        }
-        /* Cold: interval_ewma in upper 75% of range (accessing near maximum) */
-        else if (position > (range * 75) / 100) {
-            if (score > 100) score -= 100;
-        }
-    } else {
-        /* Fallback to fixed thresholds if adaptive data unavailable */
-        if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-            score += 100;
-        } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-            if (score > 100) score -= 100;
-        }
-    }
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-    /* Recency bonus: protect pages accessed in last 5 seconds */
+    // Recency: protect recently accessed folios (likely in working set)
     u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;  /* recency boost */
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        score += 3000;
+    } else if (age < 30000000000) {  // < 30 seconds
+        score += 1000;
     }
 =======
-    /* Recency bonus: protect pages accessed in last 2 seconds (tighter window) */
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
     u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 2000000000ULL) {  /* 2 seconds in ns */
-        score += 50;  /* recency boost */
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during congestion
+        } else {
+            score += 1000;
+        }
     }
->>>>>>> REPLACE
-</DIFF>
-
-<DIFF>
-<<<<<<< SEARCH
-// -- Per-folio listener configuration ----------------------------------------
-// Baseline: disabled. Evolution can enable for interval-based scoring.
-static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
-    .ewma_alpha    = 250,
-};
-=======
-// -- Per-folio listener configuration ----------------------------------------
-// Enable EWMA and MINMAX for adaptive heat scoring. Lower alpha for faster response.
-static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
-    .ewma_alpha    = 200,  /* More reactive (was 250) */
-};
 >>>>>>> REPLACE
 </DIFF>

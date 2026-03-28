@@ -1,47 +1,70 @@
 <NAME>
-scale_cold_penalty_by_access_count
+dual_metric_sustained_congestion_detection
 </NAME>
 
 <DESCRIPTION>
-The current program applies a fixed -100 penalty to cold folios (interval_ewma > 5 seconds), which may over-penalize long-lived but valuable pages like LevelDB index structures that are accessed infrequently but remain important. This change introduces access-count-scaled asymmetry to the cold folio penalty:
+This change implements dual-metric sustained congestion detection to better identify when the network is experiencing prolonged congestion versus transient issues. The approach combines two reliable signals:
 
-- Truly unused pages (access_count < 5): full -100 penalty
-- Moderately used pages (access_count < 20): reduced -50 penalty
-- Frequently accessed historically (access_count >= 20): minimal -25 penalty
+1. Loss persistence (lost_max > 0) - indicates ongoing packet loss
+2. CWND collapse ratio - checks if the current CWND EWMA is stuck significantly below its historical minimum (< 1.3x), indicating the connection hasn't recovered from congestion
 
-This refinement directly addresses the higher variability observed in dual_small_vs_large throughput (std: 148.47) by distinguishing between genuinely cold pages and long-lived but occasionally-accessed valuable folios. The asymmetry preserves strong eviction preference for truly unused pages while providing graduated protection for pages with established access histories, potentially reducing variance and improving the harmonic mean score through more nuanced victim selection.
+The key innovation is that this additional +1000 bonus **stacks additively** with existing bonuses (like the loss-based and congestion-phase bonuses), rather than replacing them. This provides more aggressive protection during sustained congestion events that are harder to recover from.
+
+To support this, we need to enable both MINMAX and EWMA listeners for GF_SND_CWND so we can compare the current EWMA against the historical minimum. The conservative 1.3x threshold (vs 1.4x) ensures we detect sustained issues without false positives during normal recovery phases.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
-        /* Hot folio: very frequent accesses */
-        score += 100;
-    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
-        /* Cold folio: infrequent accesses, prefer as victim */
-        if (score > 100) score -= 100;
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
+=======
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_MINMAX,
+                            .ewma_alpha = 175 },
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    // Congestion phase detection: CWND vs SSTHRESH ratio
+    // When cwnd is below ssthresh, connection is in congestion avoidance/recovery
+    // This indicates sustained congestion vs transient loss events
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.5 (connection in congestion avoidance)
+        // Multiply cwnd by 3 and ssthresh by 2 to avoid division
+        if ((cwnd_ewma * 2) < (ssthresh_min * 3)) {
+            // Connection stuck in congestion avoidance: protect working set aggressively
+            score += 1500;
+        }
     }
 =======
-    /* Per-folio heat: low interval EWMA = hot (frequently accessed) */
-    s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 2000000000) {  /* < 2 seconds */
-        /* Hot folio: very frequent accesses */
-        score += 100;
-    } else if (interval_ewma > 5000000000) {  /* > 5 seconds */
-        /* Cold folio: scale penalty by historical access count to distinguish
-         * truly unused pages from long-lived but valuable metadata structures */
-        s64 cold_penalty = 100;  /* default for truly cold pages */
-        if (meta->access_count < 5) {
-            cold_penalty = 100;  /* truly unused: full penalty */
-        } else if (meta->access_count < 20) {
-            cold_penalty = 50;   /* moderately used over lifetime: reduced penalty */
-        } else {
-            cold_penalty = 25;   /* frequently accessed historically: minimal penalty */
+    // Congestion phase detection: CWND vs SSTHRESH ratio
+    // When cwnd is below ssthresh, connection is in congestion avoidance/recovery
+    // This indicates sustained congestion vs transient loss events
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.5 (connection in congestion avoidance)
+        // Multiply cwnd by 3 and ssthresh by 2 to avoid division
+        if ((cwnd_ewma * 2) < (ssthresh_min * 3)) {
+            // Connection stuck in congestion avoidance: protect working set aggressively
+            score += 1500;
         }
-        if (score > cold_penalty) score -= cold_penalty;
+    }
+
+    // Dual-metric sustained congestion detection: combine loss persistence
+    // with CWND collapse ratio for more reliable identification of prolonged congestion
+    s64 cwnd_min = vulcan_get_min(GF_SND_CWND);
+    if (lost_max > 0 && cwnd_min > 0 && cwnd_ewma > 0) {
+        // Check if CWND is stuck below 1.3x of historical minimum
+        // This distinguishes sustained congestion from transient recovery phases
+        // Use multiplication to avoid division: cwnd_ewma < cwnd_min * 1.3
+        if ((cwnd_ewma * 10) < (cwnd_min * 13)) {
+            // Sustained congestion detected: CWND collapsed AND losses persist
+            // Stack this bonus additively with existing protections
+            score += 1000;
+        }
     }
 >>>>>>> REPLACE
-
 </DIFF>

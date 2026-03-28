@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 1,
-  "patch_name": "access_count_scaled_cold_penalty",
-  "patch_description": "The current cold folio penalty applies a uniform -100 score adjustment to all folios with interval_ewma > 10 seconds, regardless of their historical access patterns. This can over-penalize long-lived but infrequently-accessed pages that still provide value (e.g., LevelDB index structures that are accessed occasionally but are critical when needed).\n\nThis change scales the cold penalty based on access_count to distinguish between:\n1. Truly unused pages (access_count < 5): full -100 penalty \n2. Moderately used pages (access_count < 20): reduced -50 penalty\n3. Frequently accessed historically (access_count >= 20): minimal -25 penalty\n\nThis preserves the asymmetric dual-threshold approach (hot bonus at < 1s, cold penalty at > 10s) while making the cold penalty more nuanced. The scaling prevents aggressive eviction of pages that have accumulated significant access history over their lifetime, even if their recent inter-access intervals are long. This should reduce variance in dual_small_vs_large by better protecting valuable long-lived pages while still identifying truly cold victims.",
+  "patch_name": "continuous_variance_weighted_regularity",
+  "patch_description": "Replace the current binary variance check (either 2000 bonus or nothing) with a continuous regularity scoring function that uses safe arithmetic (multiplication and bit shifts) to avoid division. This change rewards highly predictable access patterns (low variance relative to mean interval) more aggressively, recognizing that LevelDB's sequential index scans have extremely low variance and deserve stronger protection than the current binary threshold provides.\n\nThe new scoring function computes:\n`regularity_bonus = (5000 * (interval_ewma - variance)) >> 32`\n\nThis provides:\n- Graduated protection: folios with lower variance get higher bonuses\n- Safe arithmetic: no signed division operations that could fail BPF verification\n- Hot folio focus: only applied when interval_ewma < 100ms (frequently accessed)\n- Better recognition of sequential scan patterns that dominate LevelDB performance\n\nThe bit shift by 32 appropriately scales the nanosecond-level calculations into a reasonable bonus range (0-500 for typical patterns), while maintaining the continuous nature of the scoring.",
   "error_msg": null,
-  "timestamp": "2026-03-22T05:51:26.040854",
-  "llm_cost": 0.18132600000000001,
+  "timestamp": "2026-03-26T12:54:43.919454",
+  "llm_cost": 0.198726,
   "llm_model": null
 }

@@ -16,9 +16,11 @@ Flow:
 """
 
 import argparse
+import copy
 import fcntl
 import json
 import platform
+import random
 import threading
 import logging
 import math
@@ -87,7 +89,7 @@ SERVER_BINARY = os.path.join(CACHE_EXT_DIR, "net_leveldb_server")
 BENCH_BINARY_DIR = os.path.join(CACHE_EXT_DIR, "My-YCSB", "build")
 LEVELDB_DB = "/mydata/leveldb"
 LEVELDB_TEMP_DB = "/mydata/leveldb_temp"
-TRACES_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo", "traces")
+TRACES_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo")
 PROXY_SCRIPT = os.path.join(CACHE_EXT_DIR, "eviction_evo", "tcp_delay_proxy.py")
 SSH_OPTS = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
            "-i", "/users/krisub/.ssh/id_ed25519"]
@@ -104,9 +106,21 @@ TRACE_CONFIGS = [
     # ("ycsb_f", "ycsb_f.yaml"),           # 50% read, 50% RMW (zipfian)
     # ("uniform", "uniform.yaml"),          # 100% read (uniform)
     # ("uniform_rw", "uniform_read_write.yaml"),  # 50% read, 50% insert (uniform)
-    # Dual-client traces: two simultaneous clients with network throttling
-    ("dual_small_vs_large", "dual_small_vs_large.yaml"),  # fast reader + slow large writer
-    ("dual_congested", "dual_congested.yaml"),             # both clients WAN-delayed
+    # Dual-client traces in `dual_host_traces/` (already remote on node1)
+    # ("dual_small_vs_large", "dual_host_traces/dual_small_vs_large.yaml"),  # fast reader + slow large writer
+    # ("dual_congested", "dual_host_traces/dual_congested.yaml"),             # both clients WAN-delayed
+
+    # dual-client traces in `traces/`: YCSB workload pairings vs same DB
+    # ("ycsb_c_a", "traces/ycsb_c_a.yaml"),   # pure read hot-set vs read/update churn
+    # ("ycsb_c_b", "traces/ycsb_c_b.yaml"),   # pure read hot-set vs mostly-read w/ low updates
+    # ("ycsb_c_d", "traces/ycsb_c_d.yaml"),   # pure read hot-set vs RMW mix (50% read_modify_write)
+    # ("ycsb_c_e", "traces/ycsb_c_e.yaml"),   # pure read hot-set vs mostly reads + latest inserts
+    # ("ycsb_c_f", "traces/ycsb_c_f.yaml"),   # pure read hot-set vs scan-heavy client
+    # ("ycsb_b_a", "traces/ycsb_b_a.yaml"),   # mostly-read vs aggressive updates (read/update mix)
+    ("ycsb_a_d", "traces/ycsb_a_d_scheduled.yaml"),   # read/update mix vs RMW mix
+    # ("ycsb_b_f", "traces/ycsb_b_f.yaml"),   # mostly-read vs scan-heavy
+    # ("ycsb_e_a", "traces/ycsb_e_a.yaml"),   # latest inserts vs read/update churn
+    # ("ycsb_e_f", "traces/ycsb_e_f.yaml"),   # latest inserts vs scan-heavy
 ]
 SERVER_PORT = 9100
 CGROUP_NAME = "cache_ext_test"
@@ -488,12 +502,17 @@ def stop_policy(proc):
 
 
 def reset_database():
-    """Create temp DB via hardlinks from source. Skips if temp DB already exists."""
-    current_file = os.path.join(LEVELDB_TEMP_DB, "CURRENT")
-    if os.path.isfile(current_file):
-        log.info("Database already exists at %s (CURRENT file found), skipping copy",
-                 LEVELDB_TEMP_DB)
-        return
+    """
+    Recreate temp DB from source via hardlinks (cp -al).
+
+    Always rebuild from LEVELDB_DB so every evaluate() starts from the same
+    on-disk snapshot. The previous behavior skipped copy when LEVELDB_TEMP_DB
+    already existed, which reused a DB mutated by earlier benchmarks and made
+    scores across reruns / evolution generations incomparable.
+    """
+    if os.path.lexists(LEVELDB_TEMP_DB):
+        log.info("Removing %s for a fresh copy from %s", LEVELDB_TEMP_DB, LEVELDB_DB)
+        shutil.rmtree(LEVELDB_TEMP_DB)
     # Use cp -al to hardlink all files - nearly instant even for large DBs.
     # Safe for LevelDB: it never modifies SST files in place, only creates/deletes.
     run_cmd(["cp", "-al", LEVELDB_DB, LEVELDB_TEMP_DB], timeout=120)
@@ -662,9 +681,30 @@ def run_dual_client_benchmark(trace_config_dict):
 
         # Write temp config files and launch clients
         client_procs = []
+        base_dir = trace_config_dict.get("_schedule_base_dir") or os.getcwd()
         for client in clients:
-            config = client["config"]
+            config = copy.deepcopy(client["config"])
+            wl = config.setdefault("workload", {})
             remote_host = client.get("host")
+            rs = wl.get("rate_schedule_file")
+            if rs:
+                if os.path.isabs(rs):
+                    local_sched = rs
+                else:
+                    local_sched = os.path.normpath(os.path.join(base_dir, rs))
+                if not os.path.isfile(local_sched):
+                    raise FileNotFoundError(
+                        f"rate_schedule_file not found: {local_sched} (from {rs!r})"
+                    )
+                if remote_host:
+                    remote_sched = (
+                        f"/tmp/rate_sched_{client['name']}_{os.getpid()}_"
+                        f"{random.randrange(1 << 30)}.csv"
+                    )
+                    scp_to_remote(local_sched, remote_host, remote_sched)
+                    wl["rate_schedule_file"] = remote_sched
+                else:
+                    wl["rate_schedule_file"] = local_sched
 
             fd, local_path = tempfile.mkstemp(suffix=".yaml",
                                               prefix=f"dual_{client['name']}_")
@@ -955,6 +995,7 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
                 try:
                     if is_dual:
                         trace_yaml["_debug_results_dir"] = results_dir
+                        trace_yaml["_schedule_base_dir"] = os.path.dirname(trace_path)
                         run_result = run_dual_client_benchmark(trace_yaml)
                     else:
                         run_result = run_benchmark(trace_path)

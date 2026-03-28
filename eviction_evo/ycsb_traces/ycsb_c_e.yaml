@@ -1,0 +1,59 @@
+type: dual_client
+clients:
+  - name: client_ycsb_c
+    host: "krisub@node1"
+    config:
+      database:
+        key_size: 16
+        value_size: 200
+        nr_entry: 536870912
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 10
+        runtime_seconds: 60
+        nr_op: 10000000
+        nr_thread: 8
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 1.0
+          update: 0
+          insert: 0
+          scan: 0
+          read_modify_write: 0
+        request_distribution: "zipfian"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "10.10.1.1"
+        port: 9100
+      measurement:
+        latency_file: ""
+
+  - name: client_ycsb_e
+    host: "krisub@node1"
+    config:
+      database:
+        key_size: 16
+        value_size: 200
+        nr_entry: 536870912
+      workload:
+        nr_warmup_op: 10000000
+        warmup_runtime_seconds: 10
+        runtime_seconds: 60
+        nr_op: 10000000
+        nr_thread: 8
+        next_op_interval_ns: 0
+        operation_proportion:
+          read: 0.95
+          update: 0
+          insert: 0.05
+          scan: 0
+          read_modify_write: 0
+        request_distribution: "latest"
+        zipfian_constant: 0.99
+        scan_length: 100
+      net_leveldb:
+        addr: "10.10.1.1"
+        port: 9100
+      measurement:
+        latency_file: ""

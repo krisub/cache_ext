@@ -1,9 +1,200 @@
 {
-  "combined_score": 0.0,
+  "combined_score": 5511.061690952269,
   "public": {
-    "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:297:1: error: expected identifier or '('\n>>>>>>> REPLACE\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:389:1: error: expected identifier or '('\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:522:37: error: use of undeclared identifier 'last_loss_ts'\n        u64 time_since_loss = now - last_loss_ts;\n                                    ^\n3 errors generated.\n"
+    "ycsb_c_a_throughput_mean": 4074.35,
+    "ycsb_c_a_throughput_std": 192.32043807146425,
+    "ycsb_c_a_throughput_min": 3875.6800000000003,
+    "ycsb_c_a_throughput_max": 4259.62,
+    "ycsb_c_a_read_p99_ns_mean": 85050729.57333334,
+    "ycsb_c_e_throughput_mean": 77536.10333333333,
+    "ycsb_c_e_throughput_std": 1512.4565114519194,
+    "ycsb_c_e_throughput_min": 75994.64000000001,
+    "ycsb_c_e_throughput_max": 79017.78,
+    "ycsb_c_e_read_p99_ns_mean": 50788105.39333333,
+    "ycsb_c_f_throughput_mean": 1700.0633333333333,
+    "ycsb_c_f_throughput_std": 49.94809439141136,
+    "ycsb_c_f_throughput_min": 1642.3899999999999,
+    "ycsb_c_f_throughput_max": 1729.29,
+    "ycsb_c_f_read_p99_ns_mean": 95495615.89,
+    "ycsb_b_a_throughput_mean": 4433.49,
+    "ycsb_b_a_throughput_std": 261.7299484201223,
+    "ycsb_b_a_throughput_min": 4202.12,
+    "ycsb_b_a_throughput_max": 4717.5599999999995,
+    "ycsb_b_a_read_p99_ns_mean": 82397128.20666666,
+    "ycsb_a_d_throughput_mean": 5814.06,
+    "ycsb_a_d_throughput_std": 1143.820512624249,
+    "ycsb_a_d_throughput_min": 4903.610000000001,
+    "ycsb_a_d_throughput_max": 7097.92,
+    "ycsb_a_d_read_p99_ns_mean": 78165043.55333333,
+    "ycsb_e_a_throughput_mean": 77331.64,
+    "ycsb_e_a_throughput_std": 1063.464506742,
+    "ycsb_e_a_throughput_min": 76349.73999999999,
+    "ycsb_e_a_throughput_max": 78461.23,
+    "ycsb_e_a_read_p99_ns_mean": 46708077.78666667,
+    "ycsb_e_f_throughput_mean": 76103.18666666666,
+    "ycsb_e_f_throughput_std": 931.1073713774019,
+    "ycsb_e_f_throughput_min": 75394.79999999999,
+    "ycsb_e_f_throughput_max": 77157.81,
+    "ycsb_e_f_read_p99_ns_mean": 174897.70666666667,
+    "combined_score_harmonic_mean": 5511.061690952269,
+    "traces_passed": 7,
+    "traces_total": 7,
+    "runs_per_trace": 3
   },
   "private": {
-    "traceback": "Traceback (most recent call last):\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 882, in evaluate\n    loader_path = compile_bpf_policy(program_path, BUILD_DIR)\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 238, in compile_bpf_policy\n    raise RuntimeError(f\"BPF compilation failed:\\nSTDOUT: {result.stdout}\\nSTDERR: {result.stderr}\")\nRuntimeError: BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:297:1: error: expected identifier or '('\n>>>>>>> REPLACE\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:389:1: error: expected identifier or '('\n=======\n^\n/mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:522:37: error: use of undeclared identifier 'last_loss_ts'\n        u64 time_since_loss = now - last_loss_ts;\n                                    ^\n3 errors generated.\n\n"
+    "ycsb_c_a": {
+      "runs": [
+        {
+          "total_throughput": 3875.6800000000003,
+          "read_latency_p99_ns": 86960206.91
+        },
+        {
+          "total_throughput": 4259.62,
+          "read_latency_p99_ns": 82878219.93
+        },
+        {
+          "total_throughput": 4087.75,
+          "read_latency_p99_ns": 85313761.88
+        }
+      ],
+      "throughput_mean": 4074.35,
+      "throughput_std": 192.32043807146425,
+      "throughput_min": 3875.6800000000003,
+      "throughput_max": 4259.62,
+      "throughput_cv": 4.720272879636365,
+      "read_p99_ns_mean": 85050729.57333334
+    },
+    "ycsb_c_e": {
+      "runs": [
+        {
+          "total_throughput": 75994.64000000001,
+          "read_latency_p99_ns": 50089602.15
+        },
+        {
+          "total_throughput": 77595.89,
+          "read_latency_p99_ns": 51827073.34
+        },
+        {
+          "total_throughput": 79017.78,
+          "read_latency_p99_ns": 50447640.69
+        }
+      ],
+      "throughput_mean": 77536.10333333333,
+      "throughput_std": 1512.4565114519194,
+      "throughput_min": 75994.64000000001,
+      "throughput_max": 79017.78,
+      "throughput_cv": 1.9506480806106015,
+      "read_p99_ns_mean": 50788105.39333333
+    },
+    "ycsb_c_f": {
+      "runs": [
+        {
+          "total_throughput": 1728.51,
+          "read_latency_p99_ns": 95405001.02
+        },
+        {
+          "total_throughput": 1729.29,
+          "read_latency_p99_ns": 92907281.77
+        },
+        {
+          "total_throughput": 1642.3899999999999,
+          "read_latency_p99_ns": 98174564.88
+        }
+      ],
+      "throughput_mean": 1700.0633333333333,
+      "throughput_std": 49.94809439141136,
+      "throughput_min": 1642.3899999999999,
+      "throughput_max": 1729.29,
+      "throughput_cv": 2.938013744080791,
+      "read_p99_ns_mean": 95495615.89
+    },
+    "ycsb_b_a": {
+      "runs": [
+        {
+          "total_throughput": 4717.5599999999995,
+          "read_latency_p99_ns": 80930334.75
+        },
+        {
+          "total_throughput": 4380.79,
+          "read_latency_p99_ns": 82736574.26
+        },
+        {
+          "total_throughput": 4202.12,
+          "read_latency_p99_ns": 83524475.61
+        }
+      ],
+      "throughput_mean": 4433.49,
+      "throughput_std": 261.7299484201223,
+      "throughput_min": 4202.12,
+      "throughput_max": 4717.5599999999995,
+      "throughput_cv": 5.903474428049287,
+      "read_p99_ns_mean": 82397128.20666666
+    },
+    "ycsb_a_d": {
+      "runs": [
+        {
+          "total_throughput": 4903.610000000001,
+          "read_latency_p99_ns": 83243194.57
+        },
+        {
+          "total_throughput": 5440.65,
+          "read_latency_p99_ns": 82142773.7
+        },
+        {
+          "total_throughput": 7097.92,
+          "read_latency_p99_ns": 69109162.39
+        }
+      ],
+      "throughput_mean": 5814.06,
+      "throughput_std": 1143.820512624249,
+      "throughput_min": 4903.610000000001,
+      "throughput_max": 7097.92,
+      "throughput_cv": 19.67335240132109,
+      "read_p99_ns_mean": 78165043.55333333
+    },
+    "ycsb_e_a": {
+      "runs": [
+        {
+          "total_throughput": 76349.73999999999,
+          "read_latency_p99_ns": 46447748.54
+        },
+        {
+          "total_throughput": 78461.23,
+          "read_latency_p99_ns": 47873868.48
+        },
+        {
+          "total_throughput": 77183.95,
+          "read_latency_p99_ns": 45802616.34
+        }
+      ],
+      "throughput_mean": 77331.64,
+      "throughput_std": 1063.464506742,
+      "throughput_min": 76349.73999999999,
+      "throughput_max": 78461.23,
+      "throughput_cv": 1.3751997329191519,
+      "read_p99_ns_mean": 46708077.78666667
+    },
+    "ycsb_e_f": {
+      "runs": [
+        {
+          "total_throughput": 75756.95000000001,
+          "read_latency_p99_ns": 172529.14
+        },
+        {
+          "total_throughput": 75394.79999999999,
+          "read_latency_p99_ns": 180524.0
+        },
+        {
+          "total_throughput": 77157.81,
+          "read_latency_p99_ns": 171639.98
+        }
+      ],
+      "throughput_mean": 76103.18666666666,
+      "throughput_std": 931.1073713774019,
+      "throughput_min": 75394.79999999999,
+      "throughput_max": 77157.81,
+      "throughput_cv": 1.2234801355371216,
+      "read_p99_ns_mean": 174897.70666666667
+    }
   }
 }

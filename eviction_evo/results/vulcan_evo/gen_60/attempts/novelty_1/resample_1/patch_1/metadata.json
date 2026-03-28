@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 1,
-  "patch_name": "packets_out_saturation_boost",
-  "patch_description": "The current program uses PACKETS_OUT EWMA (alpha=200) but doesn't actively utilize it in scoring decisions. This edit adds window saturation detection by comparing the smoothed packets_out value against snd_cwnd. When the congestion window is highly utilized (>80% or >95% saturation), we apply a secondary protection boost (+15 or +25 points) independent of the existing RTT-based network_factor. This addresses the recommendation to leverage the enabled PACKETS_OUT listener with conservative fixed-point arithmetic, helping protect the working set during periods of high network utilization without the complexity that caused Generation 42's underperformance (-101.28 points). The boost is small and only applied when window saturation is detected, avoiding sustained over-protection while improving dual_congested performance.",
+  "num_applied": 2,
+  "patch_name": "graduated_jitter_aware_recency_threshold_scaling",
+  "patch_description": "Implement graduated three-tier jitter-aware recency threshold scaling to better adapt to varying network unpredictability levels. The current program lacks jitter monitoring (GF_MDEV_US is disabled), which was shown to improve performance in earlier iterations (score 5667.51 vs current 5527.07).\n\nThis change introduces three graduated tiers based on jitter (mdev) levels:\n1. Very high jitter (>15ms): Extends primary protection window to 8 seconds with +1300 secondary bonus\n2. High jitter (>10ms): Uses 7 seconds primary window with +1200 secondary bonus  \n3. Normal jitter (\u226410ms): Baseline 5 seconds primary window with +1000 secondary bonus\n\nThe rationale is that high jitter indicates severe network unpredictability where folios are harder to predict for re-access. By graduating the response across three tiers instead of a binary threshold, we can more precisely calibrate protection levels to match actual network conditions. This captures increasingly expanded working sets during network instability while maintaining conservative protection during normal latency.\n\nThe change also re-enables and tunes EWMA listeners for optimal responsiveness:\n- GF_MDEV_US: Enabled with alpha=150 to track jitter\n- GF_SRTT_US: Increased alpha to 310 for more stable RTT tracking\n- GF_INTER_ARRIVAL: Decreased alpha to 45 for more reactive burst detection\n\nThis graduated approach should add 1-2% improvement over the jitter-unaware baseline without introducing complex calculations that could trigger BPF verifier issues.",
   "error_msg": null,
-  "timestamp": "2026-03-23T22:38:44.877450",
-  "llm_cost": 0.183174,
+  "timestamp": "2026-03-27T09:49:29.924973",
+  "llm_cost": 0.22323900000000002,
   "llm_model": null
 }

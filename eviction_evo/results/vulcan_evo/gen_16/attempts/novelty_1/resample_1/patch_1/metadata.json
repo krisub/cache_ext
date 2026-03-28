@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 4,
-  "patch_name": "loss_decay_protection_refinement",
-  "patch_description": "The current program regressed from the best-performing variant (score 2090.49 down to 1874.82). The regression appears to stem from two issues:\n\n1. **Unnecessary overhead from adaptive statistics**: The interval_stats_map collection adds per-access overhead during folio_accessed events to compute dynamic thresholds, but the benefit doesn't materialize. The simpler fixed thresholds in program 5 actually performed better.\n\n2. **Over-aggressive loss protection**: The current code applies a flat 30% boost whenever loss is detected (`max_lost > 0`), regardless of staleness. This can cause sustained over-protection that locks the cache into conservative eviction for too long after a transient loss event.\n\nFollowing the provided recommendation, I propose:\n- **Remove** the interval statistics collection mechanism (eliminates per-access overhead)\n- **Implement** loss-triggered protection with exponential time-decay so the 15% boost gradually attenuates (~37% of peak after 100ms, negligible after 300ms)\n- **Restore** the condition that loss protection only applies when RTT is also elevated (RTT > 3ms), reducing false positives\n\nThis maintains network-awareness while preventing stale signals from indefinitely locking eviction policy, recovering performance closer to the best prior variant.",
+  "num_applied": 2,
+  "patch_name": "rtt_variance_aware_recency_extension",
+  "patch_description": "Enable RTT variance (jitter) tracking via GF_MDEV_US EWMA listener and use it to dynamically extend recency protection windows under high-jitter network conditions. When jitter is high (>10000us), the working set becomes less predictable and cache misses are more expensive due to variable latency. This change:\n\n1. Enables EWMA listener for GF_MDEV_US with alpha=150 to track RTT variance\n2. Extends the primary recency protection window from 5 seconds to 7 seconds when high jitter is detected\n3. Increases the secondary recency bonus (<30s) from +1000 to +1200 under high jitter conditions\n\nThis recognizes that high-jitter networks have less predictable access patterns, and the working set may expand beyond the current 5-second window as applications adapt to variable latency. The pattern builds on previous success with multi-timescale EWMA tuning and adaptive protection strategies.",
   "error_msg": null,
-  "timestamp": "2026-03-22T00:35:22.632387",
-  "llm_cost": 0.076935,
+  "timestamp": "2026-03-26T04:20:45.694349",
+  "llm_cost": 0.197988,
   "llm_model": null
 }

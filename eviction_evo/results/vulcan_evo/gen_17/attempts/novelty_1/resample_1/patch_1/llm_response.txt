@@ -1,35 +1,31 @@
 <NAME>
-loss_decay_with_rolling_window
+cwnd_ssthresh_loss_amplification
 </NAME>
 
 <DESCRIPTION>
-The current loss detection uses `vulcan_get_max(GF_LOST)`, which tracks the maximum loss value ever observed. This causes sustained over-protection even after the network recovers and loss clears. 
+The current policy detects congestion via packet loss (GF_LOST) but doesn't distinguish between transient loss events and sustained congestion window collapse. TCP enters congestion avoidance when CWND drops below SSTHRESH, indicating prolonged network degradation rather than isolated packet drops.
 
-The recommendation suggests time-decay: stale loss signals should gradually lose their protective effect. Since we cannot add new maps to track timestamps, we use the RollingWindow listener (already available in vulcan_bpf) instead of MinMax for GF_LOST. This naturally provides recency-aware loss tracking:
+This edit introduces a secondary congestion signal by:
+1. Enabling GF_SND_SSTHRESH MINMAX listener to track the slow-start threshold
+2. Detecting when CWND (EWMA) < SSTHRESH (minimum observed) * 1.5, indicating the connection is in congestion avoidance phase
+3. When both loss AND cwnd collapse are present, applying an additional +2000 bonus specifically to the recency-based protection (stacking multiplicatively)
 
-- Recent loss (latest window entries non-zero) → full 15% boost
-- Older loss (earlier window entries had loss, but latest is zero) → partial/no boost
-- Clean period (no loss in entire window) → no boost
+This amplifies working-set protection only during sustained congestion (not transient loss), targeting recently-accessed folios that are most likely to be re-requested soon. The multiplicative stacking creates stronger protection than generation 9's unconditional +1500 bonus, while being more selective about when to apply it.
 
-We check both the most recent loss value and earlier entries with partial weight to implement approximate exponential decay using window position as a proxy for age. A window size of 4-6 entries gives us roughly 100-150ms of history depending on packet frequency.
-
-This change shifts from binary (loss ever detected) to continuous (how recent was the loss), preventing stale loss signals from indefinitely locking the cache into overly conservative eviction.
+Reasoning: During sustained congestion (cwnd below ssthresh), cache misses are extremely expensive due to slow network recovery. By amplifying recency bonuses only in this specific scenario, we protect the working set more aggressively when it matters most, potentially improving performance on workloads experiencing variable congestion patterns.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-// -- Per-feature listener configuration --------------------------------------
-// Enable high-performing listeners to track network conditions adaptively.
-// These provide real-time network state for adaptive cache protection.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 150 },
+                            .ewma_alpha = 275 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 175 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 200 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
     [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
@@ -38,33 +34,30 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 =======
-// -- Per-feature listener configuration --------------------------------------
-// Enable high-performing listeners to track network conditions adaptively.
-// GF_LOST uses RollingWindow instead of MinMax to provide recency-aware loss
-// detection with natural time-decay. Recent loss → full boost; stale loss → reduced/no boost.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
     [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 150 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
-    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
-    [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
                             .ewma_alpha = 200 },
+    [GF_MDEV_US]        = { .listener_mask = 0 },
+    [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 150 },
+    [GF_SND_SSTHRESH]   = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_RCV_WND]        = { .listener_mask = 0 },
+    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_RW,
-                            .rw_size = 5 },
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
     [GF_SEGS_IN]        = { .listener_mask = 0 },
     [GF_SEGS_OUT]       = { .listener_mask = 0 },
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 >>>>>>> REPLACE
@@ -72,39 +65,69 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Packet loss detected: apply conservative protection boost.
-     * Only boost when loss is detected AND RTT is elevated to avoid
-     * stale loss signals causing sustained over-protection. */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT >3ms */
-        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
-    }
-=======
-    /* Packet loss detected with recency-aware decay via RollingWindow.
-     * Recent loss → full 15% boost; stale loss → gradually decay to no boost.
-     * Check most recent loss value; if zero (network recovered), apply reduced boost
-     * based on how recent the earlier loss was. */
-    s64 latest_lost = vulcan_get_latest(GF_LOST);
-    s64 loss_boost = 0;
-    
-    if (latest_lost > 0 && srtt_ewma > 3000) {
-        /* Most recent sample shows active loss: apply full boost */
-        loss_boost = 115;
-    } else if (srtt_ewma > 3000) {
-        /* No active loss, but check if loss was recent (window position 2-4)
-         * Apply partial decay-based boost */
-        s64 prev_lost_1 = vulcan_get_kth_recent(GF_LOST, 1);
-        s64 prev_lost_2 = vulcan_get_kth_recent(GF_LOST, 2);
-        
-        if (prev_lost_1 > 0) {
-            loss_boost = 108;  /* 8% boost for very recent loss */
-        } else if (prev_lost_2 > 0) {
-            loss_boost = 103;  /* 3% boost for moderately old loss */
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during congestion
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during congestion
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during congestion
         }
     }
-    
-    if (loss_boost > 100) {
-        network_factor = (network_factor * loss_boost) / 100;
+=======
+    // Congestion phase detection: check if CWND collapsed below SSTHRESH
+    // indicating sustained congestion (not just transient loss)
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    s64 ssthresh_min = vulcan_get_min(GF_SND_SSTHRESH);
+    bool in_congestion_phase = false;
+    if (cwnd_ewma > 0 && ssthresh_min > 0) {
+        // Check if cwnd < ssthresh * 1.5 (multiply to avoid division)
+        if ((cwnd_ewma * 2) < (ssthresh_min * 3)) {
+            in_congestion_phase = true;
+        }
+    }
+
+    // Recency: protect recently accessed folios (likely in working set)
+    // During congestion (packet loss), increase bonuses to be more conservative
+    // and extend protection window to capture working set during sustained stress
+    // When both loss AND congestion phase detected, amplify protection further
+    u64 now = bpf_ktime_get_ns();
+    s64 age = (s64)(now - meta->last_access_ts);
+    if (age < 5000000000) {  // < 5 seconds
+        if (lost_max > 0) {
+            score += 4500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 3000;
+        }
+    } else if (age < 30000000000) {  // < 30 seconds
+        if (lost_max > 0) {
+            score += 1500;  // 50% bonus during loss
+            if (in_congestion_phase) {
+                score += 2000;  // Additional amplification during sustained congestion
+            }
+        } else {
+            score += 1000;
+        }
+    } else if (age < 60000000000) {  // < 60 seconds
+        if (lost_max > 0) {
+            score += 500;  // Extended protection during loss
+        }
     }
 >>>>>>> REPLACE
 </DIFF>

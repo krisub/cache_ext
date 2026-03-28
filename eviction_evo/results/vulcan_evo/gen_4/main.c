@@ -259,40 +259,40 @@ static __always_inline bool is_folio_relevant(struct folio *folio) {
 // =============================================================================
 
 // -- Per-feature listener configuration --------------------------------------
-// Enable burst detection (inter_arrival), congestion tracking (packets_out, cwnd),
-// and loss monitoring. Network factors are applied gently.
+// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
+// listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = 0 },  /* Don't use SRTT directly; high RTT is normal in congestion */
+    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 200 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
     [GF_SND_CWND]       = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 180 },   /* Track congestion window smoothly */
+                            .ewma_alpha = 150 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
     [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA,
-                            .ewma_alpha = 180 },   /* Track in-flight packets */
+    [GF_PACKETS_OUT]    = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
+                            .ewma_alpha = 150, .rw_size = 8 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },  /* Detect actual loss */
+    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
     [GF_SEGS_IN]        = { .listener_mask = 0 },
     [GF_SEGS_OUT]       = { .listener_mask = 0 },
     [GF_DELIVERED]      = { .listener_mask = 0 },
     [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
     [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
-                             .ewma_alpha = 150, .rw_size = 6 },  /* Burst detection */
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
     [GF_RECV_COUNT]     = { .listener_mask = 0 },
 };
 
 // -- Per-folio listener configuration ----------------------------------------
-// Track per-folio inter-access intervals to distinguish hot vs. cold folios.
+// Baseline: disabled. Evolution can enable for interval-based scoring.
 static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = VULCAN_LISTENER_EWMA,  /* Only EWMA; MinMax adds overhead */
-    .ewma_alpha    = 220,
+    .listener_mask = VULCAN_LISTENER_EWMA,
+    .ewma_alpha    = 200,
 };
 
 // -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20
-#define SAMPLE_SIZE_CONGESTED 24  // Increase selectivity under congestion
+#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
 
 static u64 main_list;
 
@@ -313,15 +313,9 @@ static inline bool is_last_page_in_file(struct folio *folio)
 }
 
 /*
- * Adaptive burst and congestion-aware eviction.
+ * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
  * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- *
- * Strategy:
- *  - Base score is frequency (access_count) — main signal
- *  - Detect bursts via inter_arrival EWMA (low = burst = protect more)
- *  - Detect congestion via packets_out/cwnd ratio (high = protect more)
- *  - Apply loss-based penalty only when actual loss detected
- *  - Per-folio heat (interval_ewma) refines score gently
+ * Evolution can add vulcan_get_* calls and protection rules.
  */
 static s64 bpf_score_fn(struct cache_ext_list_node *node)
 {
@@ -340,49 +334,70 @@ static s64 bpf_score_fn(struct cache_ext_list_node *node)
     if (!meta)
         return S64_MAX;
 
-    /* Base score: frequency is the primary signal */
-    s64 score = (s64)meta->access_count;
+    u64 now = bpf_ktime_get_ns();
+    s64 age_ns = (s64)(now - meta->last_access_ts);
 
-    /* Burst detection: low inter_arrival EWMA = active burst phase */
-    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
-    s64 burst_factor = 100;  /* 1.0x baseline */
-    if (inter_arrival_ewma > 0 && inter_arrival_ewma < 50000) {  /* < 50us avg = active burst */
-        burst_factor = 115;  /* 1.15x protection during bursts */
+    // Time-based access count decay: reduce effective access count for stale pages
+    // Decay factor: reduce by 50% every 10 seconds
+    s64 effective_access = (s64)meta->access_count;
+    if (age_ns > 10000000000) {  // > 10 seconds
+        effective_access = effective_access * 3 / 4;
+    }
+    if (age_ns > 30000000000) {  // > 30 seconds
+        effective_access = effective_access / 2;
+    }
+    if (age_ns > 60000000000) {  // > 60 seconds
+        effective_access = effective_access / 4;
     }
 
-    /* Congestion detection: compare in-flight packets to congestion window */
-    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
-    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
-    s64 congestion_factor = 100;  /* 1.0x baseline */
+    s64 score = effective_access;
 
-    if (cwnd_ewma > 0 && packets_out_ewma > 0) {
-        /* If in-flight is very close to window, we're congested */
-        s64 ratio = (packets_out_ewma * 100) / cwnd_ewma;  /* ratio in fixed-point (÷100) */
-        if (ratio > 90) {  /* > 90% window utilization */
-            congestion_factor = 110;  /* 1.1x gentle protection */
+    // Adaptive network-based protection using congestion pressure
+    s64 packets_out = vulcan_get_ewma(GF_PACKETS_OUT);
+    s64 cwnd = vulcan_get_ewma(GF_SND_CWND);
+    s64 rtt_ewma = vulcan_get_ewma(GF_SRTT_US);
+
+    // Congestion pressure: packets_out / cwnd ratio
+    // High ratio = network buffers full, cache misses are expensive
+    if (cwnd > 0) {
+        s64 pressure_pct = (packets_out * 100) / cwnd;
+        if (pressure_pct > 80) {
+            // High congestion: strongly protect working set
+            score += effective_access;
+        } else if (pressure_pct > 60) {
+            // Moderate congestion
+            score += effective_access / 2;
         }
     }
 
-    /* Combine burst and congestion factors */
-    score = (score * burst_factor * congestion_factor) / 10000;
-
-    /* Loss-based penalty (only apply if actual loss detected) */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0) {
-        /* Loss detected: boost protection score gently (105x) */
-        score = (score * 105) / 100;
+    // RTT scaling: only apply if significantly elevated
+    if (rtt_ewma > 40000) {  // > 40ms
+        score += effective_access / 3;
     }
 
-    /* Per-folio heat: very hot folios (interval < 100ms) get extra protection */
+    // Loss detection: conservative protection
+    s64 lost_max = vulcan_get_max(GF_LOST);
+    if (lost_max > 0) {
+        score += effective_access / 4;
+    }
+
+    // Per-folio heat: tighter thresholds to avoid protecting scan victims
+    // Re-access within 50ms = truly hot working set
     s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 100000000) {  /* < 100ms = very hot */
-        score += 80;
-    } else if (interval_ewma > 5000000000) {  /* > 5 seconds = very cold */
-        /* Cold folio: reduce score to prefer as victim */
-        if (score > 50) score -= 50;
+    if (interval_ewma > 0 && interval_ewma < 50000000) {  // < 50ms
+        score += 8000;
+    } else if (interval_ewma > 0 && interval_ewma < 200000000) {  // < 200ms
+        score += 3000;
     }
 
-    /* LevelDB: protect index block (last page of file) */
+    // Reduced recency bonus: only very recently accessed pages
+    if (age_ns < 2000000000) {  // < 2 seconds
+        score += 2000;
+    } else if (age_ns < 10000000000) {  // < 10 seconds
+        score += 500;
+    }
+
+    // LevelDB: protect index block (last page of file)
     if (is_last_page_in_file(folio))
         score += 100000;
 
@@ -404,19 +419,7 @@ void BPF_STRUCT_OPS(evolved_evict_folios,
                     struct mem_cgroup *memcg)
 {
     bump_counter(0);
-
-    /* Adaptive sample size: under congestion, be more selective */
-    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
-    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
-    u32 sample_size = SAMPLE_SIZE;
-    if (cwnd_ewma > 0 && packets_out_ewma > 0) {
-        s64 ratio = (packets_out_ewma * 100) / cwnd_ewma;
-        if (ratio > 85) {  /* > 85% utilization: increase selectivity */
-            sample_size = SAMPLE_SIZE_CONGESTED;
-        }
-    }
-
-    struct sampling_options opts = { .sample_size = sample_size };
+    struct sampling_options opts = { .sample_size = SAMPLE_SIZE };
     bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts,
                   eviction_ctx);
 }

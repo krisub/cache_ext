@@ -1,0 +1,14 @@
+{
+  "generation": 47,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 1,
+  "patch_name": "access_count_scaled_cold_penalty",
+  "patch_description": "The current program applies a fixed -100 penalty to all cold folios (interval_ewma > 5 seconds), which over-penalizes long-lived but valuable pages like LevelDB index structures that are accessed infrequently but remain critical to performance. This modification scales the cold folio penalty by historical access count to distinguish between truly unused pages (low access_count) and long-lived valuable structures (high access_count with infrequent but consistent access).\n\nThe scaling works as follows:\n- access_count < 5: Full -100 penalty (truly cold/unused pages)\n- access_count < 20: Reduced -50 penalty (moderately accessed over lifetime)\n- access_count >= 20: Minimal -25 penalty (frequently accessed historically, just not recently)\n\nThis asymmetric penalty structure preserves the existing +100 hot folio bonus while preventing excessive eviction of long-lived metadata structures. The thresholds are calibrated based on typical LevelDB access patterns where index blocks accumulate moderate access counts over time but have naturally high inter-access intervals.\n\nThis change addresses the observed higher variance in dual_small_vs_large (std: 217.25 in best program) by providing more stable protection for persistent working set elements while still preferring genuinely cold pages as victims.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T16:50:01.689200",
+  "llm_cost": 0.185334,
+  "llm_model": null
+}

@@ -1,88 +1,57 @@
 <NAME>
-access_count_scaled_cold_penalty
+sequential_vs_random_access_classification
 </NAME>
 
 <DESCRIPTION>
-The current program has regressed significantly from the best performer (2090.49 → 1859.25). The key issue is that the recency_boost_pct logic is overly aggressive in boosting recently-accessed pages regardless of their absolute frequency, and the cold penalty doesn't account for legitimate long-lived but infrequently-accessed folios (like LevelDB index structures).
+This edit enhances the per-folio heat classification by incorporating global inter-arrival patterns to distinguish between sequential scans and random access. LevelDB workloads exhibit two distinct access patterns:
 
-The fix implements two targeted improvements:
+1. **Sequential-hot**: Index scans and sequential reads characterized by low inter-packet arrival times (< 50μs) and high access counts (> 50). These benefit from aggressive protection as they represent working-set data that will be re-accessed soon.
 
-1. **Revert to simpler recency bonus**: The complex exponential recency_boost_pct was introduced but is competing poorly with network-aware factors. Revert to a simple +50 bonus for recently-accessed pages (which worked well at 2090.49).
+2. **Random-access**: Sporadic key lookups with high inter-packet arrival times (> 500μs). These are less cache-sensitive and should receive reduced protection to prevent cache pollution.
 
-2. **Access-count-scaled cold penalties**: Instead of applying a flat -50 penalty to all cold folios, scale the penalty based on access history:
-   - If access_count < 5: Apply -100 (genuinely cold, few accesses)
-   - Else if access_count < 20: Apply -50 (moderately old but used several times)
-   - Else (access_count >= 20): Apply -25 (long-lived, frequently accessed, deserves preservation)
+The current code applies a uniform +5000 bonus to all hot folios (interval_ewma < 100ms). This edit refines that by:
+- Increasing the bonus to +6000 for sequential-hot folios (low global inter-arrival + high access count)
+- Reducing the bonus to +1500 for random-access folios (high global inter-arrival)
+- Keeping +5000 for intermediate cases
 
-This preserves the asymmetric dual-threshold approach proven in prior versions while preventing eviction of moderately-accessed pages with legitimate utility (addressing the std of 160.43 in dual_small_vs_large). The access_count scaling distinguishes between truly cold pages and pages that are simply old but valuable.
+This asymmetric scoring improves YCSB-E performance (which has sequential scans from workload E) while maintaining stability on mixed workloads by avoiding over-protection of random-access folios that won't be re-accessed soon.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    /* Recency bonus: protect pages accessed in last 5 seconds */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;
-    }
-
-    /* Recency-weighted boost: prioritize recently-accessed pages over cold ones.
-     * Exponential decay: 60% boost within 3s, decays to ~10% at 10s, negligible after 20s.
-     * Formula: recency_factor = 100 + 60 * exp(-(time_since_access / 3000ms))
-     * Approximated via: recency_factor = 100 + 60 / (1 + time_since_access_ms / 3000)
-     * This ensures recently-active pages are prioritized regardless of absolute frequency. */
-    s64 recency_boost_pct = 0;
-    if (time_since_access < 20000000000ULL) {  /* Within 20 seconds */
-        s64 elapsed_ms = time_since_access / 1000000;  /* Convert ns to ms */
-        /* Approximate exp(-t/3000): 60 / (1 + t/3000) */
-        recency_boost_pct = (60 * 3000) / (3000 + elapsed_ms);
-    }
-    s64 recency_weighted_base = (base_score * (100 + recency_boost_pct)) / 100;
-
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold).
-     * Apply heat-based adjustments on top of recency-weighted base. */
+    // Per-folio heat: lower interval EWMA = hotter (more frequent accesses)
+    // Interval is in nanoseconds; < 100ms (100000000ns) = hot
     s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses, protect strongly */
-        recency_weighted_base += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: infrequent accesses, but gentle penalty (soft degradation) */
-        s64 cold_discount = 50;  /* Default soft penalty */
-        if (recency_weighted_base > cold_discount) recency_weighted_base -= cold_discount;
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed, add bonus
+        score += 5000;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
     }
-
-    score = recency_weighted_base;
 =======
-    /* Recency bonus: protect pages accessed in last 5 seconds */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;
-    }
-
-    /* Per-folio heat via interval EWMA: distinguish hot vs cold folios.
-     * Low interval_ewma means frequent accesses (hot).
-     * High interval_ewma means infrequent accesses (cold). */
+    // Per-folio heat with sequential vs random classification:
+    // Combine per-folio interval EWMA with global inter-arrival pattern
+    // to distinguish sequential scans from random access
     s64 interval_ewma = meta->interval_ewma.value;
-    if (interval_ewma > 0 && interval_ewma < 1000000000) {  /* < 1 second */
-        /* Hot folio: very frequent accesses, protect strongly */
-        score += 100;
-    } else if (interval_ewma > 10000000000) {  /* > 10 seconds */
-        /* Cold folio: but scale penalty based on access_count to preserve
-         * long-lived moderately-accessed folios (e.g., LevelDB index structures).
-         * - access_count < 5: genuinely cold, apply -100
-         * - access_count < 20: moderately old but used, apply -50
-         * - access_count >= 20: long-lived and frequently accessed, apply -25
-         * This avoids over-penalizing pages with demonstrated utility over time. */
-        s64 cold_penalty = 100;
-        if (meta->access_count >= 20) {
-            cold_penalty = 25;
-        } else if (meta->access_count >= 5) {
-            cold_penalty = 50;
+    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
+
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed
+        // Classify as sequential-hot if low inter-arrival + high access count
+        if (inter_arrival_ewma > 0 && inter_arrival_ewma < 50000 && meta->access_count > 50) {
+            // Sequential scan pattern: aggressive protection
+            score += 6000;
+        } else if (inter_arrival_ewma > 500000) {
+            // Random access pattern: reduced protection to avoid pollution
+            score += 1500;
+        } else {
+            // Intermediate case: standard protection
+            score += 5000;
         }
-        if (score > cold_penalty) score -= cold_penalty;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
     }
 >>>>>>> REPLACE
 </DIFF>

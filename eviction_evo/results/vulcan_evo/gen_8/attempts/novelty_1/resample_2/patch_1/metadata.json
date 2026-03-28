@@ -1,0 +1,14 @@
+{
+  "generation": 8,
+  "novelty_attempt": 1,
+  "resample_attempt": 2,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 2,
+  "patch_name": "dual_interval_variance_tracking",
+  "patch_description": "The current program uses per-folio interval EWMA to detect hot folios (low average inter-access time = frequently accessed). However, it doesn't distinguish between folios with regular, predictable access patterns vs. sporadic access patterns with the same average.\n\nThis edit extends the per-folio heat detection by:\n1. Enabling the MINMAX listener in folio_cfg (alongside existing EWMA) to track min/max inter-access intervals\n2. Computing variance as `max_val - min_val` to measure temporal regularity\n3. Applying an additional +2000 bonus to folios with low variance (<50ms spread), indicating predictable, periodic access patterns\n\nThis helps retain working set pages that are accessed regularly (e.g., hot keys in YCSB workloads, index blocks accessed periodically), improving cache hit rates for workloads with temporal locality and regular access patterns. The variance metric complements the existing interval EWMA by capturing access pattern consistency, not just frequency.",
+  "error_msg": null,
+  "timestamp": "2026-03-26T00:38:42.934814",
+  "llm_cost": 0.11238000000000001,
+  "llm_model": null
+}

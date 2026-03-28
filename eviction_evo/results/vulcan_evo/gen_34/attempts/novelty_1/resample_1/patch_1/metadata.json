@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 1,
-  "patch_name": "revert_cold_penalty_add_recency_weighting",
-  "patch_description": "The current program regressed from 2090.49 to 1941.49 by replacing the simple cold penalty (-100) with an access_count-dependent scaled penalty. This appears to be over-protecting cold folios with moderate access counts, causing recently-active hot pages to be evicted instead.\n\n**Root cause:** The conditional penalty logic (25/50/100 based on access_count >= 20/5/0) is too conservative and fails to prioritize true working-set pages that are both frequently accessed AND recently accessed.\n\n**Solution:** Revert to a simple, aggressive cold penalty while strengthening recency weighting in the base score calculation itself. This combines:\n1. A uniform -100 cold penalty for pages with interval_ewma > 10s (back to program 5)\n2. Enhanced recency weighting in base_score using exponential-like decay (better capture of \"recently-active\" distinction)\n3. More aggressive recency bonus (+100 instead of +50) for pages in last 3s\n\nThis targets the observation that temporal locality (recent access + frequency) is more predictive than raw historical frequency alone in LevelDB workloads. By making recency weighting dominate the base score, we prioritize recently-accessed folios regardless of total historical access count, while still maintaining simple cold-folio eviction logic.",
+  "num_applied": 2,
+  "patch_name": "dual_metric_congestion_detection",
+  "patch_description": "Implement dual-metric congestion detection that combines loss persistence with CWND collapse ratio for more reliable sustained congestion identification. This enhancement distinguishes between transient congestion (CWND temporarily low but recovering quickly) and sustained congestion (CWND stuck below historical minimum while losses persist).\n\nThe approach:\n1. Enable both MINMAX and EWMA listeners for GF_SND_CWND to track historical minimum\n2. Add a secondary congestion signal: when EWMA(CWND) < MIN(CWND) * 1.3 AND packet loss detected, add +1500 bonus\n3. Use conservative 1.3x ratio (vs 1.4x that regressed in generation 28) \n4. Stack this bonus additively with existing loss-triggered bonuses instead of replacing them\n\nThis provides a more reliable congestion signal than using loss or CWND alone, as it requires both persistent loss AND CWND being stuck below historical levels, avoiding false positives from transient network events while capturing true sustained congestion periods that require aggressive working set protection.",
   "error_msg": null,
-  "timestamp": "2026-03-22T05:51:45.603188",
-  "llm_cost": 0.0644,
+  "timestamp": "2026-03-26T13:31:17.095515",
+  "llm_cost": 0.200631,
   "llm_model": null
 }

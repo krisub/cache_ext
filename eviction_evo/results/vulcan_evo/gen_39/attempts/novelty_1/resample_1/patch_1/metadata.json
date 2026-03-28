@@ -4,11 +4,11 @@
   "resample_attempt": 1,
   "patch_attempt": 1,
   "success": true,
-  "num_applied": 3,
-  "patch_name": "recency_weighted_access_rate",
-  "patch_description": "The current program's performance has regressed (1875.23 vs 2090.49) primarily in the dual_small_vs_large workload, where it scores only 1354.20 compared to the best program's 1601.83. The issue is that the raw `access_count` base score doesn't distinguish between recently-active hot folios and historically-accessed but now-cold folios.\n\nThe scaled cold penalty logic added complexity but failed to properly prioritize temporal locality. Instead, we should weight the base score itself by recency, making recently-accessed folios naturally score higher than equally-accessed but stale folios.\n\nThis change replaces the raw `access_count` base score with a recency-weighted metric:\n- `base_score = access_count * (100 + recency_factor) / 100`\n- `recency_factor` decays linearly from +50% (accessed <1s ago) to 0% (accessed >10s ago)\n\nFor example:\n- A folio with access_count=10 accessed 0.5s ago gets: 10 * 150/100 = 15\n- A folio with access_count=10 accessed 5s ago gets: 10 * 125/100 = 12.5\n- A folio with access_count=10 accessed 10s+ ago gets: 10 * 100/100 = 10\n\nThis directly captures working-set dynamics: recently-active folios are protected more strongly than cold ones with similar historical counts. The approach uses simple conditional branches and integer arithmetic (no division in hot path), maintaining BPF compatibility while providing fine-grained temporal discrimination.\n\nThis addresses the dual_small_vs_large regression by better protecting the fast reader's working set (recent accesses) while allowing eviction of the slow writer's stale pages (old accesses with similar counts).",
+  "num_applied": 1,
+  "patch_name": "cwnd_recovery_modulated_loss_bonuses",
+  "patch_description": "Add CWND recovery state detection to modulate loss-triggered recency amplification based on congestion window trajectory. When CWND is recovering from congestion (EWMA > min * 1.5), reduce loss-triggered bonuses by 25% since the network is improving and aggressive working-set protection is less critical. When CWND remains near minimum, maintain full bonuses to protect against sustained congestion. This distinguishes brief packet loss events (which recover quickly) from sustained congestion (where working-set protection is most valuable), potentially improving mixed workload performance without destabilizing read-heavy workloads.",
   "error_msg": null,
-  "timestamp": "2026-03-23T13:44:00.439389",
-  "llm_cost": 0.194238,
+  "timestamp": "2026-03-26T22:50:00.992081",
+  "llm_cost": 0.218493,
   "llm_model": null
 }

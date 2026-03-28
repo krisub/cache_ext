@@ -1,136 +1,70 @@
 <NAME>
-adaptive_recency_decay_with_burstiness
+cwnd_aware_access_pattern_classification
 </NAME>
 
 <DESCRIPTION>
-The current program uses a simple flat recency bonus (< 5s gets +50), which underperforms compared to Generation 39's proven multi-scale temporal protection. This edit implements adaptive recency decay calibration based on per-folio access burstiness, extending Generation 39's successful 50% boost within 1s pattern.
+This edit implements per-folio CWND-aware access pattern classification to distinguish sequential-hot from random-access folios. The key insight is that LevelDB's sequential index scans (common in YCSB-C, YCSB-E, YCSB-F workloads) exhibit very low inter-packet arrival times with high access counts when the network is healthy (high CWND), while random key lookups have sporadic, high inter-arrival times.
 
-The key improvements:
-1. Replace flat recency bonus with multi-scale temporal decay (< 1s: 50% boost, decaying linearly to 0% at 10s)
-2. Compute per-folio burstiness from interval_minmax listeners (already enabled): burstiness = max_interval / min_interval
-3. Adaptively scale recency boost based on burstiness:
-   - Bursty folios (burstiness > 10): 70% boost - these have sporadic access patterns and need stronger protection during active periods
-   - Normal folios (3 <= burstiness <= 10): 50% boost - standard working-set protection
-   - Steady-access folios (burstiness < 3): 30% boost - regular access patterns need less aggressive protection
+The classification applies asymmetric bonus scaling:
+- Sequential-hot folios (low inter-arrival <50μs, high access count >50, good CWND >20): +6500 bonus - these benefit most from aggressive cache protection
+- Random-access folios (high inter-arrival >500μs): +1500 bonus - these are less cache-sensitive and don't warrant as much protection
 
-This directly addresses the recommendation to make decay rates responsive to individual folio access patterns, which should reduce dual_small_vs_large throughput variance (currently std: 105.38) by better handling heterogeneous workloads.
+This should improve YCSB-C/E/F performance (scan-heavy workloads) by 2-3% while maintaining stability on mixed workloads by avoiding over-protection of random-access folios.
+
+To support this, we also need to tune the GF_INTER_ARRIVAL EWMA alpha to be more responsive (from 100 to 60) so it can quickly detect sequential vs. random patterns.
 </DESCRIPTION>
 
 <DIFF>
 <<<<<<< SEARCH
-    s64 base_score = (s64)meta->access_count;
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 100 },
+=======
+    [GF_INTER_ARRIVAL]  = { .listener_mask = VULCAN_LISTENER_EWMA,
+                            .ewma_alpha = 60 },
+>>>>>>> REPLACE
+</DIFF>
 
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT: protect working set more aggressively */
-    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
-        network_factor = 125;  /* 1.25x protection */
-    }
-
-    /* Packet loss detected: apply conservative protection boost */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
-        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
-    }
-
-    /* Congestion detection via window saturation (secondary factor):
-     * High PACKETS_OUT relative to SND_CWND indicates congestion.
-     * Use safe unsigned arithmetic to avoid division errors.
-     */
-    s64 packets_out_ewma = vulcan_get_ewma(GF_PACKETS_OUT);
-    s64 snd_cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
-
-    if (packets_out_ewma > 0 && snd_cwnd_ewma > 0) {
-        /* Compute congestion ratio: (packets_out * 100) / cwnd
-         * Using unsigned values to ensure safe arithmetic */
-        u64 packets_out_u = (u64)packets_out_ewma;
-        u64 cwnd_u = (u64)snd_cwnd_ewma;
-        if (cwnd_u < 1) cwnd_u = 1;  /* Avoid division by zero */
-
-        u64 congestion_ratio = (packets_out_u * 100) / cwnd_u;
-
-        /* Apply graduated secondary boost based on window saturation */
-        if (congestion_ratio > 90) {
-            /* Window fully saturated: strong additional protection */
-            network_factor += 10;
-        } else if (congestion_ratio > 70) {
-            /* Window nearly saturated: moderate additional protection */
-            network_factor += 5;
-        }
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
-
-    /* Recency bonus: protect pages accessed very recently (< 5 seconds) */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-    if (time_since_access < 5000000000ULL) {  /* 5 seconds in ns */
-        score += 50;  /* recency boost */
+<DIFF>
+<<<<<<< SEARCH
+    // Per-folio heat: lower interval EWMA = hotter (more frequent accesses)
+    // Interval is in nanoseconds; < 100ms (100000000ns) = hot
+    s64 interval_ewma = meta->interval_ewma.value;
+    if (interval_ewma > 0 && interval_ewma < 100000000) {
+        // Hot folio: frequently re-accessed, add bonus
+        score += 5000;
+    } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+        // Warm folio: < 1 second interval
+        score += 2000;
     }
 =======
-    /* Adaptive recency decay calibration based on per-folio burstiness.
-     * Compute burstiness metric from interval_minmax to scale decay parameters. */
-    s64 recency_factor = 0;
-    s64 base_boost = 50;  /* Default: 50% boost for normal folios */
-
-    /* Calculate per-folio burstiness if interval data is available */
-    s64 min_interval = meta->interval_minmax.min_val;
-    s64 max_interval = meta->interval_minmax.max_val;
-
-    if (min_interval > 0 && max_interval > 0) {
-        /* Burstiness = max_interval / min_interval (in fixed-point: *100 for safety) */
-        s64 burstiness = (max_interval * 100) / min_interval;
-
-        /* Adaptive boost calibration based on access pattern burstiness */
-        if (burstiness > 1000) {  /* burstiness > 10: highly bursty/sporadic */
-            base_boost = 70;  /* 70% boost - protect aggressively during bursts */
-        } else if (burstiness < 300) {  /* burstiness < 3: steady/regular access */
-            base_boost = 30;  /* 30% boost - less aggressive for predictable patterns */
+    // CWND-aware access pattern classification: distinguish sequential-hot from random-access
+    // Sequential scans (e.g., YCSB-F) show low inter-arrival time, high access count, good CWND
+    // Random lookups show high inter-arrival time and are less cache-sensitive
+    s64 inter_arrival_ewma = vulcan_get_ewma(GF_INTER_ARRIVAL);
+    s64 cwnd_ewma = vulcan_get_ewma(GF_SND_CWND);
+    
+    bool is_sequential_hot = (inter_arrival_ewma > 0 && inter_arrival_ewma < 50000 && 
+                              meta->access_count > 50 && cwnd_ewma > 20);
+    bool is_random_access = (inter_arrival_ewma > 500000);
+    
+    if (is_sequential_hot) {
+        // Sequential-hot: aggressive protection for scan-heavy workloads
+        score += 6500;
+    } else if (is_random_access) {
+        // Random-access: conservative protection, less cache-sensitive
+        score += 1500;
+    } else {
+        // Per-folio heat (fallback for intermediate patterns): 
+        // lower interval EWMA = hotter (more frequent accesses)
+        // Interval is in nanoseconds; < 100ms (100000000ns) = hot
+        s64 interval_ewma = meta->interval_ewma.value;
+        if (interval_ewma > 0 && interval_ewma < 100000000) {
+            // Hot folio: frequently re-accessed, add bonus
+            score += 5000;
+        } else if (interval_ewma > 0 && interval_ewma < 1000000000) {
+            // Warm folio: < 1 second interval
+            score += 2000;
         }
-        /* else: 300 <= burstiness <= 1000 (normal), keep base_boost = 50 */
     }
-
-    /* Multi-scale temporal protection with adaptive decay.
-     * Proven pattern from Generation 39, now calibrated per folio. */
-    u64 now = bpf_ktime_get_ns();
-    u64 time_since_access = now - meta->last_access_ts;
-
-    if (time_since_access < 1000000000ULL) {  /* < 1 second: hot working set */
-        recency_factor = base_boost;  /* Apply adaptive boost */
-    } else if (time_since_access < 10000000000ULL) {  /* 1-10 seconds: warm, decaying */
-        /* Linear decay from base_boost to 0 over 9 seconds */
-        s64 elapsed_seconds = (time_since_access - 1000000000ULL) / 1000000000ULL;
-        recency_factor = base_boost - (elapsed_seconds * base_boost / 9);
-        if (recency_factor < 0) recency_factor = 0;
-    }
-    /* else: time_since_access >= 10s, recency_factor remains 0 (cold) */
-
-    s64 base_score = ((s64)meta->access_count * (100 + recency_factor)) / 100;
-
-    /* Network-aware protection: when RTT is high, cache misses are expensive */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 network_factor = 100;  /* baseline: 1.0x in fixed-point (÷100) */
-
-    /* Elevated RTT: protect working set more aggressively */
-    if (srtt_ewma > 10000) {  /* >10ms smoothed RTT */
-        network_factor = 150;  /* 1.5x protection */
-    } else if (srtt_ewma > 5000) {  /* >5ms smoothed RTT */
-        network_factor = 125;  /* 1.25x protection */
-    }
-
-    /* Packet loss detected: apply conservative protection boost */
-    s64 max_lost = vulcan_get_max(GF_LOST);
-    if (max_lost > 0 && srtt_ewma > 3000) {  /* Loss + RTT > 3ms */
-        network_factor = (network_factor * 115) / 100;  /* 15% additional boost */
-    }
-
-    /* Apply network-aware protection factor */
-    s64 score = (base_score * network_factor) / 100;
 >>>>>>> REPLACE
-
 </DIFF>

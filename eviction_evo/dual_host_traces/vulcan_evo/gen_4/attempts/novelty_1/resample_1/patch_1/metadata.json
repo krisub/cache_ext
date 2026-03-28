@@ -1,0 +1,14 @@
+{
+  "generation": 4,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 5,
+  "patch_name": "adaptive_burst_and_congestion_aware_eviction",
+  "patch_description": "The current program achieves 1977.84 by using RTT and loss detection, but this hurts performance in the congested scenario (3098 vs 3456 in the baseline). The issue is that high RTT in a congested network doesn't mean we should protect more\u2014it means we should be smarter about what we protect.\n\nKey improvements:\n1. **Enable inter_arrival burst detection**: When inter_arrival is low (packets arriving frequently), we're in a burst phase and should protect the working set more. When inter_arrival is high, we're idle and should evict more aggressively.\n\n2. **Soften network protection factors**: The current 150x and 125x multipliers are too aggressive. Use 110x/115x instead, applied only when loss is actually detected, not just high RTT.\n\n3. **Add congestion window awareness**: Track the ratio of packets_out to cwnd. When we're near the window limit, we're truly congested and should be more selective.\n\n4. **Use access_count as primary signal**: Make frequency (access_count) the dominant factor. Network conditions modify this gently, not aggressively.\n\n5. **Soften per-folio heat bonus**: Only give the +100 bonus to very hot folios (interval < 100ms), making eviction more selective.\n\n6. **Increase sample size under congestion**: When packets_out is high, increase SAMPLE_SIZE from 20 to 24 for better victim selection.\n\nThis approach balances network awareness (protecting during true congestion and bursts) with efficient eviction (not over-protecting during transient RTT increases).",
+  "error_msg": null,
+  "timestamp": "2026-03-21T20:55:27.268226",
+  "llm_cost": 0.05553,
+  "llm_model": null
+}

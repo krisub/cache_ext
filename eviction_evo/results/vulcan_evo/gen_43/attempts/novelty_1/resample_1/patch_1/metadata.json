@@ -5,10 +5,10 @@
   "patch_attempt": 1,
   "success": true,
   "num_applied": 2,
-  "patch_name": "add_congestion_window_saturation_detection",
-  "patch_description": "Following the recommendation to integrate PACKETS_OUT congestion signal with safe unsigned arithmetic for window saturation detection. This adds a secondary network factor to improve congested workload performance.\n\nThe approach:\n1. Enable SND_CWND EWMA listener to track congestion window smoothly\n2. Compute congestion ratio as (PACKETS_OUT / SND_CWND) * 100 using safe unsigned arithmetic\n3. Apply graduated secondary boost to network_factor: +5 for ratio > 70%, +10 for ratio > 90%\n4. Use additive boost pattern to avoid compounding effects with existing RTT-based protection\n\nThis provides a complementary signal to RTT for detecting network congestion, particularly valuable during the dual_congested workload where window saturation indicates the need for stronger cache protection.",
+  "patch_name": "restore_jitter_awareness_and_fix_congestion_stacking",
+  "patch_description": "The current program regressed from generation 5 by removing jitter-aware protection and incorrectly implementing sustained congestion detection. The recommendation specified to STACK bonuses additively (+1000 when both cwnd collapse and loss persist), but the current implementation REPLACES loss bonuses by amplifying them 30%, which loses the original signal.\n\nKey fixes:\n1. Re-enable GF_MDEV_US EWMA listener (alpha=150) - this was beneficial in gen 5\n2. Restore jitter-aware logic (high_jitter based on mdev_ewma > 10000) that extends protection windows\n3. Fix sustained congestion to check BOTH cwnd_ewma < cwnd_min * 1.3 AND lost_max > 0 (per recommendation)\n4. STACK a +1000 bonus when sustained congestion detected, rather than amplifying (replacing) existing bonuses\n5. Keep the working bonuses from gen 5 unchanged, just add the sustained congestion bonus on top\n\nThis combines the best of gen 5 (jitter awareness, which scored 5667.51) with the recommendation's intent (additive stacking of sustained congestion bonus).",
   "error_msg": null,
-  "timestamp": "2026-03-23T14:47:07.363560",
-  "llm_cost": 0.20604899999999998,
+  "timestamp": "2026-03-27T00:40:24.810570",
+  "llm_cost": 0.22970400000000002,
   "llm_model": null
 }

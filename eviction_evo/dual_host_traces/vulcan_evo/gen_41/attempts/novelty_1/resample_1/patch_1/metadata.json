@@ -1,0 +1,14 @@
+{
+  "generation": 41,
+  "novelty_attempt": 1,
+  "resample_attempt": 1,
+  "patch_attempt": 1,
+  "success": true,
+  "num_applied": 3,
+  "patch_name": "decay_loss_protection_and_improve_recency",
+  "patch_description": "This edit addresses the recommendation to add time-decay to loss protection while improving recency handling based on the best-performing prior program. The changes include:\n\n1. **Time-decayed loss protection**: Switch GF_LOST from MINMAX to RollingWindow (size 5) to naturally age out stale loss signals. Implement graduated decay: recent loss (latest sample) gets full 15% boost, older loss (1-2 samples back) gets reduced boost (8% and 3%), and no recent loss gets no boost. This prevents sustained over-protection from stale loss signals while maintaining responsiveness to active congestion.\n\n2. **Recency-weighted base score**: Move recency weighting into the base_score calculation itself (as in the 2184.76 program) rather than as a separate additive bonus. This gives 50% boost for accesses <1s old, decaying linearly to 0% at 10s, making temporal locality a first-class component of the score.\n\n3. **Simplified RTT logic**: Return to absolute RTT thresholds (5ms, 10ms) instead of trend detection, which proved simpler and more effective in the best-performing program.\n\nThese changes directly implement the recommendation's guidance about decay while incorporating proven patterns from the highest-scoring prior program.",
+  "error_msg": null,
+  "timestamp": "2026-03-23T14:15:28.806224",
+  "llm_cost": 0.20272500000000002,
+  "llm_model": null
+}
