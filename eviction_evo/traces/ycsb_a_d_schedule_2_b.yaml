@@ -1,6 +1,10 @@
+# Dual client ycsb_a + ycsb_d with per-second aggregate target QPS from kvcache-compressed
+# schedules (CSV: one target ops/s per line for each experiment second).
+# Generate CSVs: python3 ../export_kvcache_schedules.py /path/to/kvcache_traces_1.csv ...
+# Paths are relative to this file's directory (../schedules/...).
 type: dual_client
 clients:
-  - name: client_ycsb_b
+  - name: client_ycsb_a
     host: "krisub@node1"
     config:
       database:
@@ -10,13 +14,14 @@ clients:
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
-        runtime_seconds: 60
-        nr_op: 10000000
+        runtime_seconds: 120
+        nr_op: 100000000
         nr_thread: 8
         next_op_interval_ns: 0
+        rate_schedule_file: "../schedules/350.csv"
         operation_proportion:
-          read: 0.95
-          update: 0.05
+          read: 0.5
+          update: 0.5
           insert: 0
           scan: 0
           read_modify_write: 0
@@ -29,7 +34,7 @@ clients:
       measurement:
         latency_file: ""
 
-  - name: client_ycsb_f
+  - name: client_ycsb_d
     host: "krisub@node1"
     config:
       database:
@@ -39,17 +44,18 @@ clients:
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
-        runtime_seconds: 60
-        nr_op: 10000000
+        runtime_seconds: 120
+        nr_op: 100000000
         nr_thread: 8
         next_op_interval_ns: 0
+        rate_schedule_file: "../schedules/1400.csv"
         operation_proportion:
-          read: 0.5
+          read: 0.95
           update: 0
-          insert: 0
+          insert: 0.05
           scan: 0
-          read_modify_write: 0.5
-        request_distribution: "zipfian"
+          read_modify_write: 0
+        request_distribution: "latest"
         zipfian_constant: 0.99
         scan_length: 100
       net_leveldb:

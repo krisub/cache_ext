@@ -8,11 +8,10 @@ Called by ShinkaEvolve with:
 Flow:
   1. Copy the evolved .c file into the policies build directory
   2. Compile: clang -> .bpf.o -> bpftool skeleton -> clang userspace loader
-  3. Set up cgroup, start net_leveldb_server inside it
-  4. Load the evolved BPF policy
-  5. Run My-YCSB benchmark
-  6. Parse throughput/latency, write metrics.json + correct.json
-  7. Cleanup
+  3. (Default) Before each benchmark: reclone DB, cgroup, start server, load BPF
+  4. Run My-YCSB benchmark(s)
+  5. Parse throughput/latency, write metrics.json + correct.json
+  6. Cleanup
 """
 
 import argparse
@@ -96,6 +95,12 @@ SSH_OPTS = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
 REMOTE_CLIENT_CGROUP = "cache_ext_remote_clients"
 # Ordered list of trace configs to run for each evaluation.
 # Each trace is (short_name, yaml_filename).
+#
+# By default (RESET_ENV_EVERY_RUN, see below) each benchmark run stops the server,
+# reclones leveldb_temp from LEVELDB_DB, drops page cache, recreates the cgroup, reloads
+# BPF, and restarts the server — so traces do not mutate each other's DB and order
+# does not matter. Set CACHE_EXT_RESET_EVERY_RUN=0 for one DB+server for the whole
+# suite (faster; not comparable across trace order).
 TRACE_CONFIGS = [
     # # Single-client traces (commented out - dual-client only mode)
     # ("ycsb_a", "ycsb_a.yaml"),           # 50% read, 50% update (zipfian)
@@ -117,7 +122,12 @@ TRACE_CONFIGS = [
     # ("ycsb_c_e", "traces/ycsb_c_e.yaml"),   # pure read hot-set vs mostly reads + latest inserts
     # ("ycsb_c_f", "traces/ycsb_c_f.yaml"),   # pure read hot-set vs scan-heavy client
     # ("ycsb_b_a", "traces/ycsb_b_a.yaml"),   # mostly-read vs aggressive updates (read/update mix)
-    ("ycsb_a_d", "traces/ycsb_a_d_scheduled.yaml"),   # read/update mix vs RMW mix
+    # ("ycsb_a_d", "traces/ycsb_a_d.yaml"),   # read/update mix vs RMW mix
+    # ("ycsb_a_d_sched_1", "traces/ycsb_a_d_schedule_1.yaml"),  
+    # ("ycsb_a_d_sched_2_a", "traces/ycsb_a_d_schedule_2_a.yaml"), 
+    # ("ycsb_a_d_sched_2_a_flipped", "traces/ycsb_a_d_schedule_2_a_flipped.yaml"),  
+    # ("ycsb_a_d_sched_2_b", "traces/ycsb_a_d_schedule_2_b.yaml"),  
+    ("ycsb_a_d_sched_2_c", "traces/ycsb_a_d_schedule_2_c.yaml"),  
     # ("ycsb_b_f", "traces/ycsb_b_f.yaml"),   # mostly-read vs scan-heavy
     # ("ycsb_e_a", "traces/ycsb_e_a.yaml"),   # latest inserts vs read/update churn
     # ("ycsb_e_f", "traces/ycsb_e_f.yaml"),   # latest inserts vs scan-heavy
@@ -125,12 +135,22 @@ TRACE_CONFIGS = [
 SERVER_PORT = 9100
 CGROUP_NAME = "cache_ext_test"
 CGROUP_PATH = f"/sys/fs/cgroup/{CGROUP_NAME}"
-CGROUP_SIZE_BYTES = 512 * (2**20)  # 512 MiB - hot working set ~600 MiB so this creates real eviction pressure
+CGROUP_SIZE_BYTES = 512 * (2**20) # 512 mb
 
 # Benchmark timing
 WARMUP_SECONDS = 30
 RUNTIME_SECONDS = 120
 RUNS_PER_TRACE = 5
+# When True (default): before each benchmark run, reclone DB, drop caches, reload BPF,
+# restart server. Comparable across traces; slower. Disable with CACHE_EXT_RESET_EVERY_RUN=0.
+RESET_ENV_EVERY_RUN = os.environ.get("CACHE_EXT_RESET_EVERY_RUN", "1") != "0"
+# Optional: diagnostic latency-adjusted score (not used for combined_score).
+# Per-trace diagnostic = throughput_mean / (1 + read_p99_ms / LAT_REF_MS).
+LAT_REF_MS = float(os.environ.get("LAT_REF_MS", "400"))
+# Copy bounded per-run throughput / read p99 into public_metrics so Shinka LLM prompts (perf_str) show them.
+# Disable with CACHE_EXT_PUBLIC_PER_RUN_STATS=0. Cap list length with CACHE_EXT_PUBLIC_PER_RUN_MAX (default 20).
+PUBLIC_PER_RUN_STATS = os.environ.get("CACHE_EXT_PUBLIC_PER_RUN_STATS", "1") != "0"
+PUBLIC_PER_RUN_MAX = max(1, int(os.environ.get("CACHE_EXT_PUBLIC_PER_RUN_MAX", "20")))
 # Maximum time to wait for the full evaluation, seconds
 EVAL_TIMEOUT_SECONDS = 7200
 
@@ -498,6 +518,26 @@ def stop_policy(proc):
         pass
 
 
+def teardown_server_and_policy(server_proc, policy_proc):
+    """Stop server and BPF policy. Server must stop before reset_database()."""
+    stop_process(server_proc, "net_leveldb_server")
+    stop_policy(policy_proc)
+
+
+def prepare_fresh_benchmark_env(loader_path: str):
+    """
+    Recreate DB from LEVELDB_DB, drop page caches, cgroup, reload BPF, start server.
+    Caller must have torn down any previous server/policy (teardown_server_and_policy).
+    """
+    reset_database()
+    drop_page_cache()
+    time.sleep(2)
+    create_cgroup(CGROUP_SIZE_BYTES)
+    policy_proc = start_policy(loader_path, LEVELDB_TEMP_DB)
+    server_proc = start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)
+    return server_proc, policy_proc
+
+
 # -- Benchmark -----------------------------------------------------------------
 
 
@@ -541,7 +581,9 @@ def run_benchmark(trace_config_path):
     stdout = result.stdout
     log.info("Benchmark stdout:\n%s", stdout[:2000])
 
-    return parse_benchmark_results(stdout)
+    out = parse_benchmark_results(stdout)
+    out["throughput_series_total_ops_per_sec"] = parse_epoch_throughput_series(stdout)
+    return out
 
 
 def parse_benchmark_results(stdout: str) -> dict:
@@ -586,6 +628,44 @@ def parse_benchmark_results(stdout: str) -> dict:
         raise RuntimeError(f"Could not parse throughput from output:\n{stdout[:2000]}")
 
     return results
+
+
+def parse_epoch_throughput_series(stdout: str) -> list[float]:
+    """
+    Parse My-YCSB 1Hz monitor lines into a throughput-over-time series.
+
+    Keep only benchmark-phase lines (skip any line containing "Warm-Up").
+    Example:
+      "Zipfian (epoch 3, progress ...): ... total throughput 1700.12 ops/sec"
+    """
+    series: list[float] = []
+    pat = re.compile(r"total throughput\s+(\d+(?:\.\d+)?)\s+ops/sec")
+    for raw in stdout.splitlines():
+        line = raw.strip()
+        if "(epoch" not in line or "total throughput" not in line:
+            continue
+        if "Warm-Up" in line:
+            continue
+        m = pat.search(line)
+        if not m:
+            continue
+        try:
+            series.append(float(m.group(1)))
+        except ValueError:
+            continue
+    return series
+
+
+def latency_adjusted_trace_score(tp_mean: float, p99_ns_mean: float,
+                                 lat_ref_ms: float) -> float:
+    """Combine throughput with a smooth p99 penalty."""
+    if tp_mean <= 0:
+        return 0.0
+    # If p99 is unavailable, fall back to throughput-only score.
+    if p99_ns_mean <= 0 or lat_ref_ms <= 0:
+        return tp_mean
+    p99_ms = p99_ns_mean / 1e6
+    return tp_mean / (1.0 + (p99_ms / lat_ref_ms))
 
 
 # -- Dual-Client Benchmark ----------------------------------------------------
@@ -787,7 +867,9 @@ def run_dual_client_benchmark(trace_config_dict):
                               name, proc.returncode, stderr[:500])
                     results_per_client[name] = {"total_throughput": 0.0}
                 else:
-                    results_per_client[name] = parse_benchmark_results(stdout)
+                    parsed = parse_benchmark_results(stdout)
+                    parsed["throughput_series_total_ops_per_sec"] = parse_epoch_throughput_series(stdout)
+                    results_per_client[name] = parsed
                     log.info("Client %s: throughput=%.2f", name,
                              results_per_client[name].get("total_throughput", 0))
             except subprocess.TimeoutExpired:
@@ -820,6 +902,27 @@ def run_dual_client_benchmark(trace_config_dict):
         total_tp = sum(r.get("total_throughput", 0.0)
                        for r in results_per_client.values())
         combined = {"total_throughput": total_tp}
+
+        # Combine epoch throughput series: sum per-epoch across clients (align by index)
+        series_per_client = [
+            r.get("throughput_series_total_ops_per_sec", [])
+            for r in results_per_client.values()
+            if isinstance(r.get("throughput_series_total_ops_per_sec", None), list)
+        ]
+        if series_per_client:
+            min_len = min(len(s) for s in series_per_client)
+            if min_len > 0:
+                combined["throughput_series_total_ops_per_sec"] = [
+                    sum(float(s[i]) for s in series_per_client) for i in range(min_len)
+                ]
+        # Keep per-client achieved throughput-over-time for feedback/analysis.
+        per_client_series = {}
+        for client_name, r in results_per_client.items():
+            s = r.get("throughput_series_total_ops_per_sec")
+            if isinstance(s, list) and s:
+                per_client_series[client_name] = [float(v) for v in s]
+        if per_client_series:
+            combined["per_client_throughput_series_total_ops_per_sec"] = per_client_series
 
         # Aggregate p99: worst (max) across clients
         p99s = [r.get("read_latency_p99_ns", 0)
@@ -861,7 +964,9 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
              policy_name: str | None = None):
     """
     Full evaluation pipeline:
-      drop cache -> [compile if evolved] -> disable MGLRU -> setup cgroup -> start server -> load policy -> benchmark -> cleanup
+      [optional initial DB reset] -> [compile if evolved] -> disable MGLRU ->
+      (either one cgroup+policy+server for the suite, or fresh cgroup+policy+server
+      before each benchmark run when RESET_ENV_EVERY_RUN) -> benchmarks -> cleanup
 
     If policy_name is given, use pre-built loader from policies/ (cache_ext_{policy_name}.out) and skip compilation.
     If debug=True: run 1 trace, 1 run, shorter warmup/runtime for faster iteration.
@@ -913,11 +1018,16 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
             # Also clean up any orphaned cgroup or server from a killed run
             delete_cgroup()
 
-        # 0. Drop page cache FIRST (before compilation) so even failed runs
-        #    don't leave a warm cache that benefits the next generation.
-        log.info("=== Step 0: Drop page cache ===")
-        reset_database()
-        drop_page_cache()
+        # 0. Optional one-time DB reclone + drop cache (skipped when per-run reset handles it).
+        log.info("=== Step 0: Initial environment ===")
+        if not RESET_ENV_EVERY_RUN:
+            reset_database()
+            drop_page_cache()
+        else:
+            log.info(
+                "Per-run reset enabled (CACHE_EXT_RESET_EVERY_RUN): "
+                "each benchmark will reclone DB, drop caches, reload BPF, restart server."
+            )
 
         # 1. Get loader: pre-built policy or compile evolved
         if policy_name:
@@ -940,17 +1050,18 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
         disable_mglru()
         mglru_disabled = True
 
-        # 3. Create cgroup
-        log.info("=== Step 3: Create cgroup ===")
-        create_cgroup(CGROUP_SIZE_BYTES)
-
-        # 4. Load BPF policy
-        log.info("=== Step 4: Load BPF policy ===")
-        policy_proc = start_policy(loader_path, LEVELDB_TEMP_DB)
-
-        # 5. Start server in cgroup
-        log.info("=== Step 5: Start server ===")
-        server_proc = start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)
+        # 3–5. Cgroup + BPF + server (once per suite, or before each run below)
+        if not RESET_ENV_EVERY_RUN:
+            log.info("=== Step 3: Create cgroup ===")
+            create_cgroup(CGROUP_SIZE_BYTES)
+            log.info("=== Step 4: Load BPF policy ===")
+            policy_proc = start_policy(loader_path, LEVELDB_TEMP_DB)
+            log.info("=== Step 5: Start server ===")
+            server_proc = start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)
+        else:
+            log.info(
+                "=== Steps 3–5: Deferred — cgroup/policy/server start before each benchmark ==="
+            )
 
         # 6. Run all trace benchmarks
         if debug:
@@ -969,6 +1080,13 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
 
         for trace_idx, (trace_name, trace_file) in enumerate(trace_configs):
             trace_path = os.path.join(TRACES_DIR, trace_file)
+            if trace_idx == 0 and not RESET_ENV_EVERY_RUN:
+                log.info(
+                    "First trace (%s): runs right after fresh leveldb_temp + policy load; "
+                    "throughput is often lower than the same trace later in a long suite "
+                    "(cold page cache / DB churn vs warmed session).",
+                    trace_name,
+                )
 
             with open(trace_path, 'r') as _tf:
                 trace_yaml = pyyaml.safe_load(_tf)
@@ -989,8 +1107,16 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
                          trace_idx + 1, len(trace_configs), trace_name,
                          run_idx + 1, runs_per_trace, run_counter, total_runs)
 
-                drop_page_cache()
-                time.sleep(2)
+                if RESET_ENV_EVERY_RUN:
+                    log.info(
+                        "Full environment reset before this run "
+                        "(stop server, reclone DB, drop caches, cgroup, BPF, server) ..."
+                    )
+                    teardown_server_and_policy(server_proc, policy_proc)
+                    server_proc, policy_proc = prepare_fresh_benchmark_env(loader_path)
+                else:
+                    drop_page_cache()
+                    time.sleep(2)
 
                 try:
                     if is_dual:
@@ -1011,12 +1137,47 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
             tps = [r.get("total_throughput", 0.0) for r in runs]
             p99s = [r.get("read_latency_p99_ns", 0.0) for r in runs
                     if "read_latency_p99_ns" in r]
+            series_runs = [
+                r.get("throughput_series_total_ops_per_sec", [])
+                for r in runs
+                if isinstance(r.get("throughput_series_total_ops_per_sec", None), list)
+            ]
+            per_client_series_runs: dict[str, list[list[float]]] = {}
+            for r in runs:
+                pcs = r.get("per_client_throughput_series_total_ops_per_sec")
+                if not isinstance(pcs, dict):
+                    continue
+                for client_name, series in pcs.items():
+                    if not isinstance(series, list):
+                        continue
+                    per_client_series_runs.setdefault(client_name, []).append(
+                        [float(v) for v in series]
+                    )
 
             tp_mean = statistics.mean(tps)
             tp_std = statistics.stdev(tps) if len(tps) > 1 else 0.0
             tp_min = min(tps)
             tp_max = max(tps)
             p99_mean = statistics.mean(p99s) if p99s else 0.0
+            series_mean: list[float] = []
+            if series_runs:
+                min_len = min(len(s) for s in series_runs)
+                if min_len > 0:
+                    series_mean = [
+                        statistics.mean(float(s[i]) for s in series_runs)
+                        for i in range(min_len)
+                    ]
+            per_client_series_mean: dict[str, list[float]] = {}
+            for client_name, series_list in per_client_series_runs.items():
+                if not series_list:
+                    continue
+                min_len = min(len(s) for s in series_list)
+                if min_len <= 0:
+                    continue
+                per_client_series_mean[client_name] = [
+                    statistics.mean(float(s[i]) for s in series_list)
+                    for i in range(min_len)
+                ]
 
             trace_summary = {
                 "runs": runs,
@@ -1026,6 +1187,8 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
                 "throughput_max": tp_max,
                 "throughput_cv": (tp_std / tp_mean * 100) if tp_mean > 0 else 0.0,
                 "read_p99_ns_mean": p99_mean,
+                "throughput_series_total_ops_per_sec_mean": series_mean,
+                "per_client_throughput_series_total_ops_per_sec_mean": per_client_series_mean,
             }
             all_trace_results[trace_name] = trace_summary
 
@@ -1034,30 +1197,90 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
             public_metrics[f"{trace_name}_throughput_min"] = tp_min
             public_metrics[f"{trace_name}_throughput_max"] = tp_max
             public_metrics[f"{trace_name}_read_p99_ns_mean"] = p99_mean
+            if series_mean:
+                cap = int(os.environ.get("CACHE_EXT_PUBLIC_TP_SERIES_MAX", "120"))
+                cap = min(cap, len(series_mean))
+                public_metrics[f"{trace_name}_throughput_series_mean"] = [
+                    round(v, 2) for v in series_mean[:cap]
+                ]
+            if per_client_series_mean:
+                cap = int(os.environ.get("CACHE_EXT_PUBLIC_TP_SERIES_MAX", "120"))
+                for client_name, cseries in per_client_series_mean.items():
+                    n = min(cap, len(cseries))
+                    public_metrics[
+                        f"{trace_name}_{client_name}_throughput_series_mean"
+                    ] = [round(v, 2) for v in cseries[:n]]
+            if PUBLIC_PER_RUN_STATS:
+                cap = min(len(runs), PUBLIC_PER_RUN_MAX)
+                tp_per_run = []
+                p99_ms_per_run = []
+                for i in range(cap):
+                    r = runs[i]
+                    tp_per_run.append(
+                        round(float(r.get("total_throughput", 0.0)), 2)
+                    )
+                    p99v = r.get("read_latency_p99_ns")
+                    if p99v is not None:
+                        p99_ms_per_run.append(round(float(p99v) / 1e6, 2))
+                    else:
+                        p99_ms_per_run.append(0.0)
+                public_metrics[f"{trace_name}_per_run_throughput"] = tp_per_run
+                public_metrics[f"{trace_name}_per_run_read_p99_ms"] = p99_ms_per_run
             log.info("Trace %s summary: mean=%.2f std=%.2f min=%.2f max=%.2f (CV=%.1f%%)",
                      trace_name, tp_mean, tp_std, tp_min, tp_max,
                      trace_summary["throughput_cv"])
 
-        # 7. Compute combined score (harmonic mean of per-trace mean throughputs)
+        # 7. Combined score = harmonic mean of per-trace **mean throughput** (optimization objective).
+        #    Latency-adjusted harmonic mean is computed only as a diagnostic (see LAT_REF_MS).
         mean_throughputs = []
+        latency_adjusted_scores = []
         for trace_name, _ in TRACE_CONFIGS:
-            tp_mean = all_trace_results.get(trace_name, {}).get("throughput_mean", 0.0)
+            trace_result = all_trace_results.get(trace_name, {})
+            tp_mean = trace_result.get("throughput_mean", 0.0)
+            p99_mean = trace_result.get("read_p99_ns_mean", 0.0)
             mean_throughputs.append(tp_mean)
+            trace_score = latency_adjusted_trace_score(tp_mean, p99_mean, LAT_REF_MS)
+            latency_adjusted_scores.append(trace_score)
+            trace_result["latency_adjusted_score"] = trace_score
+            trace_result["lat_ref_ms"] = LAT_REF_MS
 
         nonzero_tps = [t for t in mean_throughputs if t > 0]
         if len(nonzero_tps) == len(mean_throughputs) and len(mean_throughputs) > 0:
-            harmonic_mean = len(mean_throughputs) / sum(1.0 / t for t in mean_throughputs)
+            throughput_harmonic_mean = len(mean_throughputs) / sum(
+                1.0 / t for t in mean_throughputs
+            )
         elif len(nonzero_tps) > 0:
             hm_partial = len(nonzero_tps) / sum(1.0 / t for t in nonzero_tps)
-            harmonic_mean = hm_partial * (len(nonzero_tps) / len(mean_throughputs))
+            throughput_harmonic_mean = hm_partial * (len(nonzero_tps) / len(mean_throughputs))
         else:
-            harmonic_mean = 0.0
+            throughput_harmonic_mean = 0.0
 
-        combined_score = harmonic_mean
-        public_metrics["combined_score_harmonic_mean"] = harmonic_mean
+        nonzero_latency_scores = [s for s in latency_adjusted_scores if s > 0]
+        if (
+            len(nonzero_latency_scores) == len(latency_adjusted_scores)
+            and len(latency_adjusted_scores) > 0
+        ):
+            latency_adjusted_harmonic_mean = len(latency_adjusted_scores) / sum(
+                1.0 / s for s in latency_adjusted_scores
+            )
+        elif len(nonzero_latency_scores) > 0:
+            hm_partial = len(nonzero_latency_scores) / sum(
+                1.0 / s for s in nonzero_latency_scores
+            )
+            latency_adjusted_harmonic_mean = hm_partial * (
+                len(nonzero_latency_scores) / len(latency_adjusted_scores)
+            )
+        else:
+            latency_adjusted_harmonic_mean = 0.0
+
+        combined_score = throughput_harmonic_mean
+        public_metrics["lat_ref_ms"] = LAT_REF_MS
+        public_metrics["combined_score_harmonic_mean_throughput_only"] = throughput_harmonic_mean
+        public_metrics["combined_score_harmonic_mean_latency_adjusted"] = latency_adjusted_harmonic_mean
         public_metrics["traces_passed"] = len(nonzero_tps)
         public_metrics["traces_total"] = len(mean_throughputs)
         public_metrics["runs_per_trace"] = runs_per_trace
+        public_metrics["reset_env_every_run"] = RESET_ENV_EVERY_RUN
 
         metrics = {
             "combined_score": combined_score,
@@ -1067,16 +1290,29 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
 
         save_results(results_dir, metrics, correct=True, error_msg=None)
         log.info("=== Evaluation complete (%d runs per trace) ===", runs_per_trace)
-        log.info("Combined score (harmonic mean of means): %.2f  (%d/%d traces passed)",
-                 combined_score, len(nonzero_tps), len(mean_throughputs))
+        log.info(
+            "Combined score (throughput harmonic mean): %.2f  (%d/%d traces passed)",
+            combined_score,
+            len(nonzero_tps),
+            len(mean_throughputs),
+        )
+        log.info(
+            "Diagnostic: latency-adjusted harmonic mean (LAT_REF_MS=%.1f): %.2f",
+            LAT_REF_MS,
+            latency_adjusted_harmonic_mean,
+        )
         for trace_name, _ in TRACE_CONFIGS:
             ts = all_trace_results.get(trace_name, {})
-            log.info("  %s: mean=%.2f std=%.2f [%.2f .. %.2f]",
-                     trace_name,
-                     ts.get("throughput_mean", 0),
-                     ts.get("throughput_std", 0),
-                     ts.get("throughput_min", 0),
-                     ts.get("throughput_max", 0))
+            log.info(
+                "  %s: mean=%.2f std=%.2f [%.2f .. %.2f] p99=%.2fms score=%.2f",
+                trace_name,
+                ts.get("throughput_mean", 0),
+                ts.get("throughput_std", 0),
+                ts.get("throughput_min", 0),
+                ts.get("throughput_max", 0),
+                ts.get("read_p99_ns_mean", 0) / 1e6,
+                ts.get("latency_adjusted_score", 0),
+            )
 
     except Exception as e:
         stderr_detail = ""

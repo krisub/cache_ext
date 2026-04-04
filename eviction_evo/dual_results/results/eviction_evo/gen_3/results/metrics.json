@@ -1,9 +1,0 @@
-{
-  "combined_score": 0.0,
-  "public": {
-    "error": "BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:465:31: error: use of undeclared identifier 'HOT_ACCESS_THRESHOLD'\n    if (meta->access_count >= HOT_ACCESS_THRESHOLD)\n                              ^\n1 error generated.\n"
-  },
-  "private": {
-    "traceback": "Traceback (most recent call last):\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 581, in evaluate\n    loader_path = compile_bpf_policy(program_path, BUILD_DIR)\n  File \"/mydata/cache_ext/eviction_evo/evaluate.py\", line 170, in compile_bpf_policy\n    raise RuntimeError(f\"BPF compilation failed:\\nSTDOUT: {result.stdout}\\nSTDERR: {result.stderr}\")\nRuntimeError: BPF compilation failed:\nSTDOUT: \nSTDERR: /mydata/cache_ext/eviction_evo/build/cache_ext_evolved.bpf.c:465:31: error: use of undeclared identifier 'HOT_ACCESS_THRESHOLD'\n    if (meta->access_count >= HOT_ACCESS_THRESHOLD)\n                              ^\n1 error generated.\n\n"
-  }
-}

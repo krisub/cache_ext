@@ -5,7 +5,7 @@ clients:
     config:
       database:
         key_size: 16
-        value_size: 200
+        value_size: 1024
         nr_entry: 536870912
       workload:
         nr_warmup_op: 10000000
@@ -34,7 +34,7 @@ clients:
     config:
       database:
         key_size: 16
-        value_size: 200
+        value_size: 1024
         nr_entry: 536870912
       workload:
         nr_warmup_op: 10000000

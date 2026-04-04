@@ -5,7 +5,7 @@ clients:
     config:
       database:
         key_size: 16
-        value_size: 200
+        value_size: 1024
         nr_entry: 536870912
       workload:
         nr_warmup_op: 10000000
@@ -34,7 +34,7 @@ clients:
     config:
       database:
         key_size: 16
-        value_size: 200
+        value_size: 1024
         nr_entry: 536870912
       workload:
         nr_warmup_op: 10000000
@@ -44,12 +44,12 @@ clients:
         nr_thread: 8
         next_op_interval_ns: 0
         operation_proportion:
-          read: 0.95
+          read: 0
           update: 0
           insert: 0.05
-          scan: 0
+          scan: 0.95
           read_modify_write: 0
-        request_distribution: "latest"
+        request_distribution: "zipfian"
         zipfian_constant: 0.99
         scan_length: 100
       net_leveldb:

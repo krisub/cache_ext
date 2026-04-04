@@ -38,11 +38,11 @@ evo_config:
   patch_type_probs:
     - 1.0
 
-  num_generations: 100
+  num_generations: 50
   max_api_costs: 15.0
   max_patch_resamples: 5
-  max_patch_attempts: 5
-  max_novelty_attempts: 2
+  max_patch_attempts: 8
+  max_novelty_attempts: 4
   job_type: local
 
   language: c
@@ -53,7 +53,8 @@ evo_config:
   llm_kwargs:
     temperatures:
       - 0
-      - 0.2
+      - 0.3
+      - 0.6
     reasoning_efforts:
       - low
       - medium
@@ -79,8 +80,8 @@ evo_config:
 
   llm_dynamic_selection: ucb1
   llm_dynamic_selection_kwargs:
-    exploration_coef: 1.0
-    cost_aware_coef: 0.7
+    exploration_coef: 1.8
+    cost_aware_coef: 0.3
 
   results_dir: results/vulcan_evo
 
@@ -91,7 +92,7 @@ evo_config:
   prompt_archive_size: 8
   prompt_percentile_recompute_interval: 1
   prompt_ucb_exploration_constant: 2.0
-  prompt_epsilon: 0.25
+  prompt_epsilon: 0.4
 
   # ── Task system message ──────────────────────────────────────────────
   task_sys_msg: |
@@ -124,14 +125,18 @@ evo_config:
     provides listener abstractions for network metrics; you enable them via
     gf_configs[] and use vulcan_get_* accessors in bpf_score_fn.
 
-    ### CRITICAL: Use network features and listeners
-    You MUST enable network listeners in gf_configs and use them in
-    bpf_score_fn. Pure LFU (access_count only, all listeners disabled)
-    underperforms the MGLRU baseline. Enable at least RTT (GF_SRTT_US) and
-    ideally loss (GF_LOST), cwnd (GF_SND_CWND), or inter-arrival
-    (GF_INTER_ARRIVAL). Call vulcan_get_ewma, vulcan_get_max, etc. in your
-    scoring logic. The workloads are network-bound, so eviction decisions
-    should adapt to RTT, congestion, and request patterns.
+    ### CRITICAL: Strong network-feature requirement
+    Network awareness is **mandatory** for competitive scores on this task.
+    You MUST enable multiple network listeners in `gf_configs` and make them
+    materially affect `bpf_score_fn` decisions (not dead code). Pure LFU
+    (`access_count` only, listeners off) is not acceptable. As a practical
+    minimum, use **at least two distinct network signal families** in scoring,
+    e.g. one latency signal (`GF_SRTT_US`/`GF_MDEV_US`) plus one congestion or
+    reliability signal (`GF_SND_CWND`, `GF_LOST`, `GF_TOTAL_RETRANS`,
+    `GF_RETRANS_OUT`, `GF_PACKETS_OUT`, `GF_INTER_ARRIVAL`, etc.).
+    Do not fixate on a single hardcoded trio; choose features you can justify
+    for time-varying load and combine listeners (EWMA, MinMax, RW, AVG) so
+    network state actually changes eviction priority under pressure.
 
     ### What you evolve
     1. **Per-feature listener configuration** — the `gf_configs[]` array
@@ -143,22 +148,95 @@ evo_config:
     4. **The scoring function** `bpf_score_fn(node) -> s64`
        - **Lower score** = preferred victim (evicted when it is the minimum in a sample batch)
        - **S64_MAX** = do not prefer this folio vs others (same pattern as LFU policy for dirty / bad folios)
-       - Optionally combine `meta->access_count` with network-driven rules via vulcan_get_* accessors
+       - MUST combine `meta->access_count` with network-driven rules via `vulcan_get_*` accessors
        - `SAMPLE_SIZE` — candidates per victim slot (see `struct sampling_options`)
     5. **Struct_ops callbacks** (init, evict_folios, folio_added,
        folio_accessed, folio_evicted) — sensible defaults are provided;
        customize only if needed.
 
+    ### BPF / LLVM: avoid signed division in `bpf_score_fn`
+    The clang BPF backend often **cannot** lower **`/` on signed (`s64`) values**
+    (LLVM emits `sdiv`); compilation fails with errors like *"Unsupport signed
+    division ... Please convert to unsigned div/mod."* Do **not** write ratios
+    such as `(a * 100) / b` or `(x - y) / z` directly on signed operands. Prefer:
+    - **Unsigned division** after proving operands are non-negative:
+      `(u64)((u64)a * 100ULL) / (u64)b`, or
+    - **Shifts / fixed-point** for powers of two (e.g. `>> 7` instead of `/ 128`),
+      or multiply-then-shift for approximate percentages.
+
     ## Multi-Workload Evaluation
-    Your policy is tested against ONE dual-client workload trace.
-    The combined score is the HARMONIC MEAN of throughputs across all runs of the trace.
-    Scoring 0 on ANY trace severely penalizes your total score.
+    Your policy is evaluated on dual-client traces. For load-shape reasoning in
+    this prompt, focus on the **synthetic step schedule variants**:
+    `ycsb_a_d_schedule_2_a.yaml`, `ycsb_a_d_schedule_2_a_flipped.yaml`,
+    `ycsb_a_d_schedule_2_b.yaml`, and `ycsb_a_d_schedule_2_c.yaml`.
 
-    Each trace runs TWO My-YCSB clients simultaneously against the SAME
-    LevelDB server in the SAME cgroup.
+    **Optimization objective (what evolution maximizes):** the **harmonic mean** of each trace’s **mean total
+    throughput** (ops/sec, summed across the two clients), averaged over repeated benchmark runs. Scoring 0 on
+    any trace severely penalizes the total score.
 
-    The trace is: ycsb_a_d_scheduled.yaml
-    
+    **Read tail latency (for your reasoning, not the numeric fitness):** the evaluator also records **READ p99
+    latency** (nanoseconds; reported as `read_p99_ns_mean` per trace in `metrics.json`). Use it to interpret
+    queueing, overload, or policy mistakes — but **throughput harmonic mean remains the sole objective** unless
+    the harness is changed. Lower p99 at similar throughput is still a good sign even though it is not directly
+    scored.
+
+    Both clients run **at the same time** against the **same** LevelDB TCP server and **same**
+    cgroup-limited page cache; their load and eviction pressure are **fully shared**.
+
+    ### YCSB workload **A** (client `client_ycsb_a`)
+    This is the standard **YCSB workload A** mix (not “read-only”):
+    - **50% READ, 50% UPDATE** — half of operations are point reads, half are updates to existing keys.
+    - **Zipfian** key distribution with constant **0.99** (hot keys; realistic skew).
+    - Records: **16-byte keys**, **200-byte values**; scan length parameter is set but **scan proportion is 0** (no range scans).
+    - Multiple threads issue operations as fast as pacing allows; the workload stresses **read + write** paths and **dirty page** behavior alongside cached reads.
+
+    ### YCSB workload **D** (client `client_ycsb_d`)
+    This matches **`cache_ext/ycsb_mod/ycsb_d.yaml`**: standard **YCSB “latest”** (read-mostly against recently
+    inserted keys), **not** zipfian RMW:
+    - **95% READ, 5% INSERT** (no RMW in this workload). `request_distribution` is **`latest`**: keys are drawn
+      from a sliding “recent” prefix of the keyspace (inserts advance the window; reads skew toward recent keys
+      via the latest-generator logic in My-YCSB’s `LatestWorkload`).
+    - Same **16-byte keys**, **200-byte values**, **536870912** logical records, **zipfian_constant 0.99** (used
+      inside the latest workload’s draw logic), same server as client A.
+    - Compared to workload A, client D is **read-heavy** with **append-style inserts** — different cache footprint
+      than A’s 50/50 read/update zipfian skew.
+
+    ### Per-client **target throughput over time** (step schedules)
+    Each client has its own **per-second target aggregate ops/s** for the **120 s benchmark phase** (warmup is
+    **not** schedule-limited). Row *t* is the **cap** for that second; **`next_op_interval_ns: 0`** means the
+    worker **paces** to that target.
+
+    #### Synthetic **step** schedule variants
+    All four variants are piecewise-constant and repeat one 5-step pattern
+    **4 times in 120 s** (**6 s/step**, **24 s per cycle**). Client A uses the
+    zipfian read/update mix; client D uses latest read/insert. The variants differ
+    only in target magnitudes and phase orientation:
+
+    - **`ycsb_a_d_schedule_2_a.yaml` (standard medium amplitude):**
+      - A: **500 → 1500 → 2000 → 1500 → 500**
+      - D: **2000 → 1500 → 500 → 1500 → 2000** (phase-offset complement)
+    - **`ycsb_a_d_schedule_2_a_flipped.yaml` (same magnitude, roles flipped):**
+      - A: **2000 → 1500 → 500 → 1500 → 2000**
+      - D: **500 → 1500 → 2000 → 1500 → 500**
+      - Purpose: test whether asymmetry comes from workload identity (A vs D)
+        rather than only from step shape.
+    - **`ycsb_a_d_schedule_2_b.yaml` (milder amplitude):**
+      - A: **350 → 1050 → 1400 → 1050 → 350**
+      - D: **1400 → 1050 → 350 → 1050 → 1400**
+      - Purpose: lower offered-load regime (often less saturation).
+    - **`ycsb_a_d_schedule_2_c.yaml` (harsher amplitude):**
+      - A: **650 → 1950 → 2600 → 1950 → 650**
+      - D: **2600 → 1950 → 650 → 1950 → 2600**
+      - Purpose: higher offered-load regime (stronger queueing/congestion stress).
+
+    These repeated, complementary staircases create abrupt and recurring shifts
+    in offered load so network-aware eviction logic has chances to adapt at
+    each transition.
+
+    **Design intent:** Same two workloads on one server, with **time-varying,
+    asymmetric** offered load from repeated step changes. Eviction logic should
+    be explicitly **network-adaptive**: when congestion/latency worsens, misses
+    are more expensive, so protection/eviction thresholds should react.
 
     ## Listener Configuration API
     You configure listeners per-feature using `gf_configs[]`, an array of
@@ -300,6 +378,15 @@ evo_config:
     - Only call accessors (e.g. vulcan_get_ewma) for listeners you have
       enabled in gf_configs — disabled listeners return 0 safely but the
       values are meaningless.
+    - Do not submit policies that are effectively network-agnostic. If network
+      terms never change victim ordering under realistic ranges, the policy is
+      too close to LFU and should be revised.
+    - Avoid conservative micro-edits every generation. Each new proposal
+      should differ meaningfully from recent attempts in at least one
+      dimension: listener subset, listener parameters (alpha/window),
+      scoring function shape/thresholds, or sample-size/list organization.
+    - When score plateaus, prioritize structurally different hypotheses over
+      tiny coefficient tweaks.
 
     ## Eviction strategies to explore
     - **Recency + frequency**: protect folios with high access_count AND
