@@ -13,93 +13,108 @@
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #endif
 
-#define FMODE_CREATED 0x100000 /* linux: include/linux/fs.h */
-#define BPF_PATH_MAX 128
+/* Directory st_ino for resolved watch roots (userspace stat after realpath). */
+const volatile __u64 watch_root_ino_1 = 0;
+/* 0 = unused (single-DB). Must differ from watch_root_ino_1 in dual mode. */
+const volatile __u64 watch_root_ino_2 = 0;
 
-// Read-only variable, filled by loader
-const volatile char watch_dir_path[BPF_PATH_MAX] = {0};
-const volatile size_t watch_dir_path_len = 0;
+/* Tags stored in inode_watchlist (non-zero). Default 1 and 2 for client1/client2. */
+const volatile __u32 client_tag_1 = 1;
+const volatile __u32 client_tag_2 = 2;
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, __u64);
-    __type(value, bool);
-    __uint(max_entries, 200000);
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, __u64);
+	__type(value, __u32);
+	__uint(max_entries, 200000);
 } inode_watchlist SEC(".maps");
 
-static inline bool inode_in_watchlist(u64 inode_no) {
-    // Start simple. Return true if file page and not executable.
-    // TODO: Fill me
-    u8 *ret = bpf_map_lookup_elem(&inode_watchlist, &inode_no);
-    if (ret != NULL) {
-        return true;
-    }
-    return false;
-};
+static inline __u32 inode_get_client_tag(u64 inode_no)
+{
+	__u32 *tp = bpf_map_lookup_elem(&inode_watchlist, &inode_no);
 
-static inline int strncmp(const char *s1, const volatile char *s2, int n) {
-	while (n && *s1 && (*s1 == *s2)) {
-		++s1;
-		++s2;
-		--n;
-	}
-
-	if (n == 0)
+	if (!tp || *tp == 0)
 		return 0;
-
-	return *s1 - *s2;
+	return *tp;
 }
 
-// Use a fexit probe to track file opens
-SEC("fexit/vfs_open")
-int BPF_PROG(vfs_open_exit, struct path *path, struct file *file, long ret) {
-    // If file was not opened, return
-    if (ret != 0) return 0;
+static inline bool inode_in_watchlist(u64 inode_no)
+{
+	return inode_get_client_tag(inode_no) != 0;
+}
 
-    // If file was not created, return
-    // if (!(file->f_mode & FMODE_CREATED)) return 0;
+/*
+ * Classify opens by walking dentry parents: any ancestor directory inode may
+ * match a watch root. Avoids bpf_d_path — cache-ext / some 6.6 verifiers reject
+ * bpf_d_path for vfs_open's struct path * ("cannot access ptr member mnt...").
+ */
+static inline __u32 client_tag_from_watch_roots(const struct path *path)
+{
+	struct dentry *d, *parent;
+	struct inode *inode;
+	__u64 ino;
+	int i;
 
-    // {0} required due to verifier bug in Linux 6.6.8 compared to 6.6.14
-    char filepath[BPF_PATH_MAX] = {0};
-    long err;
-    if ((err = bpf_d_path(path, filepath, sizeof(filepath))) < 0) {
-        bpf_printk("Failed to get file path: %ld\n", err);
-        return 0;
-    }
+	if (unlikely(!watch_root_ino_1))
+		return 0;
 
-    u64 inode_no = file->f_inode->i_ino;
+	d = BPF_CORE_READ(path, dentry);
+	if (!d)
+		return 0;
 
-    bpf_printk("DEBUG: open: %s (Inode: %llu)\n", filepath, inode_no);
+	for (i = 0; i < 64; i++) {
+		inode = BPF_CORE_READ(d, d_inode);
+		if (!inode)
+			return 0;
+		ino = BPF_CORE_READ(inode, i_ino);
+		if (ino == watch_root_ino_1)
+			return client_tag_1;
+		if (watch_root_ino_2 && ino == watch_root_ino_2)
+			return client_tag_2;
+		parent = BPF_CORE_READ(d, d_parent);
+		if (!parent || parent == d)
+			return 0;
+		d = parent;
+	}
+	return 0;
+}
 
-    // Check if inode was previously inode_watchlisted - means it was previously
-    // deleted
-    // TODO: can be deleted
-    u8 *ret2 = bpf_map_lookup_elem(&inode_watchlist, &inode_no);
-    if (ret2 != NULL) {  // Remove inode from inode_watchlist
-        err = bpf_map_delete_elem(&inode_watchlist, &inode_no);
-        if (err != 0) {
-            bpf_printk("Failed to delete inode from inode_watchlist: %ld\n",
-                       err);
-            return 0;
-        }
-    }
+SEC("fentry/vfs_open")
+int BPF_PROG(vfs_open_enter, const struct path *path, struct file *file)
+{
+	(void)file;
 
-    // Check if file is in our desired directory tree
-    if (unlikely(!watch_dir_path_len)) {
-        bpf_printk("watch_dir_path_len is 0!!\n");
-        return 0;
-    }
-    if (strncmp(filepath, watch_dir_path, watch_dir_path_len) != 0) return 0;
+	__u32 tag = client_tag_from_watch_roots(path);
+	if (tag == 0)
+		return 0;
 
-    // Add inode to inode_watchlist
-    u8 zero = 0;
-    err = bpf_map_update_elem(&inode_watchlist, &inode_no, &zero, BPF_ANY);
-    if (err != 0) {
-        bpf_printk("Failed to add inode to inode_watchlist: %ld\n", err);
-        return 0;
-    }
+	struct dentry *dentry = BPF_CORE_READ(path, dentry);
+	if (!dentry)
+		return 0;
+	struct inode *inode = BPF_CORE_READ(dentry, d_inode);
+	if (!inode)
+		return 0;
+	u64 inode_no = BPF_CORE_READ(inode, i_ino);
 
-    return 0;
+	u32 *ret2 = bpf_map_lookup_elem(&inode_watchlist, &inode_no);
+	long err;
+
+	if (ret2 != NULL) {
+		err = bpf_map_delete_elem(&inode_watchlist, &inode_no);
+		if (err != 0) {
+			bpf_printk("Failed to delete inode from inode_watchlist: %ld\n",
+				   err);
+			return 0;
+		}
+	}
+
+	err = bpf_map_update_elem(&inode_watchlist, &inode_no, &tag, BPF_ANY);
+	if (err != 0) {
+		bpf_printk("Failed to add inode to inode_watchlist: %ld\n", err);
+		return 0;
+	}
+
+	return 0;
 }
 
 #endif /* __BPF_DIR_WATCHER_H */

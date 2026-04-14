@@ -15,6 +15,16 @@
 	SEC("struct_ops/" #name)      \
 	BPF_PROG(name, ##args)
 
+/* Programs in struct_ops.s/ sections are sleepable and may call KF_SLEEPABLE kfuncs.
+ * bpf_cache_ext_ds_registry_new_list() is sleepable — *init must use this
+ * macro*, or the verifier reports: "program must be sleepable to call
+ * sleepable kfunc ...".
+ *
+ * If instead the verifier fails inside that kfunc on memcg (css/cgroup
+ * access / trusted_ptr), the running kernel's cache_ext kfunc BTF/flags must
+ * match the artifact kernel (see cache-ext README: same 6.6.8-cache-ext+
+ * tree, libbpf, bpftool); that is not fixable from policy C alone.
+ */
 #define BPF_STRUCT_OPS_SLEEPABLE(name, args...) \
 	SEC("struct_ops.s/" #name)              \
 	BPF_PROG(name, ##args)

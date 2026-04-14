@@ -1,24 +1,31 @@
 #include <argp.h>
 #include <bpf/bpf.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <stdbool.h>
+
 #include "cache_ext_mru.skel.h"
 #include "dir_watcher.h"
+#include "cache_ext_policy_watch.h"
 
 char *USAGE =
-	"Usage: ./cache_ext_mru --watch_dir <dir> --cgroup_path <path>\n";
+	"Usage: ./cache_ext_mru --watch_dir <dir> | --dual_pair <root> --cgroup_path <path>\n";
 
 struct cmdline_args {
 	char *watch_dir;
+	char *dual_pair;
 	char *cgroup_path;
 };
 
 static struct argp_option options[] = { { "watch_dir", 'w', "DIR", 0,
 					  "Directory to watch" },
+					{ "dual_pair", CACHE_EXT_ARG_DUAL_PAIR, "DIR", 0,
+					  "Dual DB root (contains client1/ and client2/)" },
 					{ "cgroup_path", 'c', "PATH", 0,
 					  "Path to cgroup (e.g., /sys/fs/cgroup/cache_ext_test)" },
 					{ 0 } };
@@ -29,6 +36,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	switch (key) {
 	case 'w':
 		args->watch_dir = arg;
+		break;
+	case CACHE_EXT_ARG_DUAL_PAIR:
+		args->dual_pair = arg;
 		break;
 	case 'c':
 		args->cgroup_path = arg;
@@ -52,34 +62,23 @@ int main(int argc, char **argv)
 	struct argp argp = { options, parse_opt, 0, 0 };
 	argp_parse(&argp, argc, argv, 0, 0, &args);
 
-	// Validate arguments
-	if (args.watch_dir == NULL) {
-		fprintf(stderr, "Missing required argument: watch_dir\n");
-		return 1;
-	}
-
 	if (args.cgroup_path == NULL) {
 		fprintf(stderr, "Missing required argument: cgroup_path\n");
 		return 1;
 	}
 
-	// Does watch_dir exist?
-	if (access(args.watch_dir, F_OK) == -1) {
-		fprintf(stderr, "Directory does not exist: %s\n",
-			args.watch_dir);
-		return 1;
-	}
-
-	// Get full path of watch_dir
 	char watch_dir_full_path[PATH_MAX];
-	if (realpath(args.watch_dir, watch_dir_full_path) == NULL) {
-		perror("realpath");
-		return 1;
-	}
+	char path2[PATH_MAX];
+	int dual = 0;
+	unsigned long long root_ino1, root_ino2;
 
-	// TODO: Enable longer length
-	if (strlen(watch_dir_full_path) > 128) {
-		fprintf(stderr, "watch_dir path too long\n");
+	if (cache_ext_resolve_watch_paths(args.watch_dir, args.dual_pair,
+					 watch_dir_full_path, path2, &dual))
+		return 1;
+
+	if (cache_ext_watch_root_stat(watch_dir_full_path, path2, dual,
+				      &root_ino1, &root_ino2)) {
+		fprintf(stderr, "watch root stat failed (need directories)\n");
 		return 1;
 	}
 
@@ -90,22 +89,25 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	// Open skel
 	skel = cache_ext_mru_bpf__open();
 	if (skel == NULL) {
 		perror("Failed to open BPF skeleton");
 		goto cleanup;
 	}
 
-	// Load programs
+	CACHE_EXT_SET_WATCH_ROOT_INOS(skel, root_ino1, root_ino2, dual);
+	skel->rodata->client_tag_1 = 1;
+	skel->rodata->client_tag_2 = 2;
+
 	ret = cache_ext_mru_bpf__load(skel);
 	if (ret) {
 		perror("Failed to load BPF skeleton");
 		goto cleanup;
 	}
 
-	// Initialize watch_dir map
-	ret = initialize_watch_dir_map(watch_dir_full_path, bpf_map__fd(skel->maps.inode_watchlist), true);
+	ret = cache_ext_init_inode_watch_map(
+	    bpf_map__fd(skel->maps.inode_watchlist), watch_dir_full_path, path2,
+	    dual, true);
 	if (ret) {
 		perror("Failed to initialize watch_dir map");
 		goto cleanup;

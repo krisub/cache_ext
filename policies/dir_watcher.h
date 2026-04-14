@@ -10,17 +10,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 
-#define inode_watchlist_map(skel) 		((skel)->maps.inode_watchlist)
-#define watch_dir_path_map(skel)		((skel)->rodata->watch_dir_path)
-#define watch_dir_path_len_map(skel)	((skel)->rodata->watch_dir_path_len)
+#define inode_watchlist_map(skel)		((skel)->maps.inode_watchlist)
 
-int initialize_watch_dir_map(const char *path, int watch_dir_map_fd, bool recursive) {
+int initialize_watch_dir_map_tagged(const char *path, int watch_dir_map_fd,
+				    bool recursive, __u32 tag)
+{
 	int ret;
 	DIR *dir;
 	struct dirent *ent;
@@ -42,7 +43,6 @@ int initialize_watch_dir_map(const char *path, int watch_dir_map_fd, bool recurs
 		char *filepath = (char *)malloc(strlen(path) + strlen(filename) + 2);
 		sprintf(filepath, "%s/%s", path, filename);
 
-		// Check if dir
 		struct stat sb;
 		if (stat(filepath, &sb) == -1) {
 			fprintf(stderr, "stat: %s: %s\n", strerror(errno), filepath);
@@ -55,8 +55,8 @@ int initialize_watch_dir_map(const char *path, int watch_dir_map_fd, bool recurs
 				continue;
 			}
 
-			// Recurse for nested directories
-			ret = initialize_watch_dir_map(filepath, watch_dir_map_fd, recursive);
+			ret = initialize_watch_dir_map_tagged(filepath, watch_dir_map_fd,
+							    recursive, tag);
 			if (ret < 0) {
 				closedir(dir);
 				free(filepath);
@@ -65,10 +65,7 @@ int initialize_watch_dir_map(const char *path, int watch_dir_map_fd, bool recurs
 		}
 		free(filepath);
 
-		__u8 zero = 0;
-
-		// fprintf(stderr, "Adding inode %lu to watch_dir map\n", ent->d_ino);
-		ret = bpf_map_update_elem(watch_dir_map_fd, &ent->d_ino, &zero, 0);
+		ret = bpf_map_update_elem(watch_dir_map_fd, &ent->d_ino, &tag, 0);
 		if (ret) {
 			perror("Failed to update watch_dir map");
 			closedir(dir);
@@ -79,6 +76,22 @@ int initialize_watch_dir_map(const char *path, int watch_dir_map_fd, bool recurs
 	closedir(dir);
 
 	return 0;
+}
+
+static inline int initialize_watch_dir_map(const char *path, int watch_dir_map_fd,
+					   bool recursive)
+{
+	return initialize_watch_dir_map_tagged(path, watch_dir_map_fd, recursive, 1);
+}
+
+static inline int initialize_dual_watch_dir_maps(const char *path1, const char *path2,
+						 int watch_dir_map_fd,
+						 __u32 tag1, __u32 tag2)
+{
+	int ret = initialize_watch_dir_map_tagged(path1, watch_dir_map_fd, true, tag1);
+	if (ret)
+		return ret;
+	return initialize_watch_dir_map_tagged(path2, watch_dir_map_fd, true, tag2);
 }
 
 #endif /* _DIR_WATCHER_H */
