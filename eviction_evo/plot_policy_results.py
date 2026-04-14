@@ -37,6 +37,14 @@ PREFERRED_TRACE_ORDERS = [
     ("ycsb_c_a", "ycsb_c_f", "ycsb_b_a", "ycsb_a_d"),
 ]
 
+# Temporary local plotting override: hide specific traces without touching metrics.
+EXCLUDED_TRACE_KEYS = {
+    "ycsb_a_d_sched_2_b",
+    # "ycsb_b_a_sched_2_b",
+    # "ycsb_c_a_sched_2_b",
+    # "ycsb_c_f_sched_2_b"
+}
+
 
 def find_metrics_json(policy_dir: Path) -> Path | None:
     """Shinka/evaluate usually writes <policy>/metrics.json; some trees use <policy>/results/metrics.json."""
@@ -218,6 +226,9 @@ def main() -> None:
     trace_keys = choose_trace_keys(rows)
     if not trace_keys:
         raise SystemExit("No common trace keys found across policy metrics.")
+    trace_keys = tuple(k for k in trace_keys if k not in EXCLUDED_TRACE_KEYS)
+    if not trace_keys:
+        raise SystemExit("All common trace keys were excluded from plotting.")
 
     policies = [name for name, _ in rows]
 

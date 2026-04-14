@@ -46,7 +46,7 @@ evo_config:
   job_type: local
 
   language: c
-  init_program_path: initial_vulcan.c
+  init_program_path: initial_vulcan_split.c
 
   llm_models:
     - "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
@@ -165,10 +165,8 @@ evo_config:
       or multiply-then-shift for approximate percentages.
 
     ## Multi-Workload Evaluation
-    Your policy is evaluated on dual-client traces. For load-shape reasoning in
-    this prompt, focus on the **synthetic step schedule variants**:
-    `ycsb_a_d_schedule_2_a.yaml`, `ycsb_a_d_schedule_2_a_flipped.yaml`,
-    `ycsb_a_d_schedule_2_b.yaml`, and `ycsb_a_d_schedule_2_c.yaml`.
+    Your policy is evaluated on **three dual-client traces** that pair different
+    YCSB workload types against each other with time-varying offered load.
 
     **Optimization objective (what evolution maximizes):** the **harmonic mean** of each trace’s **mean total
     throughput** (ops/sec, summed across the two clients), averaged over repeated benchmark runs. Scoring 0 on
@@ -182,61 +180,61 @@ evo_config:
 
     Both clients run **at the same time** against the **same** LevelDB TCP server and **same**
     cgroup-limited page cache; their load and eviction pressure are **fully shared**.
+    Each client uses a separate copy of the DB (`client1/` and `client2/`) so
+    BPF can tag folios with `meta->client_tag` (1 or 2) for per-client reasoning.
 
-    ### YCSB workload **A** (client `client_ycsb_a`)
-    This is the standard **YCSB workload A** mix (not “read-only”):
-    - **50% READ, 50% UPDATE** — half of operations are point reads, half are updates to existing keys.
-    - **Zipfian** key distribution with constant **0.99** (hot keys; realistic skew).
-    - Records: **16-byte keys**, **200-byte values**; scan length parameter is set but **scan proportion is 0** (no range scans).
-    - Multiple threads issue operations as fast as pacing allows; the workload stresses **read + write** paths and **dirty page** behavior alongside cached reads.
+    ### YCSB workloads used in the active traces
 
-    ### YCSB workload **D** (client `client_ycsb_d`)
-    This matches **`cache_ext/ycsb_mod/ycsb_d.yaml`**: standard **YCSB “latest”** (read-mostly against recently
-    inserted keys), **not** zipfian RMW:
-    - **95% READ, 5% INSERT** (no RMW in this workload). `request_distribution` is **`latest`**: keys are drawn
-      from a sliding “recent” prefix of the keyspace (inserts advance the window; reads skew toward recent keys
-      via the latest-generator logic in My-YCSB’s `LatestWorkload`).
-    - Same **16-byte keys**, **200-byte values**, **536870912** logical records, **zipfian_constant 0.99** (used
-      inside the latest workload’s draw logic), same server as client A.
-    - Compared to workload A, client D is **read-heavy** with **append-style inserts** — different cache footprint
-      than A’s 50/50 read/update zipfian skew.
+    #### Workload **A** (`client_ycsb_a`)
+    - **50% READ, 50% UPDATE** -- point reads + updates to existing keys.
+    - **Zipfian** key distribution, constant **0.99**.
+    - **16-byte keys**, **1024-byte values**, 8 threads.
+    - Stresses **read + write** paths and **dirty page** behavior.
 
-    ### Per-client **target throughput over time** (step schedules)
-    Each client has its own **per-second target aggregate ops/s** for the **120 s benchmark phase** (warmup is
-    **not** schedule-limited). Row *t* is the **cap** for that second; **`next_op_interval_ns: 0`** means the
-    worker **paces** to that target.
+    #### Workload **B** (`client_ycsb_b`)
+    - **95% READ, 5% UPDATE** -- mostly reads, light updates.
+    - **Zipfian** key distribution, constant **0.99**.
+    - **16-byte keys**, **1024-byte values**, 8 threads.
+    - Read-heavy with a concentrated hot-key set; updates cause occasional dirty pages.
 
-    #### Synthetic **step** schedule variants
-    All four variants are piecewise-constant and repeat one 5-step pattern
-    **4 times in 120 s** (**6 s/step**, **24 s per cycle**). Client A uses the
-    zipfian read/update mix; client D uses latest read/insert. The variants differ
-    only in target magnitudes and phase orientation:
+    #### Workload **C** (`client_ycsb_c`)
+    - **100% READ** -- pure read workload, no writes.
+    - **Zipfian** key distribution, constant **0.99**.
+    - **16-byte keys**, **1024-byte values**, 8 threads.
+    - Purely cache-hit sensitive; no dirty pages from this client.
 
-    - **`ycsb_a_d_schedule_2_a.yaml` (standard medium amplitude):**
-      - A: **500 → 1500 → 2000 → 1500 → 500**
-      - D: **2000 → 1500 → 500 → 1500 → 2000** (phase-offset complement)
-    - **`ycsb_a_d_schedule_2_a_flipped.yaml` (same magnitude, roles flipped):**
-      - A: **2000 → 1500 → 500 → 1500 → 2000**
-      - D: **500 → 1500 → 2000 → 1500 → 500**
-      - Purpose: test whether asymmetry comes from workload identity (A vs D)
-        rather than only from step shape.
-    - **`ycsb_a_d_schedule_2_b.yaml` (milder amplitude):**
-      - A: **350 → 1050 → 1400 → 1050 → 350**
-      - D: **1400 → 1050 → 350 → 1050 → 1400**
-      - Purpose: lower offered-load regime (often less saturation).
-    - **`ycsb_a_d_schedule_2_c.yaml` (harsher amplitude):**
-      - A: **650 → 1950 → 2600 → 1950 → 650**
-      - D: **2600 → 1950 → 650 → 1950 → 2600**
-      - Purpose: higher offered-load regime (stronger queueing/congestion stress).
+    #### Workload **F** (`client_ycsb_f`)
+    - **50% READ, 50% READ-MODIFY-WRITE** -- each RMW is a read-modify-write sequence.
+    - **Zipfian** key distribution, constant **0.99**.
+    - **16-byte keys**, **1024-byte values**, 8 threads.
+    - Heavy write amplification; creates many dirty pages and cache pressure.
 
-    These repeated, complementary staircases create abrupt and recurring shifts
-    in offered load so network-aware eviction logic has chances to adapt at
-    each transition.
+    ### Active traces (three dual-client pairings)
 
-    **Design intent:** Same two workloads on one server, with **time-varying,
-    asymmetric** offered load from repeated step changes. Eviction logic should
-    be explicitly **network-adaptive**: when congestion/latency worsens, misses
-    are more expensive, so protection/eviction thresholds should react.
+    All three use the **schedule_2_b** step pattern (milder amplitude).
+    The schedule repeats a 5-step staircase **4 times in 120 s** (6 s/step,
+    24 s per cycle), with the two clients in phase-offset complement:
+    - Client 1 (port 9100): **350 -> 1050 -> 1400 -> 1050 -> 350** ops/s
+    - Client 2 (port 9101): **1400 -> 1050 -> 350 -> 1050 -> 1400** ops/s
+
+    1. **`ycsb_b_a_schedule_2_b`**: B (95% read) vs A (50/50 read/update)
+       - Read-dominant client competes with an update-heavy client; dirty-page
+         pressure from A's updates can push B's hot reads out of cache.
+    2. **`ycsb_c_a_schedule_2_b`**: C (100% read) vs A (50/50 read/update)
+       - Pure reader vs mixed reader/writer; similar dynamics to B+A but C has
+         zero writes, making it purely sensitive to eviction of its cached pages.
+    3. **`ycsb_c_f_schedule_2_b`**: C (100% read) vs F (50% read / 50% RMW)
+       - Pure reader vs RMW-heavy client; F generates the most write pressure
+         of all workloads, creating strong dirty-page eviction tension.
+
+    **Design intent:** three workload pairings that vary the write-pressure
+    gradient (B light-write, A medium-write, F heavy-RMW) against read-only or
+    read-heavy opponents, all with time-varying asymmetric offered load.
+    Eviction logic should be **network-adaptive** (congestion/latency worsens ->
+    misses more expensive -> protect working set) and ideally
+    **client-tag-aware** (use `meta->client_tag` to differentiate folios from
+    the read-heavy vs write-heavy client).
+
 
     ## Listener Configuration API
     You configure listeners per-feature using `gf_configs[]`, an array of
@@ -314,6 +312,7 @@ evo_config:
       GF_BYTES_ACKED    — total bytes acknowledged
       GF_INTER_ARRIVAL  — inter-packet arrival time (ns)
       GF_RECV_COUNT     — total tcp_recvmsg calls
+      GF_CLIENT_TAG     — client tag of folio on each access (fed by folio hooks)
 
     Raw globals are also available directly: net_srtt_us, net_mdev_us, etc.
 
@@ -361,7 +360,8 @@ evo_config:
       `meta->interval_ewma.value` — low interval EWMA = hot (frequent).
 
     ## Constraints
-    - **Baseline is LFU** — start from it; evolve eviction logic only.
+    - **Baseline is LFU** — start from it; evolve eviction logic only. But be
+      creative and think outside the box. You do should not just stick to LFU.
     - **Do NOT modify** code outside EVOLVE-BLOCK (kprobe, network globals,
       map definitions, struct_ops registration, includes).
     - No floating point in BPF. Use integer arithmetic only.

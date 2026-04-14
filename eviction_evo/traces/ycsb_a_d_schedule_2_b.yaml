@@ -10,13 +10,13 @@ clients:
       database:
         key_size: 16
         value_size: 1024
-        nr_entry: 536870912
+        nr_entry: 10000000
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
         runtime_seconds: 120
         nr_op: 100000000
-        nr_thread: 8
+        nr_thread: 2
         next_op_interval_ns: 0
         rate_schedule_file: "../schedules/350.csv"
         operation_proportion:
@@ -40,13 +40,13 @@ clients:
       database:
         key_size: 16
         value_size: 1024
-        nr_entry: 536870912
+        nr_entry: 10000000
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
         runtime_seconds: 120
         nr_op: 100000000
-        nr_thread: 8
+        nr_thread: 2
         next_op_interval_ns: 0
         rate_schedule_file: "../schedules/1400.csv"
         operation_proportion:
@@ -60,6 +60,6 @@ clients:
         scan_length: 100
       net_leveldb:
         addr: "10.10.1.1"
-        port: 9100
+        port: 9101
       measurement:
         latency_file: ""

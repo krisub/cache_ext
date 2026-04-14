@@ -1,6 +1,6 @@
 type: dual_client
 clients:
-  - name: client_ycsb_c
+  - name: client_ycsb_b
     host: "krisub@node1"
     config:
       database:
@@ -10,13 +10,14 @@ clients:
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
-        runtime_seconds: 60
+        runtime_seconds: 120
         nr_op: 100000000
         nr_thread: 8
         next_op_interval_ns: 0
+        rate_schedule_file: "../schedules/og_window_10000_40000.csv"
         operation_proportion:
-          read: 1.0
-          update: 0
+          read: 0.95
+          update: 0.05
           insert: 0
           scan: 0
           read_modify_write: 0
@@ -29,7 +30,7 @@ clients:
       measurement:
         latency_file: ""
 
-  - name: client_ycsb_b
+  - name: client_ycsb_a
     host: "krisub@node1"
     config:
       database:
@@ -39,13 +40,14 @@ clients:
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
-        runtime_seconds: 60
+        runtime_seconds: 120
         nr_op: 100000000
         nr_thread: 8
         next_op_interval_ns: 0
+        rate_schedule_file: "../schedules/og_window_40000_70000.csv"
         operation_proportion:
-          read: 0.95
-          update: 0.05
+          read: 0.5
+          update: 0.5
           insert: 0
           scan: 0
           read_modify_write: 0

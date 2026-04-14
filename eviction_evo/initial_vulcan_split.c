@@ -269,10 +269,10 @@ static __always_inline u32 folio_client_tag(struct folio *folio)
 // =============================================================================
 
 // -- Per-feature listener configuration --------------------------------------
-// Enable lightweight network listeners: EWMA for latency + MINMAX for loss.
-// This satisfies "at least two distinct network signal families" requirement.
+// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
+// listeners for vulcan_get_* accessors in bpf_score_fn.
 static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = VULCAN_LISTENER_EWMA, .ewma_alpha = 150 },
+    [GF_SRTT_US]        = { .listener_mask = 0 },
     [GF_MDEV_US]        = { .listener_mask = 0 },
     [GF_SND_CWND]       = { .listener_mask = 0 },
     [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
@@ -280,7 +280,7 @@ static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES]
     [GF_PACKETS_OUT]    = { .listener_mask = 0 },
     [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
     [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = VULCAN_LISTENER_MINMAX },
+    [GF_LOST]           = { .listener_mask = 0 },
     [GF_SEGS_IN]        = { .listener_mask = 0 },
     [GF_SEGS_OUT]       = { .listener_mask = 0 },
     [GF_DELIVERED]      = { .listener_mask = 0 },
@@ -320,13 +320,9 @@ static inline bool is_last_page_in_file(struct folio *folio)
 }
 
 /*
- * Network-adaptive LFU with graduated three-tier protection and conservative recency decay.
- * Base = LFU (access_count). Network conditions trigger graduated protection:
- * - Tier 1: RTT < 5ms AND loss == 0 → no amplification (baseline LFU)
- * - Tier 2: RTT > 5ms OR loss > 0 → 1.5x protection (early warning)
- * - Tier 3: RTT > 10ms AND loss > 0 → 3x protection (severe degradation)
- * Additionally, very conservative recency decay penalizes pages idle > 180 seconds.
+ * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
  * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
+ * Evolution can add vulcan_get_* calls and protection rules.
  */
 static s64 bpf_score_fn(struct cache_ext_list_node *node)
 {
@@ -346,39 +342,6 @@ static s64 bpf_score_fn(struct cache_ext_list_node *node)
         return S64_MAX;
 
     s64 score = (s64)meta->access_count;
-
-    /* Conservative per-folio recency decay: penalize pages idle > 180 seconds.
-     * Gentle penalty scaling (÷30) preserves LFU dominance while handling
-     * workload phase transitions. Only applies to pages idle > 3 minutes. */
-    u64 now = bpf_ktime_get_ns();
-    s64 idle_seconds = (s64)((now - meta->last_access_ts) / 1000000000LL);
-    if (idle_seconds > 180) {
-        /* Only penalize pages idle > 3 minutes. Divide by 30 to keep
-         * access_count signal dominant over temporal signal. */
-        s64 recency_penalty = idle_seconds / 30;
-        score = score - recency_penalty;
-        /* Ensure score doesn't go negative */
-        if (score < 0) score = 0;
-    }
-
-    /* Network-adaptive graduated protection with three tiers.
-     * Query network state via listeners (EWMA for RTT, MINMAX for loss). */
-    s64 srtt_ewma = vulcan_get_ewma(GF_SRTT_US);
-    s64 lost_max = vulcan_get_max(GF_LOST);
-
-    if (srtt_ewma > 10000 && lost_max > 0) {
-        /* Tier 3: Severe network degradation (RTT > 10ms AND loss detected).
-         * Cache misses are very expensive. Apply 3x protection.
-         * 3x = (score << 1) + score, using unsigned for safety. */
-        u64 score_u = (u64)score;
-        score = (s64)((score_u << 1) + score_u);
-    } else if (srtt_ewma > 5000 || lost_max > 0) {
-        /* Tier 2: Early warning (RTT > 5ms OR loss detected).
-         * Apply 1.5x protection. 1.5x = score + (score >> 1). */
-        u64 score_u = (u64)score;
-        score = (s64)(score_u + (score_u >> 1));
-    }
-    /* Tier 1: Good network (RTT < 5ms AND loss == 0) → score unchanged. */
 
     /* LevelDB: protect index block (last page of file) */
     if (is_last_page_in_file(folio))

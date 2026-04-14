@@ -87,7 +87,20 @@ BUILD_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo", "build")
 SERVER_BINARY = os.path.join(CACHE_EXT_DIR, "net_leveldb_server")
 BENCH_BINARY_DIR = os.path.join(CACHE_EXT_DIR, "My-YCSB", "build")
 LEVELDB_DB = "/mydata/leveldb"
+LEVELDB_DB2 = "/mydata/leveldb2"
 LEVELDB_TEMP_DB = "/mydata/leveldb_temp"
+# Dual-DB layout: client1 = hardlink farm from LEVELDB_DB, client2 = hardlink
+# farm from LEVELDB_DB2.  Both are cp -al (instant).  Two separate golden
+# copies avoid sharing LOCK/MANIFEST inodes between servers.
+# Two net_leveldb_server processes (9100/9101) in the same memcg,
+# BPF inode tags 1 vs 2 (see vulcan_folio_metadata.client_tag).
+# YAML convention: first listed client → port 9100 → client1/ → tag 1;
+# second client → port 9101 → client2/ → tag 2.
+LEVELDB_PAIR_ROOT = "/mydata/leveldb_pair"
+LEVELDB_CLIENT1_SUBDIR = "client1"
+LEVELDB_CLIENT2_SUBDIR = "client2"
+LEVELDB_TEMP_DB_CLIENT1 = os.path.join(LEVELDB_PAIR_ROOT, LEVELDB_CLIENT1_SUBDIR)
+LEVELDB_TEMP_DB_CLIENT2 = os.path.join(LEVELDB_PAIR_ROOT, LEVELDB_CLIENT2_SUBDIR)
 TRACES_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo")
 PROXY_SCRIPT = os.path.join(CACHE_EXT_DIR, "eviction_evo", "tcp_delay_proxy.py")
 SSH_OPTS = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
@@ -124,23 +137,48 @@ TRACE_CONFIGS = [
     # ("ycsb_b_a", "traces/ycsb_b_a.yaml"),   # mostly-read vs aggressive updates (read/update mix)
     # ("ycsb_a_d", "traces/ycsb_a_d.yaml"),   # read/update mix vs RMW mix
     # ("ycsb_a_d_sched_1", "traces/ycsb_a_d_schedule_1.yaml"),  
+    # ("ycsb_b_a_sched_1", "traces/ycsb_b_a_og_schedule_1.yaml"),
+    # ("ycsb_c_a_sched_1", "traces/ycsb_c_a_og_schedule_1.yaml"),
+    # ("ycsb_c_f_sched_1", "traces/ycsb_c_f_og_schedule_1.yaml"),
     # ("ycsb_a_d_sched_2_a", "traces/ycsb_a_d_schedule_2_a.yaml"), 
     # ("ycsb_a_d_sched_2_a_flipped", "traces/ycsb_a_d_schedule_2_a_flipped.yaml"),  
-    # ("ycsb_a_d_sched_2_b", "traces/ycsb_a_d_schedule_2_b.yaml"),  
-    ("ycsb_a_d_sched_2_c", "traces/ycsb_a_d_schedule_2_c.yaml"),  
+    ("ycsb_a_d_sched_2_b", "traces/ycsb_a_d_schedule_2_b.yaml"),
+    # ("ycsb_a_d_sched_2_c", "traces/ycsb_a_d_schedule_2_c.yaml"),
+    ("ycsb_b_a_sched_2_b", "traces/ycsb_b_a_schedule_2_b.yaml"),
+    ("ycsb_c_a_sched_2_b", "traces/ycsb_c_a_schedule_2_b.yaml"),
+    ("ycsb_c_f_sched_2_b", "traces/ycsb_c_f_schedule_2_b.yaml"),
     # ("ycsb_b_f", "traces/ycsb_b_f.yaml"),   # mostly-read vs scan-heavy
     # ("ycsb_e_a", "traces/ycsb_e_a.yaml"),   # latest inserts vs read/update churn
     # ("ycsb_e_f", "traces/ycsb_e_f.yaml"),   # latest inserts vs scan-heavy
 ]
 SERVER_PORT = 9100
+SERVER_PORT_CLIENT1 = 9100
+SERVER_PORT_CLIENT2 = 9101
 CGROUP_NAME = "cache_ext_test"
 CGROUP_PATH = f"/sys/fs/cgroup/{CGROUP_NAME}"
-CGROUP_SIZE_BYTES = 512 * (2**20) # 512 mb
+CGROUP_SIZE_BYTES = 512 * (2**20) * 2 # 1gb. 512 MiB — single net_leveldb_server
+# Dual-DB: two servers share one memcg; 512 MiB total is far too small for two
+# large LevelDB page caches and causes system-wide thrashing / D-state IO.
+# Default dual limit = 2× single (1 GiB). Override with CACHE_EXT_DUAL_CGROUP_BYTES.
+# Single-run override: CACHE_EXT_CGROUP_BYTES (bytes as integer string).
+
+
+def cgroup_size_bytes_for_run(use_dual_db: bool) -> int:
+    if use_dual_db:
+        raw = os.environ.get("CACHE_EXT_DUAL_CGROUP_BYTES")
+        if raw:
+            return int(raw)
+        return 2 * CGROUP_SIZE_BYTES
+    raw = os.environ.get("CACHE_EXT_CGROUP_BYTES")
+    if raw:
+        return int(raw)
+    return CGROUP_SIZE_BYTES
+
 
 # Benchmark timing
 WARMUP_SECONDS = 30
 RUNTIME_SECONDS = 120
-RUNS_PER_TRACE = 5
+RUNS_PER_TRACE = 3
 # When True (default): before each benchmark run, reclone DB, drop caches, reload BPF,
 # restart server. Comparable across traces; slower. Disable with CACHE_EXT_RESET_EVERY_RUN=0.
 RESET_ENV_EVERY_RUN = os.environ.get("CACHE_EXT_RESET_EVERY_RUN", "1") != "0"
@@ -395,7 +433,7 @@ def _stop_mglru_watchdog():
 
 
 def drop_page_cache():
-    run_cmd(["sudo", "sync"])
+    run_cmd(["sudo", "sync"], timeout=300)
     run_cmd(["sudo", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"])
     log.info("Page cache dropped.")
 
@@ -425,6 +463,23 @@ def enable_mglru():
 
 
 # -- Server Management ---------------------------------------------------------
+
+
+def kill_orphan_net_leveldb_servers():
+    """
+    Best-effort SIGKILL any net_leveldb_server processes.
+
+    After ``cp -al`` golden -> client1, client1/LOCK shares an inode with
+    golden/LOCK. A stray server still open on the golden DB (or leveldb_temp)
+    holds that flock and makes opening client1 fail with EAGAIN on LOCK.
+    """
+    subprocess.run(
+        ["sudo", "pkill", "-9", "-f", "net_leveldb_server"],
+        check=False,
+        timeout=15,
+        capture_output=True,
+    )
+    time.sleep(1)
 
 
 def wait_for_port(host, port, timeout=120):
@@ -482,13 +537,17 @@ def stop_process(proc, name="process"):
 # -- Policy Management ---------------------------------------------------------
 
 
-def start_policy(loader_path, watch_dir):
-    """Load the evolved BPF policy. Returns Popen."""
-    cmd = [
-        "sudo", loader_path,
-        "--watch_dir", watch_dir,
-        "--cgroup_path", CGROUP_PATH,
-    ]
+def start_policy(loader_path, watch_dir=None, dual_pair_root=None):
+    """Load the evolved BPF policy. Pass exactly one of watch_dir or dual_pair_root."""
+    if watch_dir and dual_pair_root:
+        raise ValueError("start_policy: use only one of watch_dir or dual_pair_root")
+    if not watch_dir and not dual_pair_root:
+        raise ValueError("start_policy: need watch_dir or dual_pair_root")
+    cmd = ["sudo", loader_path, "--cgroup_path", CGROUP_PATH]
+    if dual_pair_root:
+        cmd.extend(["--dual_pair", dual_pair_root])
+    else:
+        cmd.extend(["--watch_dir", watch_dir])
     log.info("Loading policy: %s", " ".join(cmd))
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(10)  # BPF loading can take several seconds
@@ -518,24 +577,113 @@ def stop_policy(proc):
         pass
 
 
-def teardown_server_and_policy(server_proc, policy_proc):
-    """Stop server and BPF policy. Server must stop before reset_database()."""
-    stop_process(server_proc, "net_leveldb_server")
+def teardown_server_and_policy(server_procs, policy_proc):
+    """Stop all LevelDB servers and BPF policy. Servers must stop before reset_database()."""
+    if server_procs:
+        for proc in server_procs:
+            stop_process(proc, "net_leveldb_server")
     stop_policy(policy_proc)
 
 
-def prepare_fresh_benchmark_env(loader_path: str):
+def start_benchmark_servers(use_dual_db: bool):
+    """Start one or two net_leveldb_server processes in the same memcg. Returns [Popen, ...]."""
+    if use_dual_db:
+        log.info(
+            "Dual DB: servers on ports %d and %d -> %s and %s",
+            SERVER_PORT_CLIENT1,
+            SERVER_PORT_CLIENT2,
+            LEVELDB_TEMP_DB_CLIENT1,
+            LEVELDB_TEMP_DB_CLIENT2,
+        )
+        return [
+            start_server(LEVELDB_TEMP_DB_CLIENT1, SERVER_PORT_CLIENT1, CGROUP_NAME),
+            start_server(LEVELDB_TEMP_DB_CLIENT2, SERVER_PORT_CLIENT2, CGROUP_NAME),
+        ]
+    return [start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)]
+
+
+def reset_database_dual():
     """
-    Recreate DB from LEVELDB_DB, drop page caches, cgroup, reload BPF, start server.
+    Two LevelDB trees under LEVELDB_PAIR_ROOT via hardlink farms.
+
+    - **client1**: ``cp -al`` from LEVELDB_DB  (instant)
+    - **client2**: ``cp -al`` from LEVELDB_DB2 (instant)
+
+    Each golden DB has its own inodes, so LOCK/MANIFEST/LOG are independent
+    and both servers can open without flock conflicts.  LevelDB never modifies
+    .ldb/.sst files in place, so hardlinks to those are safe.
+
+    LOCK files are removed from both clients as a precaution — LevelDB
+    recreates them on startup.
+    """
+    if os.path.lexists(LEVELDB_PAIR_ROOT):
+        log.info("Removing %s for fresh dual DB copies", LEVELDB_PAIR_ROOT)
+        run_cmd(["sudo", "rm", "-rf", LEVELDB_PAIR_ROOT], timeout=600)
+    if not os.path.isdir(LEVELDB_DB2):
+        raise FileNotFoundError(
+            f"Second golden DB not found: {LEVELDB_DB2}. "
+            f"Create it once with: cp -a {LEVELDB_DB} {LEVELDB_DB2}"
+        )
+    os.makedirs(LEVELDB_TEMP_DB_CLIENT1, exist_ok=True)
+    os.makedirs(LEVELDB_TEMP_DB_CLIENT2, exist_ok=True)
+    log.info(
+        "Dual DB client1 (hardlink farm): %s -> %s",
+        LEVELDB_DB,
+        LEVELDB_TEMP_DB_CLIENT1,
+    )
+    run_cmd(
+        ["cp", "-al", f"{LEVELDB_DB}/.", LEVELDB_TEMP_DB_CLIENT1],
+        timeout=120,
+    )
+    log.info(
+        "Dual DB client2 (hardlink farm): %s -> %s",
+        LEVELDB_DB2,
+        LEVELDB_TEMP_DB_CLIENT2,
+    )
+    run_cmd(
+        ["cp", "-al", f"{LEVELDB_DB2}/.", LEVELDB_TEMP_DB_CLIENT2],
+        timeout=120,
+    )
+    for label, db_dir in [("client1", LEVELDB_TEMP_DB_CLIENT1),
+                          ("client2", LEVELDB_TEMP_DB_CLIENT2)]:
+        lock_path = os.path.join(db_dir, "LOCK")
+        if os.path.lexists(lock_path):
+            os.unlink(lock_path)
+            log.info("Removed %s LOCK (will be recreated by server)", label)
+    log.info(
+        "Dual database ready (both hardlink farms): {%s,%s}",
+        LEVELDB_TEMP_DB_CLIENT1,
+        LEVELDB_TEMP_DB_CLIENT2,
+    )
+
+
+def prepare_fresh_benchmark_env(loader_path: str, use_dual_db: bool = False):
+    """
+    Recreate DB(s), drop page caches, cgroup, reload BPF, start server(s).
     Caller must have torn down any previous server/policy (teardown_server_and_policy).
     """
-    reset_database()
+    if use_dual_db:
+        reset_database_dual()
+    else:
+        reset_database()
+    if use_dual_db:
+        kill_orphan_net_leveldb_servers()
     drop_page_cache()
     time.sleep(2)
-    create_cgroup(CGROUP_SIZE_BYTES)
-    policy_proc = start_policy(loader_path, LEVELDB_TEMP_DB)
-    server_proc = start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)
-    return server_proc, policy_proc
+    lim = cgroup_size_bytes_for_run(use_dual_db)
+    log.info(
+        "Creating cgroup memory limit %d bytes (%.1f MiB), dual_db=%s",
+        lim,
+        lim / (2**20),
+        use_dual_db,
+    )
+    create_cgroup(lim)
+    if use_dual_db:
+        policy_proc = start_policy(loader_path, dual_pair_root=LEVELDB_PAIR_ROOT)
+    else:
+        policy_proc = start_policy(loader_path, watch_dir=LEVELDB_TEMP_DB)
+    server_procs = start_benchmark_servers(use_dual_db)
+    return server_procs, policy_proc
 
 
 # -- Benchmark -----------------------------------------------------------------
@@ -552,11 +700,18 @@ def reset_database():
     """
     if os.path.lexists(LEVELDB_TEMP_DB):
         log.info("Removing %s for a fresh copy from %s", LEVELDB_TEMP_DB, LEVELDB_DB)
-        shutil.rmtree(LEVELDB_TEMP_DB)
+        run_cmd(["sudo", "rm", "-rf", LEVELDB_TEMP_DB], timeout=1800)
     # Use cp -al to hardlink all files - nearly instant even for large DBs.
     # Safe for LevelDB: it never modifies SST files in place, only creates/deletes.
     run_cmd(["cp", "-al", LEVELDB_DB, LEVELDB_TEMP_DB], timeout=120)
     log.info("Database hardlinked: %s -> %s", LEVELDB_DB, LEVELDB_TEMP_DB)
+
+
+def trace_yaml_is_dual(trace_filename: str) -> bool:
+    """True if traces/<trace_filename> is type dual_client."""
+    path = os.path.join(TRACES_DIR, trace_filename)
+    with open(path, "r", encoding="utf-8") as f:
+        return pyyaml.safe_load(f).get("type") == "dual_client"
 
 
 def run_benchmark(trace_config_path):
@@ -815,72 +970,80 @@ def run_dual_client_benchmark(trace_config_dict):
 
             client_procs.append((client["name"], proc))
 
-        # Wait for all clients to finish
+        # Parallel wait with ALL stdout/stderr drained concurrently.  Sequential
+        # wait + one pipe at a time fills the other client's pipe (~64KiB) and
+        # blocks that process (classic stall: ~0 ops/sec until timeout).
         max_timeout = max(
             c["config"]["workload"].get("warmup_runtime_seconds", WARMUP_SECONDS) +
             c["config"]["workload"].get("runtime_seconds", RUNTIME_SECONDS)
             for c in clients
         ) + 120
+        deadline = time.time() + max_timeout
 
-        results_per_client = {}
+        def capture_output(pipe, buf):
+            try:
+                for line in iter(pipe.readline, ""):
+                    buf.append(line)
+            except Exception:
+                pass
+            try:
+                pipe.close()
+            except Exception:
+                pass
+
+        monitors = []
         for name, proc in client_procs:
             stdout_buf = []
             stderr_buf = []
-
-            def capture_output(pipe, buf):
-                try:
-                    for line in iter(pipe.readline, ""):
-                        buf.append(line)
-                except Exception:
-                    pass
-                try:
-                    pipe.close()
-                except Exception:
-                    pass
-
-            stdout_reader = None
-            stderr_reader = None
+            t_out = t_err = None
             if proc.stdout:
-                stdout_reader = threading.Thread(
-                    target=capture_output, args=(proc.stdout, stdout_buf)
+                t_out = threading.Thread(
+                    target=capture_output, args=(proc.stdout, stdout_buf), daemon=True
                 )
-                stdout_reader.daemon = True
-                stdout_reader.start()
+                t_out.start()
             if proc.stderr:
-                stderr_reader = threading.Thread(
-                    target=capture_output, args=(proc.stderr, stderr_buf)
+                t_err = threading.Thread(
+                    target=capture_output, args=(proc.stderr, stderr_buf), daemon=True
                 )
-                stderr_reader.daemon = True
-                stderr_reader.start()
+                t_err.start()
+            monitors.append((name, proc, stdout_buf, stderr_buf, t_out, t_err))
 
-            try:
-                proc.wait(timeout=max_timeout)
-                if stdout_reader:
-                    stdout_reader.join(timeout=2)
-                if stderr_reader:
-                    stderr_reader.join(timeout=2)
-                stdout = "".join(stdout_buf)
-                stderr = "".join(stderr_buf)
+        while True:
+            if all(p.poll() is not None for _, p, *_ in monitors):
+                break
+            if time.time() >= deadline:
+                break
+            time.sleep(0.2)
 
-                if proc.returncode != 0:
-                    log.error("Client %s failed (rc=%d): %s",
-                              name, proc.returncode, stderr[:500])
-                    results_per_client[name] = {"total_throughput": 0.0}
-                else:
-                    parsed = parse_benchmark_results(stdout)
-                    parsed["throughput_series_total_ops_per_sec"] = parse_epoch_throughput_series(stdout)
-                    results_per_client[name] = parsed
-                    log.info("Client %s: throughput=%.2f", name,
-                             results_per_client[name].get("total_throughput", 0))
-            except subprocess.TimeoutExpired:
+        results_per_client = {}
+        timeout_debug_chunks = []
+        for name, proc, stdout_buf, stderr_buf, t_out, t_err in monitors:
+            timed_out = False
+            if proc.poll() is None:
+                timed_out = True
+                log.warning("Client %s still running at deadline — sending kill", name)
                 proc.kill()
-                if stdout_reader:
-                    stdout_reader.join(timeout=2)
-                if stderr_reader:
-                    stderr_reader.join(timeout=2)
-                stdout = "".join(stdout_buf)
-                stderr = "".join(stderr_buf)
-                log.error("Client %s timed out", name)
+                try:
+                    proc.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    log.warning("Client %s did not exit after kill; continuing", name)
+
+            if t_out:
+                t_out.join(timeout=5)
+            if t_err:
+                t_err.join(timeout=5)
+
+            stdout = "".join(stdout_buf)
+            stderr = "".join(stderr_buf)
+            rc = proc.returncode
+
+            if rc is None:
+                log.error("Client %s: unknown state after wait", name)
+                results_per_client[name] = {"total_throughput": 0.0}
+                continue
+
+            if timed_out:
+                log.error("Client %s timed out (rc=%s)", name, rc)
                 partial = (
                     f"=== Client {name} TIMEOUT - partial stdout ===\n"
                     f"{stdout[-5000:] if stdout else '(none)'}\n"
@@ -888,15 +1051,37 @@ def run_dual_client_benchmark(trace_config_dict):
                     f"{stderr[-2500:] if stderr else '(none)'}\n"
                 )
                 log.error("Client %s partial output:\n%s", name, partial[:3500])
-                # Save full partial output for debugging (caller can pass results_dir)
-                if trace_config_dict.get("_debug_results_dir"):
-                    try:
-                        path = Path(trace_config_dict["_debug_results_dir"]) / "client_timeout_debug.txt"
-                        path.write_text(partial, encoding="utf-8")
-                        log.info("Saved timeout debug output to %s", path)
-                    except Exception as ex:
-                        log.warning("Could not save debug output: %s", ex)
+                timeout_debug_chunks.append(partial)
                 results_per_client[name] = {"total_throughput": 0.0}
+            elif rc != 0:
+                log.error("Client %s failed (rc=%d): %s", name, rc, stderr[:500])
+                results_per_client[name] = {"total_throughput": 0.0}
+            else:
+                try:
+                    parsed = parse_benchmark_results(stdout)
+                    parsed["throughput_series_total_ops_per_sec"] = (
+                        parse_epoch_throughput_series(stdout)
+                    )
+                    results_per_client[name] = parsed
+                    log.info(
+                        "Client %s: throughput=%.2f",
+                        name,
+                        results_per_client[name].get("total_throughput", 0),
+                    )
+                except Exception as ex:
+                    log.error("Client %s parse error: %s", name, ex)
+                    results_per_client[name] = {"total_throughput": 0.0}
+
+        if timeout_debug_chunks and trace_config_dict.get("_debug_results_dir"):
+            try:
+                path = (
+                    Path(trace_config_dict["_debug_results_dir"])
+                    / "client_timeout_debug.txt"
+                )
+                path.write_text("\n\n".join(timeout_debug_chunks), encoding="utf-8")
+                log.info("Saved timeout debug output to %s", path)
+            except Exception as ex:
+                log.warning("Could not save debug output: %s", ex)
 
         # Combine: sum throughputs from all clients
         total_tp = sum(r.get("total_throughput", 0.0)
@@ -1001,7 +1186,7 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
                 "MGLRU disabled. Reboot to fix. See stderr for details."
             )
 
-    server_proc = None
+    server_procs = None
     policy_proc = None
     mglru_disabled = False
 
@@ -1050,14 +1235,33 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
         disable_mglru()
         mglru_disabled = True
 
+        trace_configs_eff = TRACE_CONFIGS[:1] if debug else TRACE_CONFIGS
+        dual_flags = [trace_yaml_is_dual(tf) for _, tf in trace_configs_eff]
+        if not RESET_ENV_EVERY_RUN and dual_flags and any(dual_flags) != all(dual_flags):
+            raise ValueError(
+                "Mixed dual_client and single traces require CACHE_EXT_RESET_EVERY_RUN=1 "
+                "(or split the suite)."
+            )
+        suite_use_dual = bool(dual_flags) and all(dual_flags)
+
         # 3–5. Cgroup + BPF + server (once per suite, or before each run below)
         if not RESET_ENV_EVERY_RUN:
             log.info("=== Step 3: Create cgroup ===")
-            create_cgroup(CGROUP_SIZE_BYTES)
+            _lim = cgroup_size_bytes_for_run(suite_use_dual)
+            log.info(
+                "Cgroup memory limit %d bytes (%.1f MiB), dual_db=%s",
+                _lim,
+                _lim / (2**20),
+                suite_use_dual,
+            )
+            create_cgroup(_lim)
             log.info("=== Step 4: Load BPF policy ===")
-            policy_proc = start_policy(loader_path, LEVELDB_TEMP_DB)
-            log.info("=== Step 5: Start server ===")
-            server_proc = start_server(LEVELDB_TEMP_DB, SERVER_PORT, CGROUP_NAME)
+            if suite_use_dual:
+                policy_proc = start_policy(loader_path, dual_pair_root=LEVELDB_PAIR_ROOT)
+            else:
+                policy_proc = start_policy(loader_path, watch_dir=LEVELDB_TEMP_DB)
+            log.info("=== Step 5: Start server(s) ===")
+            server_procs = start_benchmark_servers(suite_use_dual)
         else:
             log.info(
                 "=== Steps 3–5: Deferred — cgroup/policy/server start before each benchmark ==="
@@ -1074,7 +1278,7 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
         public_metrics = {}
         run_counter = 0
 
-        trace_configs = TRACE_CONFIGS[:1] if debug else TRACE_CONFIGS
+        trace_configs = trace_configs_eff
         runs_per_trace = 1 if debug else RUNS_PER_TRACE
         total_runs = len(trace_configs) * runs_per_trace
 
@@ -1112,8 +1316,10 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
                         "Full environment reset before this run "
                         "(stop server, reclone DB, drop caches, cgroup, BPF, server) ..."
                     )
-                    teardown_server_and_policy(server_proc, policy_proc)
-                    server_proc, policy_proc = prepare_fresh_benchmark_env(loader_path)
+                    teardown_server_and_policy(server_procs, policy_proc)
+                    server_procs, policy_proc = prepare_fresh_benchmark_env(
+                        loader_path, use_dual_db=is_dual
+                    )
                 else:
                     drop_page_cache()
                     time.sleep(2)
@@ -1331,7 +1537,8 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
 
     finally:
         # Cleanup
-        stop_process(server_proc, "net_leveldb_server")
+        for _p in server_procs or []:
+            stop_process(_p, "net_leveldb_server")
         stop_policy(policy_proc)
         delete_cgroup()
         if mglru_disabled:

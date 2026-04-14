@@ -10,8 +10,8 @@ clients:
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
-        runtime_seconds: 60
-        nr_op: 10000000
+        runtime_seconds: 120
+        nr_op: 100000000
         nr_thread: 8
         next_op_interval_ns: 0
         rate_schedule_file: "../schedules/window_10000_40000.csv"
@@ -40,8 +40,8 @@ clients:
       workload:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 10
-        runtime_seconds: 60
-        nr_op: 10000000
+        runtime_seconds: 120
+        nr_op: 100000000
         nr_thread: 8
         next_op_interval_ns: 0
         rate_schedule_file: "../schedules/window_40000_70000.csv"

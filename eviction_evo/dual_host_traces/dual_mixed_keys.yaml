@@ -17,7 +17,7 @@ clients:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 30
         runtime_seconds: 120
-        nr_op: 10000000
+        nr_op: 100000000
         nr_thread: 6
         next_op_interval_ns: 0
         operation_proportion:
@@ -46,7 +46,7 @@ clients:
         nr_warmup_op: 10000000
         warmup_runtime_seconds: 30
         runtime_seconds: 120
-        nr_op: 10000000
+        nr_op: 100000000
         nr_thread: 2
         next_op_interval_ns: 0
         operation_proportion:

@@ -10,7 +10,7 @@ net_leveldb:
 workload:
   next_op_interval_ns: 0
   nr_init_thread: 1
-  nr_op: 10000000
+  nr_op: 100000000
   nr_thread: 8
   nr_warmup_op: 10000000
   operation_proportion:
