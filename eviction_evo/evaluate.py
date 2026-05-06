@@ -83,7 +83,8 @@ signal.signal(signal.SIGINT, _signal_handler)
 # Adjust these paths to match your environment
 CACHE_EXT_DIR = "/mydata/cache_ext"
 POLICIES_DIR = os.path.join(CACHE_EXT_DIR, "policies")
-BUILD_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo", "build")
+EVICTION_EVO_DIR = os.path.join(CACHE_EXT_DIR, "eviction_evo")
+BUILD_DIR = os.path.join(EVICTION_EVO_DIR, "build")
 SERVER_BINARY = os.path.join(CACHE_EXT_DIR, "net_leveldb_server")
 BENCH_BINARY_DIR = os.path.join(CACHE_EXT_DIR, "My-YCSB", "build")
 LEVELDB_DB = "/mydata/leveldb"
@@ -142,11 +143,14 @@ TRACE_CONFIGS = [
     # ("ycsb_c_f_sched_1", "traces/ycsb_c_f_og_schedule_1.yaml"),
     # ("ycsb_a_d_sched_2_a", "traces/ycsb_a_d_schedule_2_a.yaml"), 
     # ("ycsb_a_d_sched_2_a_flipped", "traces/ycsb_a_d_schedule_2_a_flipped.yaml"),  
-    ("ycsb_a_d_sched_2_b", "traces/ycsb_a_d_schedule_2_b.yaml"),
+    
     # ("ycsb_a_d_sched_2_c", "traces/ycsb_a_d_schedule_2_c.yaml"),
+
+    ("ycsb_a_d_sched_2_b", "traces/ycsb_a_d_schedule_2_b.yaml"),
     ("ycsb_b_a_sched_2_b", "traces/ycsb_b_a_schedule_2_b.yaml"),
     ("ycsb_c_a_sched_2_b", "traces/ycsb_c_a_schedule_2_b.yaml"),
     ("ycsb_c_f_sched_2_b", "traces/ycsb_c_f_schedule_2_b.yaml"),
+
     # ("ycsb_b_f", "traces/ycsb_b_f.yaml"),   # mostly-read vs scan-heavy
     # ("ycsb_e_a", "traces/ycsb_e_a.yaml"),   # latest inserts vs read/update churn
     # ("ycsb_e_f", "traces/ycsb_e_f.yaml"),   # latest inserts vs scan-heavy
@@ -156,7 +160,7 @@ SERVER_PORT_CLIENT1 = 9100
 SERVER_PORT_CLIENT2 = 9101
 CGROUP_NAME = "cache_ext_test"
 CGROUP_PATH = f"/sys/fs/cgroup/{CGROUP_NAME}"
-CGROUP_SIZE_BYTES = 512 * (2**20) * 2 # 1gb. 512 MiB — single net_leveldb_server
+CGROUP_SIZE_BYTES = 512 * (2**20) * 2 # 512 MiB - single net_leveldb_server
 # Dual-DB: two servers share one memcg; 512 MiB total is far too small for two
 # large LevelDB page caches and causes system-wide thrashing / D-state IO.
 # Default dual limit = 2× single (1 GiB). Override with CACHE_EXT_DUAL_CGROUP_BYTES.
@@ -178,7 +182,7 @@ def cgroup_size_bytes_for_run(use_dual_db: bool) -> int:
 # Benchmark timing
 WARMUP_SECONDS = 30
 RUNTIME_SECONDS = 120
-RUNS_PER_TRACE = 3
+RUNS_PER_TRACE = 5
 # When True (default): before each benchmark run, reclone DB, drop caches, reload BPF,
 # restart server. Comparable across traces; slower. Disable with CACHE_EXT_RESET_EVERY_RUN=0.
 RESET_ENV_EVERY_RUN = os.environ.get("CACHE_EXT_RESET_EVERY_RUN", "1") != "0"
@@ -256,6 +260,28 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
     """
     os.makedirs(build_dir, exist_ok=True)
 
+    evolved_src_text = Path(evolved_c_path).read_text()
+    evolve_block_match = re.search(
+        r"// EVOLVE-BLOCK-START\s*(.*?)\s*// EVOLVE-BLOCK-END",
+        evolved_src_text,
+        flags=re.DOTALL,
+    )
+    if not evolve_block_match:
+        # Backward compatibility: if the evolved source doesn't include markers,
+        # treat the whole file as "LLM.h-like" content.
+        llm_h_contents = evolved_src_text
+    else:
+        llm_h_contents = evolve_block_match.group(1)
+
+    # The evolved EVOLVE-BLOCK contents are the *contents of LLM.h*.
+    # Be defensive: don't allow a recursive include inside the generated header.
+    llm_h_contents = llm_h_contents.replace('#include "LLM.h"\n', "")
+    llm_h_contents = llm_h_contents.replace('#include "LLM.h"', "")
+    llm_h_path = os.path.join(build_dir, "LLM.h")
+    Path(llm_h_path).write_text(llm_h_contents.strip() + "\n")
+
+    # Compile the fixed BPF program, but from a copy so that quoted includes
+    # like `#include "LLM.h"` resolve relative to `build_dir`.
     bpf_src = os.path.join(build_dir, "cache_ext_evolved.bpf.c")
     bpf_obj = os.path.join(build_dir, "cache_ext_evolved.bpf.o")
     skel_h = os.path.join(build_dir, "cache_ext_evolved.skel.h")
@@ -268,8 +294,9 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
     run_cmd(["sudo", "chown", "-R", f"{os.environ.get('USER', 'krisub')}:", build_dir],
             check=False)
 
-    # Copy evolved source
-    shutil.copy2(evolved_c_path, bpf_src)
+    # Copy base program that includes `LLM.h`.
+    base_bpf_src = os.path.join(EVICTION_EVO_DIR, "initial_vulcan_split.c")
+    shutil.copy2(base_bpf_src, bpf_src)
 
     # Symlink required headers into build dir
     for header in [
@@ -298,12 +325,15 @@ def compile_bpf_policy(evolved_c_path: str, build_dir: str):
     os.symlink(vulcan_src, vulcan_dst)
 
     # 1. Compile BPF object
+    # Compile from build_dir so `#include "LLM.h"` resolves to build_dir/LLM.h.
     clang_cmd = [
         CLANG,
         "-O2",
         "-target", "bpf",
         f"-D__TARGET_ARCH_{ARCH}",
         "-c", "-g", "-Wall",
+        f"-I{build_dir}",
+        f"-I{EVICTION_EVO_DIR}",
     ] + CLANG_BPF_SYS_INCLUDES.split() + [bpf_src, "-o", bpf_obj]
     result = run_cmd(clang_cmd, timeout=60, check=False)
     if result.returncode != 0:
@@ -358,10 +388,26 @@ def create_cgroup(limit_bytes):
     when cgcreate segfaults (e.g. on some cgroup v2 setups)."""
     delete_cgroup()
 
+    # Best-effort: enable controllers for child cgroups on cgroup v2.
+    # Safe on systems where this is already set or unsupported.
+    run_cmd(
+        ["sudo", "sh", "-c", "echo +io +memory +pids > /sys/fs/cgroup/cgroup.subtree_control"],
+        check=False,
+        timeout=5,
+    )
+
     try:
         run_cmd(["sudo", "cgcreate", "-g", f"memory:{CGROUP_NAME}"], timeout=5)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         log.warning("cgcreate failed (%s), trying cgroup v2 fallback", e)
+        # Ensure controllers are delegated to child cgroups on cgroup v2.
+        # Without +io in subtree_control, child io.stat may be missing and
+        # cache hit/miss estimation falls back to noisy device-wide counters.
+        run_cmd(
+            ["sudo", "sh", "-c", "echo +io +memory +pids > /sys/fs/cgroup/cgroup.subtree_control"],
+            check=False,
+            timeout=5,
+        )
         run_cmd(["sudo", "mkdir", "-p", f"/sys/fs/cgroup/{CGROUP_NAME}"])
 
     # Set memory limit (v2: memory.max, v1: memory.limit_in_bytes)
@@ -514,7 +560,21 @@ def start_server(db_path, port, cgroup_name):
     if proc.poll() is not None:
         stderr = proc.stderr.read().decode()
         raise RuntimeError(f"Server exited immediately: {stderr}")
-    log.info("Server ready (PID %d) on port %d", proc.pid, port)
+    server_pid = resolve_net_leveldb_server_pid(proc.pid, port, db_path)
+    if server_pid is not None:
+        setattr(proc, "server_pid", server_pid)
+        log.info(
+            "Server ready (launcher PID %d, server PID %d) on port %d",
+            proc.pid,
+            server_pid,
+            port,
+        )
+    else:
+        log.warning(
+            "Server ready but could not resolve child net_leveldb_server PID from launcher %d",
+            proc.pid,
+        )
+        log.info("Server ready (PID %d) on port %d", proc.pid, port)
     return proc
 
 
@@ -741,6 +801,364 @@ def run_benchmark(trace_config_path):
     return out
 
 
+def read_proc_faults(pid: int) -> dict[str, int] | None:
+    """Read process page-fault counters from /proc/<pid>/stat.
+
+    Returns {"minflt": <minor>, "majflt": <major>} or None on failure.
+    """
+    def _parse(raw: str) -> dict[str, int] | None:
+        # /proc/<pid>/stat field 2 (comm) is wrapped in parentheses and may
+        # contain spaces, so parse from the trailing fields after ") ".
+        rpar = raw.rfind(")")
+        if rpar < 0 or rpar + 2 >= len(raw):
+            return None
+        tail_fields = raw[rpar + 2 :].split()
+        # tail_fields[0] = state (field #3). Global field indexes:
+        # 10=minflt, 12=majflt -> tail indexes 7 and 9.
+        minflt = int(tail_fields[7])
+        majflt = int(tail_fields[9])
+        return {"minflt": minflt, "majflt": majflt}
+
+    try:
+        stat_path = f"/proc/{pid}/stat"
+        with open(stat_path, "r", encoding="utf-8") as f:
+            raw = f.read().strip()
+        parsed = _parse(raw)
+        if parsed is not None:
+            return parsed
+    except Exception:
+        pass
+    # Fallback for root-owned server processes on systems with restricted /proc.
+    try:
+        res = subprocess.run(
+            ["sudo", "cat", f"/proc/{pid}/stat"],
+            check=False,
+            timeout=5,
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0 and res.stdout:
+            return _parse(res.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
+def read_proc_cmdline(pid: int) -> str:
+    """Best-effort read /proc/<pid>/cmdline as a space-separated string."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            raw = f.read()
+        if not raw:
+            return ""
+        return raw.replace(b"\x00", b" ").decode("utf-8", errors="ignore").strip()
+    except Exception:
+        return ""
+
+
+def read_proc_children(pid: int) -> list[int]:
+    """Best-effort read child PIDs from /proc/<pid>/task/<pid>/children."""
+    try:
+        with open(f"/proc/{pid}/task/{pid}/children", "r", encoding="utf-8") as f:
+            data = f.read().strip()
+        if not data:
+            return []
+        return [int(x) for x in data.split() if x.isdigit()]
+    except Exception:
+        return []
+
+
+def resolve_net_leveldb_server_pid(launcher_pid: int, port: int, db_path: str) -> int | None:
+    """Resolve net_leveldb_server PID from launcher/port/db path."""
+    # Most reliable path: query root process table directly.
+    # Match command line shape: net_leveldb_server <port> <db_path>
+    try:
+        pat = f"net_leveldb_server {port} {db_path}"
+        res = subprocess.run(
+            ["sudo", "pgrep", "-f", pat],
+            check=False,
+            timeout=5,
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            pids = []
+            for ln in res.stdout.splitlines():
+                ln = ln.strip()
+                if ln.isdigit():
+                    pids.append(int(ln))
+            if pids:
+                return max(pids)
+    except Exception:
+        pass
+
+    """Fallback: resolve descendant by walking procfs tree."""
+    try:
+        # BFS through descendants with a small retry window because process
+        # tree transitions can lag right after startup.
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            queue = [launcher_pid]
+            seen: set[int] = set()
+            while queue:
+                pid = queue.pop(0)
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                cmd = read_proc_cmdline(pid)
+                if "net_leveldb_server" in cmd:
+                    return pid
+                queue.extend(read_proc_children(pid))
+            time.sleep(0.1)
+    except Exception:
+        pass
+    return None
+
+
+def capture_server_faults(server_procs: list[subprocess.Popen] | None) -> dict[str, dict[str, int]]:
+    """Capture page-fault counters for running server processes keyed by PID."""
+    out: dict[str, dict[str, int]] = {}
+    for proc in server_procs or []:
+        if proc is None:
+            continue
+        pid = getattr(proc, "server_pid", None)
+        if pid is None:
+            pid = getattr(proc, "pid", None)
+        if pid is None:
+            continue
+        vals = read_proc_faults(int(pid))
+        if vals is not None:
+            out[str(pid)] = vals
+    return out
+
+
+def fault_delta(
+    before: dict[str, dict[str, int]], after: dict[str, dict[str, int]]
+) -> tuple[dict[str, object], int, int]:
+    """Compute per-server and total fault deltas (after - before)."""
+    per_server: dict[str, object] = {}
+    total_minflt = 0
+    total_majflt = 0
+    for pid, b in before.items():
+        a = after.get(pid)
+        if not a:
+            continue
+        dmin = max(0, int(a.get("minflt", 0)) - int(b.get("minflt", 0)))
+        dmaj = max(0, int(a.get("majflt", 0)) - int(b.get("majflt", 0)))
+        per_server[pid] = {"minor_faults": dmin, "major_faults": dmaj}
+        total_minflt += dmin
+        total_majflt += dmaj
+    return per_server, total_minflt, total_majflt
+
+
+def read_cgroup_faults() -> dict[str, int] | None:
+    """Read page-fault counters from the benchmark memory cgroup."""
+    stat_paths = [
+        f"/sys/fs/cgroup/{CGROUP_NAME}/memory.stat",           # cgroup v2
+        f"/sys/fs/cgroup/memory/{CGROUP_NAME}/memory.stat",    # cgroup v1
+    ]
+    data = ""
+    for p in stat_paths:
+        try:
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    data = f.read()
+                if data:
+                    break
+        except Exception:
+            pass
+        try:
+            res = subprocess.run(
+                ["sudo", "cat", p],
+                check=False,
+                timeout=5,
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode == 0 and res.stdout:
+                data = res.stdout
+                break
+        except Exception:
+            pass
+    if not data:
+        return None
+
+    kv: dict[str, int] = {}
+    for line in data.splitlines():
+        parts = line.strip().split()
+        if len(parts) != 2:
+            continue
+        k, v = parts
+        try:
+            kv[k] = int(v)
+        except ValueError:
+            continue
+
+    # v2 keys: pgfault / pgmajfault ; v1 often total_pgfault / total_pgmajfault
+    pgfault = kv.get("pgfault", kv.get("total_pgfault"))
+    pgmajfault = kv.get("pgmajfault", kv.get("total_pgmajfault"))
+    if pgfault is None or pgmajfault is None:
+        return None
+    return {"minor_faults": int(pgfault), "major_faults": int(pgmajfault)}
+
+
+def read_cgroup_io_stat() -> dict[str, int] | None:
+    """Read cgroup disk read+write counters from io.stat (cgroup v2).
+
+    Same source as the cache_ext paper proxy: aggregate disk I/O attributed
+    to the benchmark memory cgroup (reads and writes).
+    """
+    path = f"/sys/fs/cgroup/{CGROUP_NAME}/io.stat"
+    data = ""
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = f.read()
+    except Exception:
+        pass
+    if not data:
+        try:
+            res = subprocess.run(
+                ["sudo", "cat", path],
+                check=False,
+                timeout=5,
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode == 0 and res.stdout:
+                data = res.stdout
+        except Exception:
+            pass
+    if not data:
+        return None
+
+    rios = 0
+    rbytes = 0
+    wios = 0
+    wbytes = 0
+    # Format per line: "<major:minor> rbytes=... wbytes=... rios=... wios=..."
+    for line in data.splitlines():
+        parts = line.strip().split()
+        for p in parts[1:]:
+            if p.startswith("rios="):
+                try:
+                    rios += int(p.split("=", 1)[1])
+                except ValueError:
+                    pass
+            elif p.startswith("rbytes="):
+                try:
+                    rbytes += int(p.split("=", 1)[1])
+                except ValueError:
+                    pass
+            elif p.startswith("wios="):
+                try:
+                    wios += int(p.split("=", 1)[1])
+                except ValueError:
+                    pass
+            elif p.startswith("wbytes="):
+                try:
+                    wbytes += int(p.split("=", 1)[1])
+                except ValueError:
+                    pass
+    return {
+        "read_ios": rios,
+        "read_bytes": rbytes,
+        "write_ios": wios,
+        "write_bytes": wbytes,
+    }
+
+
+def get_path_dev_numbers(path: str) -> tuple[int, int] | None:
+    """Return (major, minor) device numbers for a filesystem path."""
+    try:
+        st = os.stat(path)
+        return (os.major(st.st_dev), os.minor(st.st_dev))
+    except Exception:
+        return None
+
+
+def read_proc_diskstats_for_devs(devs: set[tuple[int, int]]) -> dict[str, int] | None:
+    """Read aggregated read+write counters for block devices from /proc/diskstats."""
+    if not devs:
+        return None
+    try:
+        with open("/proc/diskstats", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return None
+    read_ios = 0
+    read_sectors = 0
+    write_ios = 0
+    write_sectors = 0
+    matched = 0
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 14:
+            continue
+        try:
+            major = int(parts[0])
+            minor = int(parts[1])
+        except ValueError:
+            continue
+        if (major, minor) not in devs:
+            continue
+        # Linux /proc/diskstats fields:
+        # reads: idx 3, sectors read: idx 5; writes: idx 7, sectors written: idx 9
+        try:
+            read_ios += int(parts[3])
+            read_sectors += int(parts[5])
+            write_ios += int(parts[7])
+            write_sectors += int(parts[9])
+            matched += 1
+        except ValueError:
+            continue
+    if matched == 0:
+        return None
+    return {
+        "read_ios": read_ios,
+        "read_bytes": read_sectors * 512,
+        "write_ios": write_ios,
+        "write_bytes": write_sectors * 512,
+    }
+
+
+def read_disk_io_fallback(use_dual_db: bool) -> dict[str, int] | None:
+    """Fallback read+write I/O counters from /proc/diskstats for DB backing devices."""
+    paths: list[str]
+    if use_dual_db:
+        paths = [LEVELDB_TEMP_DB_CLIENT1, LEVELDB_TEMP_DB_CLIENT2]
+    else:
+        paths = [LEVELDB_TEMP_DB]
+    devs: set[tuple[int, int]] = set()
+    for p in paths:
+        dm = get_path_dev_numbers(p)
+        if dm is not None:
+            devs.add(dm)
+    return read_proc_diskstats_for_devs(devs)
+
+
+def infer_logical_read_size_bytes(trace_yaml: dict, is_dual: bool) -> int:
+    """Infer approximate logical bytes per read operation from trace config."""
+    default_sz = int(os.environ.get("CACHE_EXT_EST_READ_SIZE_BYTES", "4096"))
+    if not is_dual:
+        try:
+            return int(trace_yaml.get("database", {}).get("value_size", default_sz))
+        except Exception:
+            return default_sz
+    sizes: list[int] = []
+    for c in trace_yaml.get("clients", []):
+        try:
+            sz = int(c.get("config", {}).get("database", {}).get("value_size", default_sz))
+            if sz > 0:
+                sizes.append(sz)
+        except Exception:
+            continue
+    if not sizes:
+        return default_sz
+    # Conservative estimate: use max value size among clients.
+    return max(sizes)
+
+
 def parse_benchmark_results(stdout: str) -> dict:
     """Parse My-YCSB output into a results dict."""
     results = {}
@@ -778,6 +1196,20 @@ def parse_benchmark_results(stdout: str) -> dict:
                     results["scan_latency_avg_ns"] = float(value)
                 elif "SCAN p99 latency" in label:
                     results["scan_latency_p99_ns"] = float(value)
+        elif line.startswith("PageCacheStats:"):
+            # Example:
+            # PageCacheStats: read_requests 123 read_misses 45 read_hits 78 miss_rate 0.365854 hit_rate 0.634146
+            m = re.search(
+                r"read_requests\s+(\d+)\s+read_misses\s+(\d+)\s+read_hits\s+(\d+)\s+miss_rate\s+([0-9]*\.?[0-9]+)\s+hit_rate\s+([0-9]*\.?[0-9]+)",
+                line,
+            )
+            if m:
+                results["page_cache_read_requests"] = float(m.group(1))
+                results["page_cache_read_misses"] = float(m.group(2))
+                results["page_cache_read_hits"] = float(m.group(3))
+                results["page_cache_miss_rate"] = float(m.group(4))
+                results["page_cache_hit_rate"] = float(m.group(5))
+                results["page_cache_rate_source"] = "server_read_bytes_delta_per_get"
 
     if "total_throughput" not in results:
         raise RuntimeError(f"Could not parse throughput from output:\n{stdout[:2000]}")
@@ -1087,6 +1519,37 @@ def run_dual_client_benchmark(trace_config_dict):
         total_tp = sum(r.get("total_throughput", 0.0)
                        for r in results_per_client.values())
         combined = {"total_throughput": total_tp}
+        combined["read_throughput"] = sum(
+            float(r.get("read_throughput", 0.0)) for r in results_per_client.values()
+        )
+        combined["scan_throughput"] = sum(
+            float(r.get("scan_throughput", 0.0)) for r in results_per_client.values()
+        )
+        combined["rmw_throughput"] = sum(
+            float(r.get("rmw_throughput", 0.0)) for r in results_per_client.values()
+        )
+        pc_req = sum(
+            float(r.get("page_cache_read_requests", 0.0))
+            for r in results_per_client.values()
+            if "page_cache_read_requests" in r
+        )
+        pc_miss = sum(
+            float(r.get("page_cache_read_misses", 0.0))
+            for r in results_per_client.values()
+            if "page_cache_read_misses" in r
+        )
+        pc_hit = sum(
+            float(r.get("page_cache_read_hits", 0.0))
+            for r in results_per_client.values()
+            if "page_cache_read_hits" in r
+        )
+        if pc_req > 0:
+            combined["page_cache_read_requests"] = pc_req
+            combined["page_cache_read_misses"] = pc_miss
+            combined["page_cache_read_hits"] = pc_hit
+            combined["page_cache_miss_rate"] = pc_miss / pc_req
+            combined["page_cache_hit_rate"] = pc_hit / pc_req
+            combined["page_cache_rate_source"] = "server_read_bytes_delta_per_get"
 
         # Combine epoch throughput series: sum per-epoch across clients (align by index)
         series_per_client = [
@@ -1325,15 +1788,250 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
                     time.sleep(2)
 
                 try:
+                    faults_before = capture_server_faults(server_procs)
+                    cgroup_faults_before = read_cgroup_faults()
+                    cgroup_io_before = read_cgroup_io_stat()
+                    diskstats_before = None
+                    if not cgroup_io_before:
+                        diskstats_before = read_disk_io_fallback(is_dual)
                     if is_dual:
                         trace_yaml["_debug_results_dir"] = results_dir
                         trace_yaml["_schedule_base_dir"] = os.path.dirname(trace_path)
                         run_result = run_dual_client_benchmark(trace_yaml)
                     else:
                         run_result = run_benchmark(trace_path)
+                    faults_after = capture_server_faults(server_procs)
+                    cgroup_faults_after = read_cgroup_faults()
+                    cgroup_io_after = read_cgroup_io_stat()
+                    diskstats_after = None
+                    if not cgroup_io_after:
+                        diskstats_after = read_disk_io_fallback(is_dual)
+                    per_server_faults, minor_delta, major_delta = fault_delta(
+                        faults_before, faults_after
+                    )
+                    run_result["server_minor_faults_delta"] = minor_delta
+                    run_result["server_major_faults_delta"] = major_delta
+                    run_result["server_faults_per_pid"] = per_server_faults
+                    if cgroup_faults_before and cgroup_faults_after:
+                        cg_minor = max(
+                            0,
+                            int(cgroup_faults_after.get("minor_faults", 0))
+                            - int(cgroup_faults_before.get("minor_faults", 0)),
+                        )
+                        cg_major = max(
+                            0,
+                            int(cgroup_faults_after.get("major_faults", 0))
+                            - int(cgroup_faults_before.get("major_faults", 0)),
+                        )
+                        run_result["cgroup_minor_faults_delta"] = cg_minor
+                        run_result["cgroup_major_faults_delta"] = cg_major
+                        # Use cgroup deltas as robust fallback when per-pid capture
+                        # is unavailable (e.g., restricted /proc visibility).
+                        if not per_server_faults:
+                            run_result["server_minor_faults_delta"] = cg_minor
+                            run_result["server_major_faults_delta"] = cg_major
+                            run_result["server_faults_source"] = "cgroup_fallback"
+                        else:
+                            run_result["server_faults_source"] = "per_pid"
+
+                    if cgroup_io_before and cgroup_io_after:
+                        io_read_ios_delta = max(
+                            0,
+                            int(cgroup_io_after.get("read_ios", 0))
+                            - int(cgroup_io_before.get("read_ios", 0)),
+                        )
+                        io_read_bytes_delta = max(
+                            0,
+                            int(cgroup_io_after.get("read_bytes", 0))
+                            - int(cgroup_io_before.get("read_bytes", 0)),
+                        )
+                        io_write_ios_delta = max(
+                            0,
+                            int(cgroup_io_after.get("write_ios", 0))
+                            - int(cgroup_io_before.get("write_ios", 0)),
+                        )
+                        io_write_bytes_delta = max(
+                            0,
+                            int(cgroup_io_after.get("write_bytes", 0))
+                            - int(cgroup_io_before.get("write_bytes", 0)),
+                        )
+                        run_result["cgroup_disk_read_ios_delta"] = io_read_ios_delta
+                        run_result["cgroup_disk_read_bytes_delta"] = io_read_bytes_delta
+                        run_result["cgroup_disk_write_ios_delta"] = io_write_ios_delta
+                        run_result["cgroup_disk_write_bytes_delta"] = io_write_bytes_delta
+                        run_result["cgroup_disk_total_bytes_delta"] = (
+                            io_read_bytes_delta + io_write_bytes_delta
+                        )
+                        run_result["cgroup_disk_total_ios_delta"] = (
+                            io_read_ios_delta + io_write_ios_delta
+                        )
+                        run_result["cache_rate_source"] = "cgroup_io_stat"
+                    elif diskstats_before and diskstats_after:
+                        io_read_ios_delta = max(
+                            0,
+                            int(diskstats_after.get("read_ios", 0))
+                            - int(diskstats_before.get("read_ios", 0)),
+                        )
+                        io_read_bytes_delta = max(
+                            0,
+                            int(diskstats_after.get("read_bytes", 0))
+                            - int(diskstats_before.get("read_bytes", 0)),
+                        )
+                        io_write_ios_delta = max(
+                            0,
+                            int(diskstats_after.get("write_ios", 0))
+                            - int(diskstats_before.get("write_ios", 0)),
+                        )
+                        io_write_bytes_delta = max(
+                            0,
+                            int(diskstats_after.get("write_bytes", 0))
+                            - int(diskstats_before.get("write_bytes", 0)),
+                        )
+                        run_result["cgroup_disk_read_ios_delta"] = io_read_ios_delta
+                        run_result["cgroup_disk_read_bytes_delta"] = io_read_bytes_delta
+                        run_result["cgroup_disk_write_ios_delta"] = io_write_ios_delta
+                        run_result["cgroup_disk_write_bytes_delta"] = io_write_bytes_delta
+                        run_result["cgroup_disk_total_bytes_delta"] = (
+                            io_read_bytes_delta + io_write_bytes_delta
+                        )
+                        run_result["cgroup_disk_total_ios_delta"] = (
+                            io_read_ios_delta + io_write_ios_delta
+                        )
+                        run_result["cache_rate_source"] = "diskstats_fallback"
+                    else:
+                        run_result["cache_rate_source"] = "unavailable"
+                        run_result["cache_rate_unavailable_reason"] = (
+                            "cgroup io.stat unavailable and /proc/diskstats fallback unavailable"
+                        )
+                    eff_minor = int(run_result.get("server_minor_faults_delta", 0))
+                    eff_major = int(run_result.get("server_major_faults_delta", 0))
+                    denom_faults = eff_minor + eff_major
+                    if denom_faults > 0:
+                        run_result["server_minor_fault_ratio"] = float(eff_minor) / float(denom_faults)
+                        run_result["server_major_fault_ratio"] = float(eff_major) / float(denom_faults)
+                    read_tp = float(run_result.get("read_throughput", 0.0))
+                    scan_tp = float(run_result.get("scan_throughput", 0.0))
+                    rmw_tp = float(run_result.get("rmw_throughput", 0.0))
+                    # Approximate read-like operations during benchmark phase.
+                    # SCAN and RMW also perform reads and should be counted in the
+                    # denominator for any page-cache miss/hit style estimate.
+                    read_like_tp = read_tp + scan_tp + rmw_tp
+                    if read_like_tp > 0.0:
+                        runtime_guess = (
+                            trace_yaml.get("workload", {}).get(
+                                "runtime_seconds", RUNTIME_SECONDS
+                            )
+                            if not is_dual
+                            else max(
+                                c.get("config", {})
+                                .get("workload", {})
+                                .get("runtime_seconds", RUNTIME_SECONDS)
+                                for c in trace_yaml.get("clients", [])
+                            )
+                        )
+                        est_reads = max(1.0, read_like_tp * float(runtime_guess))
+                        run_result["server_major_faults_per_est_read"] = (
+                            float(eff_major) / est_reads
+                        )
+                        run_result["estimated_read_ops"] = est_reads
+                        run_result["estimated_read_like_ops"] = est_reads
+                        if "cgroup_disk_read_ios_delta" in run_result:
+                            # Diagnostic only: block-read-IOs per logical read request.
+                            run_result["estimated_cache_miss_rate_io_raw"] = (
+                                float(run_result["cgroup_disk_read_ios_delta"]) / est_reads
+                            )
+                        else:
+                            run_result["estimated_cache_miss_rate_io_raw"] = None
+                        if "cgroup_disk_read_bytes_delta" in run_result:
+                            logical_read_size = max(
+                                1, infer_logical_read_size_bytes(trace_yaml, is_dual)
+                            )
+                            logical_read_bytes = est_reads * float(logical_read_size)
+                            run_result["estimated_logical_read_size_bytes"] = logical_read_size
+                            run_result["estimated_logical_read_bytes"] = logical_read_bytes
+                            est_miss_raw = (
+                                float(run_result["cgroup_disk_read_bytes_delta"])
+                                / max(1.0, logical_read_bytes)
+                            )
+                            est_miss = max(0.0, min(1.0, est_miss_raw))
+                            run_result["estimated_cache_miss_rate_raw"] = est_miss_raw
+                            run_result["estimated_cache_miss_rate"] = est_miss
+                            run_result["estimated_cache_hit_rate"] = 1.0 - est_miss
+                        else:
+                            run_result["estimated_cache_miss_rate_io_raw"] = None
+                            run_result["estimated_logical_read_size_bytes"] = None
+                            run_result["estimated_logical_read_bytes"] = None
+                            run_result["estimated_cache_miss_rate_raw"] = None
+                            run_result["estimated_cache_miss_rate"] = None
+                            run_result["estimated_cache_hit_rate"] = None
+
+                        # Canonical page-cache rates:
+                        # 1) Prefer server-emitted per-GET stats (best attribution)
+                        # 2) Fallback to cgroup io.stat proxy when plausible.
+                        if (
+                            run_result.get("page_cache_miss_rate") is not None
+                            and run_result.get("page_cache_hit_rate") is not None
+                        ):
+                            run_result["page_cache_rate_reliable"] = True
+                            if "page_cache_rate_source" not in run_result:
+                                run_result["page_cache_rate_source"] = "server_reported"
+                        else:
+                            io_raw = run_result.get("estimated_cache_miss_rate_io_raw")
+                            if (
+                                run_result.get("cache_rate_source") == "cgroup_io_stat"
+                                and io_raw is not None
+                                and 0.0 <= float(io_raw) <= 1.0
+                            ):
+                                miss = float(io_raw)
+                                run_result["page_cache_miss_rate"] = miss
+                                run_result["page_cache_hit_rate"] = 1.0 - miss
+                                run_result["page_cache_rate_source"] = (
+                                    "cgroup_io_stat_read_ios_over_estimated_read_ops"
+                                )
+                                run_result["page_cache_rate_reliable"] = True
+                            else:
+                                run_result["page_cache_miss_rate"] = None
+                                run_result["page_cache_hit_rate"] = None
+                                run_result["page_cache_rate_source"] = None
+                                run_result["page_cache_rate_reliable"] = False
+                                if run_result.get("cache_rate_source") != "cgroup_io_stat":
+                                    run_result["page_cache_rate_unavailable_reason"] = (
+                                        "requires cgroup_io_stat source"
+                                    )
+                                elif io_raw is None:
+                                    run_result["page_cache_rate_unavailable_reason"] = (
+                                        "missing read_ios/read_ops ratio"
+                                    )
+                                else:
+                                    run_result["page_cache_rate_unavailable_reason"] = (
+                                        "read_ios/read_ops ratio > 1 (not request-level reliable)"
+                                    )
+                    else:
+                        run_result["estimated_read_ops"] = 0.0
+                        run_result["estimated_read_like_ops"] = 0.0
+                        run_result["estimated_cache_miss_rate_io_raw"] = None
+                        run_result["estimated_logical_read_size_bytes"] = None
+                        run_result["estimated_logical_read_bytes"] = None
+                        run_result["estimated_cache_miss_rate_raw"] = None
+                        run_result["estimated_cache_miss_rate"] = None
+                        run_result["estimated_cache_hit_rate"] = None
+                        run_result["page_cache_miss_rate"] = None
+                        run_result["page_cache_hit_rate"] = None
+                        run_result["page_cache_rate_source"] = None
+                        run_result["page_cache_rate_reliable"] = False
+                        run_result["page_cache_rate_unavailable_reason"] = (
+                            "read_throughput unavailable"
+                        )
                     tp = run_result.get("total_throughput", 0.0)
                     log.info("Trace %s run %d: throughput=%.2f ops/sec",
                              trace_name, run_idx + 1, tp)
+                    log.info(
+                        "Trace %s run %d: server page faults (minor=%d major=%d)",
+                        trace_name,
+                        run_idx + 1,
+                        eff_minor,
+                        eff_major,
+                    )
                 except Exception as te:
                     log.error("Trace %s run %d failed: %s", trace_name, run_idx + 1, te)
                     run_result = {"total_throughput": 0.0, "error": str(te)}
@@ -1343,6 +2041,83 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
             tps = [r.get("total_throughput", 0.0) for r in runs]
             p99s = [r.get("read_latency_p99_ns", 0.0) for r in runs
                     if "read_latency_p99_ns" in r]
+            minor_faults = [float(r.get("server_minor_faults_delta", 0.0)) for r in runs]
+            major_faults = [float(r.get("server_major_faults_delta", 0.0)) for r in runs]
+            major_faults_per_est_read = [
+                float(r.get("server_major_faults_per_est_read", 0.0))
+                for r in runs
+                if "server_major_faults_per_est_read" in r
+            ]
+            disk_read_ios = [
+                float(r.get("cgroup_disk_read_ios_delta", 0.0))
+                for r in runs
+                if "cgroup_disk_read_ios_delta" in r
+            ]
+            disk_read_bytes = [
+                float(r.get("cgroup_disk_read_bytes_delta", 0.0))
+                for r in runs
+                if "cgroup_disk_read_bytes_delta" in r
+            ]
+            disk_write_ios = [
+                float(r.get("cgroup_disk_write_ios_delta", 0.0))
+                for r in runs
+                if "cgroup_disk_write_ios_delta" in r
+            ]
+            disk_write_bytes = [
+                float(r.get("cgroup_disk_write_bytes_delta", 0.0))
+                for r in runs
+                if "cgroup_disk_write_bytes_delta" in r
+            ]
+            disk_total_bytes = [
+                float(r.get("cgroup_disk_total_bytes_delta", 0.0))
+                for r in runs
+                if "cgroup_disk_total_bytes_delta" in r
+            ]
+            disk_total_ios = [
+                float(r.get("cgroup_disk_total_ios_delta", 0.0))
+                for r in runs
+                if "cgroup_disk_total_ios_delta" in r
+            ]
+            cache_miss_rate = [
+                float(r["estimated_cache_miss_rate"])
+                for r in runs
+                if r.get("estimated_cache_miss_rate") is not None
+            ]
+            cache_miss_rate_raw = [
+                float(r["estimated_cache_miss_rate_raw"])
+                for r in runs
+                if r.get("estimated_cache_miss_rate_raw") is not None
+            ]
+            cache_miss_rate_io_raw = [
+                float(r["estimated_cache_miss_rate_io_raw"])
+                for r in runs
+                if r.get("estimated_cache_miss_rate_io_raw") is not None
+            ]
+            cache_hit_rate = [
+                float(r["estimated_cache_hit_rate"])
+                for r in runs
+                if r.get("estimated_cache_hit_rate") is not None
+            ]
+            page_cache_miss_rate = [
+                float(r["page_cache_miss_rate"])
+                for r in runs
+                if r.get("page_cache_miss_rate") is not None
+            ]
+            page_cache_hit_rate = [
+                float(r["page_cache_hit_rate"])
+                for r in runs
+                if r.get("page_cache_hit_rate") is not None
+            ]
+            minor_fault_ratio = [
+                float(r.get("server_minor_fault_ratio", 0.0))
+                for r in runs
+                if "server_minor_fault_ratio" in r
+            ]
+            major_fault_ratio = [
+                float(r.get("server_major_fault_ratio", 0.0))
+                for r in runs
+                if "server_major_fault_ratio" in r
+            ]
             series_runs = [
                 r.get("throughput_series_total_ops_per_sec", [])
                 for r in runs
@@ -1365,6 +2140,54 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
             tp_min = min(tps)
             tp_max = max(tps)
             p99_mean = statistics.mean(p99s) if p99s else 0.0
+            minor_faults_mean = statistics.mean(minor_faults) if minor_faults else 0.0
+            major_faults_mean = statistics.mean(major_faults) if major_faults else 0.0
+            major_faults_per_est_read_mean = (
+                statistics.mean(major_faults_per_est_read)
+                if major_faults_per_est_read
+                else 0.0
+            )
+            disk_read_ios_mean = statistics.mean(disk_read_ios) if disk_read_ios else 0.0
+            disk_read_bytes_mean = (
+                statistics.mean(disk_read_bytes) if disk_read_bytes else 0.0
+            )
+            disk_write_ios_mean = (
+                statistics.mean(disk_write_ios) if disk_write_ios else 0.0
+            )
+            disk_write_bytes_mean = (
+                statistics.mean(disk_write_bytes) if disk_write_bytes else 0.0
+            )
+            disk_total_bytes_mean = (
+                statistics.mean(disk_total_bytes) if disk_total_bytes else 0.0
+            )
+            disk_total_ios_mean = (
+                statistics.mean(disk_total_ios) if disk_total_ios else 0.0
+            )
+            cache_miss_rate_mean = (
+                statistics.mean(cache_miss_rate) if cache_miss_rate else None
+            )
+            cache_miss_rate_raw_mean = (
+                statistics.mean(cache_miss_rate_raw) if cache_miss_rate_raw else None
+            )
+            cache_miss_rate_io_raw_mean = (
+                statistics.mean(cache_miss_rate_io_raw) if cache_miss_rate_io_raw else None
+            )
+            cache_hit_rate_mean = (
+                statistics.mean(cache_hit_rate) if cache_hit_rate else None
+            )
+            page_cache_miss_rate_mean = (
+                statistics.mean(page_cache_miss_rate) if page_cache_miss_rate else None
+            )
+            page_cache_hit_rate_mean = (
+                statistics.mean(page_cache_hit_rate) if page_cache_hit_rate else None
+            )
+            page_cache_rate_samples = len(page_cache_miss_rate)
+            minor_fault_ratio_mean = (
+                statistics.mean(minor_fault_ratio) if minor_fault_ratio else 0.0
+            )
+            major_fault_ratio_mean = (
+                statistics.mean(major_fault_ratio) if major_fault_ratio else 0.0
+            )
             series_mean: list[float] = []
             if series_runs:
                 min_len = min(len(s) for s in series_runs)
@@ -1393,6 +2216,24 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
                 "throughput_max": tp_max,
                 "throughput_cv": (tp_std / tp_mean * 100) if tp_mean > 0 else 0.0,
                 "read_p99_ns_mean": p99_mean,
+                "server_minor_faults_delta_mean": minor_faults_mean,
+                "server_major_faults_delta_mean": major_faults_mean,
+                "server_major_faults_per_est_read_mean": major_faults_per_est_read_mean,
+                "cgroup_disk_read_ios_delta_mean": disk_read_ios_mean,
+                "cgroup_disk_read_bytes_delta_mean": disk_read_bytes_mean,
+                "cgroup_disk_write_ios_delta_mean": disk_write_ios_mean,
+                "cgroup_disk_write_bytes_delta_mean": disk_write_bytes_mean,
+                "cgroup_disk_total_bytes_delta_mean": disk_total_bytes_mean,
+                "cgroup_disk_total_ios_delta_mean": disk_total_ios_mean,
+                "estimated_cache_miss_rate_io_raw_mean": cache_miss_rate_io_raw_mean,
+                "estimated_cache_miss_rate_raw_mean": cache_miss_rate_raw_mean,
+                "estimated_cache_miss_rate_mean": cache_miss_rate_mean,
+                "estimated_cache_hit_rate_mean": cache_hit_rate_mean,
+                "page_cache_miss_rate_mean": page_cache_miss_rate_mean,
+                "page_cache_hit_rate_mean": page_cache_hit_rate_mean,
+                "page_cache_rate_samples": page_cache_rate_samples,
+                "server_minor_fault_ratio_mean": minor_fault_ratio_mean,
+                "server_major_fault_ratio_mean": major_fault_ratio_mean,
                 "throughput_series_total_ops_per_sec_mean": series_mean,
                 "per_client_throughput_series_total_ops_per_sec_mean": per_client_series_mean,
             }
@@ -1403,6 +2244,48 @@ def evaluate(program_path: str, results_dir: str, debug: bool = False,
             public_metrics[f"{trace_name}_throughput_min"] = tp_min
             public_metrics[f"{trace_name}_throughput_max"] = tp_max
             public_metrics[f"{trace_name}_read_p99_ns_mean"] = p99_mean
+            public_metrics[f"{trace_name}_server_minor_faults_delta_mean"] = minor_faults_mean
+            public_metrics[f"{trace_name}_server_major_faults_delta_mean"] = major_faults_mean
+            public_metrics[f"{trace_name}_server_major_faults_per_est_read_mean"] = (
+                major_faults_per_est_read_mean
+            )
+            public_metrics[f"{trace_name}_cgroup_disk_read_ios_delta_mean"] = disk_read_ios_mean
+            public_metrics[f"{trace_name}_cgroup_disk_read_bytes_delta_mean"] = (
+                disk_read_bytes_mean
+            )
+            public_metrics[f"{trace_name}_cgroup_disk_write_ios_delta_mean"] = (
+                disk_write_ios_mean
+            )
+            public_metrics[f"{trace_name}_cgroup_disk_write_bytes_delta_mean"] = (
+                disk_write_bytes_mean
+            )
+            public_metrics[f"{trace_name}_cgroup_disk_total_bytes_delta_mean"] = (
+                disk_total_bytes_mean
+            )
+            public_metrics[f"{trace_name}_cgroup_disk_total_ios_delta_mean"] = (
+                disk_total_ios_mean
+            )
+            public_metrics[f"{trace_name}_estimated_cache_miss_rate_io_raw_mean"] = (
+                cache_miss_rate_io_raw_mean
+            )
+            public_metrics[f"{trace_name}_estimated_cache_miss_rate_raw_mean"] = (
+                cache_miss_rate_raw_mean
+            )
+            public_metrics[f"{trace_name}_estimated_cache_miss_rate_mean"] = (
+                cache_miss_rate_mean
+            )
+            public_metrics[f"{trace_name}_estimated_cache_hit_rate_mean"] = (
+                cache_hit_rate_mean
+            )
+            public_metrics[f"{trace_name}_page_cache_miss_rate_mean"] = (
+                page_cache_miss_rate_mean
+            )
+            public_metrics[f"{trace_name}_page_cache_hit_rate_mean"] = (
+                page_cache_hit_rate_mean
+            )
+            public_metrics[f"{trace_name}_page_cache_rate_samples"] = page_cache_rate_samples
+            public_metrics[f"{trace_name}_server_minor_fault_ratio_mean"] = minor_fault_ratio_mean
+            public_metrics[f"{trace_name}_server_major_fault_ratio_mean"] = major_fault_ratio_mean
             if series_mean:
                 cap = int(os.environ.get("CACHE_EXT_PUBLIC_TP_SERIES_MAX", "120"))
                 cap = min(cap, len(series_mean))

@@ -62,6 +62,9 @@ python bench_net_leveldb.py \
 #include <thread>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <atomic>
+#include <fstream>
+#include <endian.h>
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
@@ -72,6 +75,8 @@ static constexpr uint8_t CMD_GET  = 1;
 static constexpr uint8_t CMD_PUT  = 2;
 static constexpr uint8_t CMD_SCAN = 3;
 static constexpr uint8_t CMD_RMW  = 4;  // READ_MODIFY_WRITE
+static constexpr uint8_t CMD_RESET_STATS = 5;
+static constexpr uint8_t CMD_GET_STATS = 6;
 
 static constexpr uint8_t STATUS_OK        = 0;
 static constexpr uint8_t STATUS_NOT_FOUND = 1;
@@ -80,6 +85,20 @@ static constexpr uint8_t STATUS_ERROR     = 2;
 static constexpr size_t REQUEST_HEADER_SIZE = 9;  // 1 + 4 + 4
 static constexpr size_t MAX_KEY_SIZE = 1024;
 static constexpr size_t MAX_VALUE_SIZE = 64 * 1024;  // 64KB max value
+
+static std::atomic<uint64_t> g_read_requests{0};
+static std::atomic<uint64_t> g_read_misses{0};
+
+static uint64_t read_proc_self_read_bytes() {
+    std::ifstream f("/proc/self/io");
+    if (!f.is_open()) return 0;
+    std::string key;
+    uint64_t value = 0;
+    while (f >> key >> value) {
+        if (key == "read_bytes:") return value;
+    }
+    return 0;
+}
 
 // Read exactly n bytes from socket, returns false on error/disconnect
 static bool read_exact(int fd, void *buf, size_t n) {
@@ -163,19 +182,29 @@ void handle_client(int socket_fd, leveldb::DB* db) {
         extra_len = ntohl(extra_len);
 
         // Validate sizes
-        if (key_len == 0 || key_len > MAX_KEY_SIZE) {
-            send_response(socket_fd, STATUS_ERROR, nullptr, 0);
-            break;
-        }
-        if (extra_len > MAX_VALUE_SIZE) {
-            send_response(socket_fd, STATUS_ERROR, nullptr, 0);
-            break;
+        if (cmd == CMD_RESET_STATS || cmd == CMD_GET_STATS) {
+            if (key_len != 0 || extra_len != 0) {
+                send_response(socket_fd, STATUS_ERROR, nullptr, 0);
+                break;
+            }
+        } else {
+            if (key_len == 0 || key_len > MAX_KEY_SIZE) {
+                send_response(socket_fd, STATUS_ERROR, nullptr, 0);
+                break;
+            }
+            if (extra_len > MAX_VALUE_SIZE) {
+                send_response(socket_fd, STATUS_ERROR, nullptr, 0);
+                break;
+            }
         }
 
-        // Read key
-        if (!read_exact(socket_fd, key_buf.data(), key_len))
-            break;
-        std::string key(key_buf.data(), key_len);
+        // Read key (if any)
+        std::string key;
+        if (key_len > 0) {
+            if (!read_exact(socket_fd, key_buf.data(), key_len))
+                break;
+            key.assign(key_buf.data(), key_len);
+        }
 
         // Read extra data
         if (extra_len > 0) {
@@ -186,9 +215,30 @@ void handle_client(int socket_fd, leveldb::DB* db) {
         }
 
         switch (cmd) {
+        case CMD_RESET_STATS: {
+            g_read_requests.store(0, std::memory_order_relaxed);
+            g_read_misses.store(0, std::memory_order_relaxed);
+            send_response(socket_fd, STATUS_OK, nullptr, 0);
+            break;
+        }
+        case CMD_GET_STATS: {
+            uint64_t req = g_read_requests.load(std::memory_order_relaxed);
+            uint64_t miss = g_read_misses.load(std::memory_order_relaxed);
+            uint64_t payload[2];
+            payload[0] = htobe64(req);
+            payload[1] = htobe64(miss);
+            send_response(socket_fd, STATUS_OK, reinterpret_cast<const char*>(payload), sizeof(payload));
+            break;
+        }
         case CMD_GET: {
+            uint64_t rb_before = read_proc_self_read_bytes();
             leveldb::ReadOptions read_opts;
             leveldb::Status status = db->Get(read_opts, key, &value_str);
+            uint64_t rb_after = read_proc_self_read_bytes();
+            g_read_requests.fetch_add(1, std::memory_order_relaxed);
+            if (rb_after > rb_before) {
+                g_read_misses.fetch_add(1, std::memory_order_relaxed);
+            }
             if (status.ok()) {
                 send_response(socket_fd, STATUS_OK,
                               value_str.data(), static_cast<uint32_t>(value_str.size()));

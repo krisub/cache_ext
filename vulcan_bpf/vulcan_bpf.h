@@ -230,7 +230,7 @@ struct vulcan_folio_metadata {
     u64 last_access_ts;
     u64 prev_access_ts;
     u32 access_count;
-    u32 _pad;
+    u32 client_tag; /* 0 = unset; else inode watch tag (DB / workload id) */
     struct vulcan_minmax interval_minmax;
     struct vulcan_ewma   interval_ewma;
 };
@@ -241,6 +241,28 @@ struct vulcan_folio_metadata {
 * low EWMA- frequent access
 * high EWMA- rare access
 */
+
+/*
+
+- last access timestamp
+- prev access timestamp
+- access count
+- client tag
+- interval_minmax = { .min_val = 0, .max_val = 0, .count = 0, ._pad = 0 }
+State for min/max of access intervals:
+min_val: smallest interval seen so far
+max_val: largest interval seen so far
+count: how many interval samples have been incorporated
+_pad: padding/alignment field for struct layout
+
+interval_ewma = { .value = 0, .initialized = 0, ._pad = 0 }
+State for EWMA of access intervals:
+value: current EWMA value
+initialized: flag indicating whether EWMA has received its first real sample
+_pad: padding/alignment field
+(time gap between consecutive accesses to the same object/folio)
+
+*/
 static __always_inline struct vulcan_folio_metadata
 vulcan_folio_init(u64 now)
 {
@@ -248,8 +270,8 @@ vulcan_folio_init(u64 now)
         .last_access_ts  = now,
         .prev_access_ts  = 0,
         .access_count    = 1,
-        ._pad            = 0,
-        .interval_minmax = { .min_val = 0, .max_val = 0, .count = 0, ._pad = 0 }, 
+        .client_tag      = 0,
+        .interval_minmax = { .min_val = 0, .max_val = 0, .count = 0, ._pad = 0 },
         .interval_ewma   = { .value = 0, .initialized = 0, ._pad = 0 },
     };
     return m;

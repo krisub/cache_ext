@@ -1,0 +1,113 @@
+# ── ShinkaEvolve config for cache_ext eviction policy ────
+# score-based sampling instead of boolean iterate callbacks.
+#
+# Run: python run_evo.py --config_path
+
+max_evaluation_jobs: 1
+max_proposal_jobs: 2
+max_db_workers: 2
+
+db_config:
+  num_islands: 1
+  archive_size: 30
+  elite_selection_ratio: 0.3
+  num_archive_inspirations: 3
+  num_top_k_inspirations: 2
+  migration_interval: 10
+  migration_rate: 0.1
+  island_elitism: true
+  enforce_island_separation: true
+  parent_selection_strategy: weighted
+  parent_selection_lambda: 10
+  archive_selection_strategy: crowding
+  island_selection_strategy: equal
+  archive_criteria:
+    combined_score: 1.0
+    loc: -0.1
+
+  enable_dynamic_islands: false
+  stagnation_threshold: 15
+  island_spawn_strategy: best
+  island_spawn_subtree_size: 2
+
+evo_config:
+  patch_types:
+    - diff
+  patch_type_probs:
+    - 1.0
+
+  num_generations: 50
+  max_api_costs: 15.0
+  max_patch_resamples: 5
+  max_patch_attempts: 8
+  max_novelty_attempts: 4
+  job_type: local
+
+  language: c
+  init_program_path: LLM2.h
+
+  llm_models:
+    - "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+  llm_kwargs:
+    temperatures:
+      - 0
+      - 0.3
+      - 0.6
+    reasoning_efforts:
+      - low
+      - medium
+      - high
+    max_tokens: 32768
+
+  meta_rec_interval: 5
+  meta_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  meta_llm_kwargs:
+    temperatures:
+      - 0
+    max_tokens: 16384
+
+  embedding_model: null
+  code_embed_sim_threshold: 1.0
+
+  novelty_llm_models:
+    - "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  novelty_llm_kwargs:
+    temperatures:
+      - 0
+
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.8
+    cost_aware_coef: 0.3
+
+  results_dir: results/vulcan_evo
+
+  evolve_prompts: true
+  prompt_evolution_interval: 5
+  prompt_patch_types: ["diff"]
+  prompt_patch_type_probs: [1.0]
+  prompt_archive_size: 8
+  prompt_percentile_recompute_interval: 1
+  prompt_ucb_exploration_constant: 2.0
+  prompt_epsilon: 0.4
+
+  # ── Task system message ──────────────────────────────────────────────
+  task_sys_msg: |
+    You are evolving a seed eviction policy program.
+
+    Goal: improve throughput while keeping proposals compilable and practical.
+
+    Scope:
+    - Evolve only the provided seed code.
+    - Keep edits focused on eviction behavior and related policy logic.
+    - Preserve required interfaces and compatibility with the surrounding fixed infrastructure.
+
+    Safety guards:
+    - Keep output valid C only (no explanations, no markdown, no merge markers).
+    - Do not rename required symbols or change required function signatures.
+    - No floating point; use bounded integer math and guard divide-by-zero.
+    - Avoid large loops, recursion, VLAs, and large stack allocations.
+    - Keep pointer/null checks before dereference; fail closed on missing metadata.
+    - Use conservative behavior for unsafe folios (e.g. dirty/writeback/not-up-to-date).
+    - Keep changes verifier-friendly and compilation-safe over speculative complexity.

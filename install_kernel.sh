@@ -29,7 +29,7 @@ make olddefconfig
 # Ignore 'yes' exit status
 { yes '' || true;} | make localmodconfig
 
-scripts/config --set-str LOCALVERSION "-cache-ext"
+scripts/config --set-str LOCALVERSION "-krisub-cache-ext"
 scripts/config --set-str SYSTEM_TRUSTED_KEYS ''
 scripts/config --set-str SYSTEM_REVOCATION_KEYS ''
 scripts/config --enable CONFIG_BPF_SYSCALL

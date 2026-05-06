@@ -1,6 +1,6 @@
 # target_aggregate_ops_per_sec (one row per experiment second; step function)
 # pattern: 350 / 1050 / 1400 / 1050 / 350
-# 4 cycles × 5 steps = 20 steps; 6s per step
+# 4 cycles * 5 steps = 20 steps; 6s per step
 350.000000
 350.000000
 350.000000

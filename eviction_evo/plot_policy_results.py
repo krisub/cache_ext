@@ -39,7 +39,7 @@ PREFERRED_TRACE_ORDERS = [
 
 # Temporary local plotting override: hide specific traces without touching metrics.
 EXCLUDED_TRACE_KEYS = {
-    "ycsb_a_d_sched_2_b",
+    # "ycsb_a_d_sched_2_b",
     # "ycsb_b_a_sched_2_b",
     # "ycsb_c_a_sched_2_b",
     # "ycsb_c_f_sched_2_b"

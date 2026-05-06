@@ -339,6 +339,8 @@ static s64 bpf_score_fn(struct cache_ext_list_node *node)
     return score;
 }
 
+// EVOLVE-BLOCK-END
+
 // -- struct_ops: init ---------------------------------------------------------
 s32 BPF_STRUCT_OPS_SLEEPABLE(evolved_init, struct mem_cgroup *memcg)
 {
@@ -413,8 +415,6 @@ void BPF_STRUCT_OPS(evolved_folio_evicted, struct folio *folio)
     bpf_map_delete_elem(&folio_metadata_map, &key);
     bump_counter(5);
 }
-
-// EVOLVE-BLOCK-END
 
 // =============================================================================
 // NETWORK MONITORING (fixed -- not evolved)

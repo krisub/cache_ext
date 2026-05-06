@@ -9,7 +9,7 @@ workload:
   warmup_runtime_seconds: 10
   runtime_seconds: 60
   nr_warmup_op: 10000
-  nr_op: 10000000
+  nr_op: 100000000
   nr_thread: 1
   next_op_interval_ns: 0  # use 50000 on mars
   operation_proportion:

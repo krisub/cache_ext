@@ -12,8 +12,9 @@
 //   - Vulcan listener state maps (MinMax, EWMA, RollingWindow, Average
 //     for each global feature)
 //   - Per-folio metadata map (with embedded per-folio listeners)
-//   - Network monitoring kprobe (tcp_recvmsg) -- updates raw globals AND
-//     calls vulcan_update_feature for each global feature using gf_configs[]
+//   - Network monitoring kprobe (tcp_recvmsg) -- updates raw globals,
+//     calls vulcan_tag_update_feature (per client_tag from server port) for
+//     enabled gf_configs[] features (GF_CLIENT_TAG is folio-driven only)
 //   - struct_ops registration
 //
 // Library headers (cache_ext/vulcan_bpf/):
@@ -21,16 +22,17 @@
 //   - vulcan_feature.h  -- feature dispatch (vulcan_update_feature) and
 //                          accessor functions (vulcan_get_ewma, etc.)
 //
-// BASELINE: The eviction policy below mimics cache_ext_sampling.bpf.c (LFU).
-// Evolution starts from this baseline. The LLM may add network-aware logic
-// via vulcan_get_* accessors; gf_configs and folio_cfg control which listeners
-// are active. DO NOT modify networking infrastructure (kprobe, maps, includes).
+// BASELINE: LFU scoring like cache_ext_sampling.bpf.c; gf_configs all zero.
+// Evolution can enable listeners; when enabled, kprobe fills per-tag maps only
+// (see fixed tcp_recvmsg loop). For multi-client scoring use vulcan_tag_get_*
+// with meta->client_tag. DO NOT modify networking infrastructure
+// (kprobe, maps, includes).
 //
 // What the LLM evolves (inside EVOLVE-BLOCK):
-//   - gf_configs[] -- enable listeners for network metrics (baseline: all 0)
+//   - gf_configs[] -- per GF_*: listener_mask (VULCAN_LISTENER_*) + ewma_alpha / rw_size
 //   - folio_cfg    -- per-folio interval tracking (baseline: disabled)
 //   - SAMPLE_SIZE  -- candidates per eviction slot
-//   - bpf_score_fn(node) -> s64 -- lower = evict first; S64_MAX = protect
+//   - bpf_score_fn(node) -> s64 -- lower = evict first; INT64_MAX = protect
 //   - struct_ops callbacks (init, evict_folios, folio_added, folio_accessed,
 //     folio_evicted) — evolve eviction logic only
 //
@@ -38,8 +40,9 @@
 // GLOBAL FEATURE ACCESSOR API  (usable inside bpf_score_fn)
 // =======================================================================
 //
-// Only returns meaningful values for listeners enabled in gf_configs[].
-// Calling an accessor for a disabled listener safely returns 0.
+// vulcan_get_* global maps are not fed by tcp_recvmsg here. Per-tag data exists
+// for GF_* rows with non-zero gf_configs[i].listener_mask; disabled accessors
+// return 0.
 //
 //   vulcan_get_min(GF_xxx)              -- observed minimum  (needs MINMAX)
 //   vulcan_get_max(GF_xxx)              -- observed maximum  (needs MINMAX)
@@ -49,6 +52,10 @@
 //   vulcan_get_kth_recent(GF_xxx, k)    -- k-th most recent   (needs RW)
 //   vulcan_get_window_avg(GF_xxx)       -- rolling-window avg (needs RW)
 //   vulcan_get_window_count(GF_xxx)     -- entries in window   (needs RW)
+//
+// Per-client_tag accessors (same listener bits as gf_configs[i]; use
+// meta->client_tag — matches kprobe port→tag routing):
+//   vulcan_tag_get_min/max/ewma/avg/latest/kth_recent/window_avg/window_count
 //
 // Global feature IDs:
 //   GF_SRTT_US          -- smoothed RTT (usec, kernel srtt<<3)
@@ -208,6 +215,39 @@ struct {
     __type(value, struct vulcan_avg);
 } vulcan_gavg SEC(".maps");
 
+struct vulcan_tag_feature_key {
+    u32 client_tag;
+    u32 feature_id;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 128);
+    __type(key, struct vulcan_tag_feature_key);
+    __type(value, struct vulcan_minmax);
+} vulcan_tgminmax SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 128);
+    __type(key, struct vulcan_tag_feature_key);
+    __type(value, struct vulcan_ewma);
+} vulcan_tgewma SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 128);
+    __type(key, struct vulcan_tag_feature_key);
+    __type(value, struct vulcan_rolling_window);
+} vulcan_tgrw SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 128);
+    __type(key, struct vulcan_tag_feature_key);
+    __type(value, struct vulcan_avg);
+} vulcan_tgavg SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 17);
@@ -263,92 +303,189 @@ static __always_inline u32 folio_client_tag(struct folio *folio)
     return inode_get_client_tag(folio->mapping->host->i_ino);
 }
 
+static __always_inline u32 net_client_tag_from_sport(u16 sport)
+{
+    if (sport == 9100 || sport == 9001)
+        return 1;
+    if (sport == 9101 || sport == 9002)
+        return 2;
+    return 0;
+}
+
+static __always_inline void
+vulcan_tag_update_feature(u32 client_tag, u32 feature_id, s64 raw_value,
+                          const struct vulcan_feature_config *cfg)
+{
+    if (!client_tag || !cfg || !cfg->listener_mask)
+        return;
+    if (feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return;
+
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+
+    if (cfg->listener_mask & VULCAN_LISTENER_MINMAX) {
+        struct vulcan_minmax *mm = bpf_map_lookup_elem(&vulcan_tgminmax, &key);
+        if (!mm) {
+            struct vulcan_minmax init = {};
+            bpf_map_update_elem(&vulcan_tgminmax, &key, &init, BPF_ANY);
+            mm = bpf_map_lookup_elem(&vulcan_tgminmax, &key);
+        }
+        if (mm)
+            vulcan_minmax_update(mm, raw_value);
+    }
+
+    if (cfg->listener_mask & VULCAN_LISTENER_EWMA) {
+        struct vulcan_ewma *e = bpf_map_lookup_elem(&vulcan_tgewma, &key);
+        if (!e) {
+            struct vulcan_ewma init = {};
+            bpf_map_update_elem(&vulcan_tgewma, &key, &init, BPF_ANY);
+            e = bpf_map_lookup_elem(&vulcan_tgewma, &key);
+        }
+        if (e)
+            vulcan_ewma_update(e, raw_value, cfg->ewma_alpha);
+    }
+
+    if (cfg->listener_mask & VULCAN_LISTENER_AVG) {
+        struct vulcan_avg *a = bpf_map_lookup_elem(&vulcan_tgavg, &key);
+        if (!a) {
+            struct vulcan_avg init = {};
+            bpf_map_update_elem(&vulcan_tgavg, &key, &init, BPF_ANY);
+            a = bpf_map_lookup_elem(&vulcan_tgavg, &key);
+        }
+        if (a)
+            vulcan_avg_update(a, raw_value);
+    }
+
+    if (cfg->listener_mask & VULCAN_LISTENER_RW) {
+        struct vulcan_rolling_window *rw = bpf_map_lookup_elem(&vulcan_tgrw, &key);
+        if (!rw) {
+            struct vulcan_rolling_window init = {};
+            bpf_map_update_elem(&vulcan_tgrw, &key, &init, BPF_ANY);
+            rw = bpf_map_lookup_elem(&vulcan_tgrw, &key);
+        }
+        if (rw)
+            vulcan_rw_update(rw, raw_value, cfg->rw_size);
+    }
+}
+
+static __always_inline s64 __attribute__((unused))
+vulcan_tag_get_ewma(u32 client_tag, u32 feature_id)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_ewma *e = bpf_map_lookup_elem(&vulcan_tgewma, &key);
+    return e ? vulcan_ewma_get(e) : 0;
+}
+
+static __always_inline s64 __attribute__((unused))
+vulcan_tag_get_min(u32 client_tag, u32 feature_id)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_minmax *mm = bpf_map_lookup_elem(&vulcan_tgminmax, &key);
+    return mm ? vulcan_minmax_get_min(mm) : 0;
+}
+
+static __always_inline s64 __attribute__((unused))
+vulcan_tag_get_max(u32 client_tag, u32 feature_id)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_minmax *mm = bpf_map_lookup_elem(&vulcan_tgminmax, &key);
+    return mm ? vulcan_minmax_get_max(mm) : 0;
+}
+
+static __always_inline s64 __attribute__((unused))
+vulcan_tag_get_avg(u32 client_tag, u32 feature_id)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_avg *a = bpf_map_lookup_elem(&vulcan_tgavg, &key);
+    return a ? vulcan_avg_get(a) : 0;
+}
+
+static __always_inline s64 __attribute__((unused))
+vulcan_tag_get_latest(u32 client_tag, u32 feature_id)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_rolling_window *rw =
+        bpf_map_lookup_elem(&vulcan_tgrw, &key);
+    return rw ? vulcan_rw_get_latest(rw) : 0;
+}
+
+static __always_inline s64 __attribute__((unused))
+vulcan_tag_get_kth_recent(u32 client_tag, u32 feature_id, u32 k)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_rolling_window *rw =
+        bpf_map_lookup_elem(&vulcan_tgrw, &key);
+    return rw ? vulcan_rw_get_kth_recent(rw, k) : 0;
+}
+
+static __always_inline s64 __attribute__((unused))
+vulcan_tag_get_window_avg(u32 client_tag, u32 feature_id)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_rolling_window *rw =
+        bpf_map_lookup_elem(&vulcan_tgrw, &key);
+    return rw ? vulcan_rw_get_avg(rw) : 0;
+}
+
+static __always_inline u32 __attribute__((unused))
+vulcan_tag_get_window_count(u32 client_tag, u32 feature_id)
+{
+    if (!client_tag || feature_id >= VULCAN_NUM_GLOBAL_FEATURES)
+        return 0;
+    struct vulcan_tag_feature_key key = {
+        .client_tag = client_tag,
+        .feature_id = feature_id,
+    };
+    struct vulcan_rolling_window *rw =
+        bpf_map_lookup_elem(&vulcan_tgrw, &key);
+    return rw ? vulcan_rw_get_count(rw) : 0;
+}
+
 // EVOLVE-BLOCK-START
 // =============================================================================
 // EVICTION POLICY -- everything below (until the closing marker) is evolved
 // =============================================================================
+#include "LLM.h"
 
-// -- Per-feature listener configuration --------------------------------------
-// Baseline: all disabled (pure LFU, no network overhead). Evolution can enable
-// listeners for vulcan_get_* accessors in bpf_score_fn.
-static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-    [GF_SRTT_US]        = { .listener_mask = 0 },
-    [GF_MDEV_US]        = { .listener_mask = 0 },
-    [GF_SND_CWND]       = { .listener_mask = 0 },
-    [GF_SND_SSTHRESH]   = { .listener_mask = 0 },
-    [GF_RCV_WND]        = { .listener_mask = 0 },
-    [GF_PACKETS_OUT]    = { .listener_mask = 0 },
-    [GF_TOTAL_RETRANS]  = { .listener_mask = 0 },
-    [GF_RETRANS_OUT]    = { .listener_mask = 0 },
-    [GF_LOST]           = { .listener_mask = 0 },
-    [GF_SEGS_IN]        = { .listener_mask = 0 },
-    [GF_SEGS_OUT]       = { .listener_mask = 0 },
-    [GF_DELIVERED]      = { .listener_mask = 0 },
-    [GF_BYTES_RECEIVED] = { .listener_mask = 0 },
-    [GF_BYTES_ACKED]    = { .listener_mask = 0 },
-    [GF_INTER_ARRIVAL]  = { .listener_mask = 0 },
-    [GF_RECV_COUNT]     = { .listener_mask = 0 },
-    [GF_CLIENT_TAG]     = { .listener_mask = 0 },
-};
-
-// -- Per-folio listener configuration ----------------------------------------
-// Baseline: disabled. Evolution can enable for interval-based scoring.
-static const struct vulcan_folio_config folio_cfg = {
-    .listener_mask = 0,
-    .ewma_alpha    = 200,
-};
-
-// -- Tunable constants --------------------------------------------------------
-#define SAMPLE_SIZE 20  // Candidates per eviction slot (same as cache_ext_sampling)
-
-static u64 main_list;
-
-// LevelDB: index block is at end of file; protect last page (same as sampling).
-static inline bool is_last_page_in_file(struct folio *folio)
-{
-    struct address_space *mapping = folio->mapping;
-    if (!mapping || !mapping->host)
-        return false;
-    if (folio_test_large(folio) || folio_test_hugetlb(folio))
-        return false;
-    unsigned long long file_size = i_size_read(mapping->host);
-    unsigned long long page_index = folio_index(folio);
-    unsigned long long page_size = 4096;
-    unsigned long long last_page_index =
-        (file_size + page_size - 1) / page_size - 1;
-    return page_index == last_page_index;
-}
-
-/*
- * Baseline: pure LFU (mimics cache_ext_sampling.bpf.c bpf_lfu_score_fn).
- * Kernel picks LOWEST score in each batch. S64_MAX = never prefer as victim.
- * Evolution can add vulcan_get_* calls and protection rules.
- */
-static s64 bpf_score_fn(struct cache_ext_list_node *node)
-{
-    struct folio *folio = node->folio;
-    if (!folio)
-        return S64_MAX;
-
-    if (folio_test_dirty(folio) || folio_test_writeback(folio))
-        return S64_MAX;
-    if (!folio_test_uptodate(folio) || !folio_test_lru(folio))
-        return S64_MAX;
-
-    u64 key = (u64)folio;
-    struct vulcan_folio_metadata *meta =
-        bpf_map_lookup_elem(&folio_metadata_map, &key);
-    if (!meta)
-        return S64_MAX;
-
-    s64 score = (s64)meta->access_count;
-
-    /* LevelDB: protect index block (last page of file) */
-    if (is_last_page_in_file(folio))
-        score += 100000;
-
-    return score;
-}
+// EVOLVE-BLOCK-END
 
 // -- struct_ops: init ---------------------------------------------------------
 s32 BPF_STRUCT_OPS_SLEEPABLE(evolved_init, struct mem_cgroup *memcg)
@@ -387,8 +524,9 @@ void BPF_STRUCT_OPS(evolved_folio_added, struct folio *folio)
         vulcan_folio_init(bpf_ktime_get_ns());
     new_meta.client_tag = folio_client_tag(folio);
     bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
-    vulcan_update_feature(GF_CLIENT_TAG, (s64)new_meta.client_tag,
-                          &gf_configs[GF_CLIENT_TAG]);
+    vulcan_tag_update_feature(new_meta.client_tag, GF_CLIENT_TAG,
+                              (s64)new_meta.client_tag,
+                              &gf_configs[GF_CLIENT_TAG]);
     bump_counter(2);
 }
 
@@ -410,15 +548,17 @@ void BPF_STRUCT_OPS(evolved_folio_accessed, struct folio *folio)
             vulcan_folio_init(bpf_ktime_get_ns());
         new_meta.client_tag = folio_client_tag(folio);
         bpf_map_update_elem(&folio_metadata_map, &key, &new_meta, BPF_ANY);
-        vulcan_update_feature(GF_CLIENT_TAG, (s64)new_meta.client_tag,
-                              &gf_configs[GF_CLIENT_TAG]);
+        vulcan_tag_update_feature(new_meta.client_tag, GF_CLIENT_TAG,
+                                  (s64)new_meta.client_tag,
+                                  &gf_configs[GF_CLIENT_TAG]);
         bump_counter(3);
         return;
     }
 
     vulcan_folio_on_access(meta, bpf_ktime_get_ns(), &folio_cfg);
-    vulcan_update_feature(GF_CLIENT_TAG, (s64)meta->client_tag,
-                          &gf_configs[GF_CLIENT_TAG]);
+    vulcan_tag_update_feature(meta->client_tag, GF_CLIENT_TAG,
+                              (s64)meta->client_tag,
+                              &gf_configs[GF_CLIENT_TAG]);
     bump_counter(4);
 }
 
@@ -433,15 +573,11 @@ void BPF_STRUCT_OPS(evolved_folio_evicted, struct folio *folio)
     bump_counter(5);
 }
 
-// EVOLVE-BLOCK-END
-
 // =============================================================================
 // NETWORK MONITORING (fixed -- not evolved)
 // =============================================================================
-// Baseline: kprobe DISABLED so we match initial_sampling (no kprobe). Having
-// tcp_recvmsg attached causes 0-throughput timeouts even with early-exit.
-// When the LLM enables any gf_configs listener, they MUST uncomment (change
-// #if 0 to #if 1) so vulcan_get_* accessors receive data.
+// Baseline: kprobe returns immediately when every gf_configs[i].listener_mask
+// is zero. tcp_recvmsg stays attached but does no TCP work in that case.
 #if 1
 SEC("kprobe/tcp_recvmsg")
 int trace_tcp_recvmsg(struct pt_regs *ctx)
@@ -452,10 +588,9 @@ int trace_tcp_recvmsg(struct pt_regs *ctx)
     u16 sport = BPF_CORE_READ(sk, __sk_common.skc_num);
     if (sport != 9100 && sport != 9101 && sport != 9001 && sport != 9002)
         return 0;
+    u32 client_tag = net_client_tag_from_sport(sport);
 
-    /* Baseline: when no listeners enabled, exit immediately — zero overhead.
-     * Matches initial_sampling (no kprobe work). When LLM enables listeners,
-     * this check fails and we do the full update. */
+    /* When no listeners enabled, exit immediately — zero overhead. */
     {
         u32 any_enabled = 0;
 #pragma unroll
@@ -492,7 +627,7 @@ int trace_tcp_recvmsg(struct pt_regs *ctx)
         inter_arrival = (s64)(last_packet_ts - net_prev_packet_ts);
 
     // Pack raw values into an array matching GF_* enum order, then dispatch
-    // to only the listeners each feature has enabled via gf_configs[].
+    // per-tag updates for each GF_* with non-zero gf_configs[i].listener_mask.
     s64 raw_values[VULCAN_NUM_GLOBAL_FEATURES];
     raw_values[GF_SRTT_US]        = (s64)net_srtt_us;
     raw_values[GF_MDEV_US]        = (s64)net_mdev_us;
@@ -512,9 +647,13 @@ int trace_tcp_recvmsg(struct pt_regs *ctx)
     raw_values[GF_RECV_COUNT]     = (s64)net_recv_count;
     raw_values[GF_CLIENT_TAG]     = 0; // not applicable in kprobe context
 
+    /* Per-tag only; GF_CLIENT_TAG is updated from folio hooks, not recvmsg. */
     for (u32 i = 0; i < VULCAN_NUM_GLOBAL_FEATURES && i < 17; i++) {
+        if (i == GF_CLIENT_TAG)
+            continue;
         if (gf_configs[i].listener_mask)
-            vulcan_update_feature(i, raw_values[i], &gf_configs[i]);
+            vulcan_tag_update_feature(client_tag, i, raw_values[i],
+                                      &gf_configs[i]);
     }
 
     return 0;

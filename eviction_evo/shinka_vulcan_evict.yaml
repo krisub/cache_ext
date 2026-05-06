@@ -46,7 +46,7 @@ evo_config:
   job_type: local
 
   language: c
-  init_program_path: initial_vulcan_split.c
+  init_program_path: LLM.h
 
   llm_models:
     - "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
@@ -96,316 +96,124 @@ evo_config:
 
   # ── Task system message ──────────────────────────────────────────────
   task_sys_msg: |
-    You are an expert systems programmer optimizing a Linux eBPF page-cache
-    eviction policy. Your goal is to MAXIMIZE throughput (ops/sec) across
-    MULTIPLE workloads on a networked LevelDB database that relies entirely
-    on the OS page cache.
+    You are evolving only the eviction-policy block for a Linux eBPF cache_ext
+    program using kernel-libvulcan.
 
-    ## Architecture
-    - A LevelDB TCP server (net_leveldb_server) runs inside a memory-limited
-      cgroup (512 MiB). With block_cache=NULL, every read goes through the
-      OS page cache.
-    - A YCSB client sends GET/PUT/SCAN/RMW requests over TCP from outside
-      the cgroup.
-    - Your eviction policy (eBPF struct_ops for cache_ext) controls which
-      pages stay in the constrained page cache and which get evicted.
+    Goal: maximize throughput. Keep proposals practical and compilable.
 
-    ## Kernel-LibVulcan Design
-    **BASELINE**: The initial policy mimics `cache_ext_sampling.bpf.c` (LFU).
-    Evolution starts from pure LFU (score = access_count; protect dirty/
-    writeback/uptodate/lru; LevelDB last-page bonus). You EVOLVE from there.
+    ## Scope and output
+    - `LLM.h` is the evolution input; the `EVOLVE-BLOCK` corresponds to the full contents
+      of `LLM.h`.
+    - Keep required symbols defined: `gf_configs[VULCAN_NUM_GLOBAL_FEATURES]`,
+      `folio_cfg`, `SAMPLE_SIZE`, `main_list`, and `bpf_score_fn`.
+    - `gf_configs` uses **only** these five indices (sparse init; every other `GF_*`
+      stays default-disabled): `GF_SEGS_IN`, `GF_SEGS_OUT`, `GF_BYTES_RECEIVED`,
+      `GF_BYTES_ACKED`, `GF_CLIENT_TAG`. Do not add other `GF_*` rows to the initializer.
+    - **Networking features must be enabled:** every evolved `LLM.h` MUST set a
+      non-zero `listener_mask` (plus valid `ewma_alpha` / `rw_size` when those bits are
+      used) on **all four TCP-backed rows** — `GF_SEGS_IN`, `GF_SEGS_OUT`,
+      `GF_BYTES_RECEIVED`, `GF_BYTES_ACKED` — so `tcp_recvmsg` runs the collection path
+      and per-`client_tag` maps fill. Also enable **`GF_CLIENT_TAG`** (folio path) so
+      tag and TCP metrics stay aligned for the same `client_tag`. Do not submit a policy
+      that leaves these masks all zero.
 
-    The template uses **score-based sampling** (`bpf_cache_ext_list_sample`).
-    Implement `bpf_score_fn(node) -> s64`: lower score = evict first;
-    S64_MAX = protect. For each reclaim slot, the kernel picks the minimum
-    among `sample_size` candidates.
+    ## Must-keep behavior contracts
+    - `bpf_score_fn(struct cache_ext_list_node *a) -> s64` (name may be `node`; keep signature)
+      - lower score = evict earlier
+      - `INT64_MAX` / `S64_MAX` = protect / never prefer as victim (match `LLM.h`)
+      - use `struct folio *folio = a->folio;` (do NOT use `container_of`)
+    - `evict_folios` uses `bpf_cache_ext_list_sample(..., bpf_score_fn, ...)`.
+    - kprobe / map / include / registration infrastructure outside EVOLVE-BLOCK
+      is fixed and must remain compatible.
+    - Keep `main_list` as `static u64 main_list;` (do NOT change to pointer types).
+    - Keep `gf_configs` and `folio_cfg` as `static const` declarations.
 
-    **Networking infrastructure** (kprobe, maps, includes, dir_watcher) is
-    FIXED - do NOT modify code outside the EVOLVE-BLOCK. The infrastructure
-    provides listener abstractions for network metrics; you enable them via
-    gf_configs[] and use vulcan_get_* accessors in bpf_score_fn.
-
-    ### CRITICAL: Strong network-feature requirement
-    Network awareness is **mandatory** for competitive scores on this task.
-    You MUST enable multiple network listeners in `gf_configs` and make them
-    materially affect `bpf_score_fn` decisions (not dead code). Pure LFU
-    (`access_count` only, listeners off) is not acceptable. As a practical
-    minimum, use **at least two distinct network signal families** in scoring,
-    e.g. one latency signal (`GF_SRTT_US`/`GF_MDEV_US`) plus one congestion or
-    reliability signal (`GF_SND_CWND`, `GF_LOST`, `GF_TOTAL_RETRANS`,
-    `GF_RETRANS_OUT`, `GF_PACKETS_OUT`, `GF_INTER_ARRIVAL`, etc.).
-    Do not fixate on a single hardcoded trio; choose features you can justify
-    for time-varying load and combine listeners (EWMA, MinMax, RW, AVG) so
-    network state actually changes eviction priority under pressure.
-
-    ### What you evolve
-    1. **Per-feature listener configuration** — the `gf_configs[]` array
-       selects which listeners are active for each global feature and sets
-       per-listener parameters (EWMA alpha, rolling window size).
-    2. **Per-folio listener configuration** — `folio_cfg` selects which
-       listeners track per-folio inter-access intervals.
-    3. **Tunable constants** — time windows, thresholds, etc.
-    4. **The scoring function** `bpf_score_fn(node) -> s64`
-       - **Lower score** = preferred victim (evicted when it is the minimum in a sample batch)
-       - **S64_MAX** = do not prefer this folio vs others (same pattern as LFU policy for dirty / bad folios)
-       - MUST combine `meta->access_count` with network-driven rules via `vulcan_get_*` accessors
-       - `SAMPLE_SIZE` — candidates per victim slot (see `struct sampling_options`)
-    5. **Struct_ops callbacks** (init, evict_folios, folio_added,
-       folio_accessed, folio_evicted) — sensible defaults are provided;
-       customize only if needed.
-
-    ### BPF / LLVM: avoid signed division in `bpf_score_fn`
-    The clang BPF backend often **cannot** lower **`/` on signed (`s64`) values**
-    (LLVM emits `sdiv`); compilation fails with errors like *"Unsupport signed
-    division ... Please convert to unsigned div/mod."* Do **not** write ratios
-    such as `(a * 100) / b` or `(x - y) / z` directly on signed operands. Prefer:
-    - **Unsigned division** after proving operands are non-negative:
-      `(u64)((u64)a * 100ULL) / (u64)b`, or
-    - **Shifts / fixed-point** for powers of two (e.g. `>> 7` instead of `/ 128`),
-      or multiply-then-shift for approximate percentages.
-
-    ## Multi-Workload Evaluation
-    Your policy is evaluated on **three dual-client traces** that pair different
-    YCSB workload types against each other with time-varying offered load.
-
-    **Optimization objective (what evolution maximizes):** the **harmonic mean** of each trace’s **mean total
-    throughput** (ops/sec, summed across the two clients), averaged over repeated benchmark runs. Scoring 0 on
-    any trace severely penalizes the total score.
-
-    **Read tail latency (for your reasoning, not the numeric fitness):** the evaluator also records **READ p99
-    latency** (nanoseconds; reported as `read_p99_ns_mean` per trace in `metrics.json`). Use it to interpret
-    queueing, overload, or policy mistakes — but **throughput harmonic mean remains the sole objective** unless
-    the harness is changed. Lower p99 at similar throughput is still a good sign even though it is not directly
-    scored.
-
-    Both clients run **at the same time** against the **same** LevelDB TCP server and **same**
-    cgroup-limited page cache; their load and eviction pressure are **fully shared**.
-    Each client uses a separate copy of the DB (`client1/` and `client2/`) so
-    BPF can tag folios with `meta->client_tag` (1 or 2) for per-client reasoning.
-
-    ### YCSB workloads used in the active traces
-
-    #### Workload **A** (`client_ycsb_a`)
-    - **50% READ, 50% UPDATE** -- point reads + updates to existing keys.
-    - **Zipfian** key distribution, constant **0.99**.
-    - **16-byte keys**, **1024-byte values**, 8 threads.
-    - Stresses **read + write** paths and **dirty page** behavior.
-
-    #### Workload **B** (`client_ycsb_b`)
-    - **95% READ, 5% UPDATE** -- mostly reads, light updates.
-    - **Zipfian** key distribution, constant **0.99**.
-    - **16-byte keys**, **1024-byte values**, 8 threads.
-    - Read-heavy with a concentrated hot-key set; updates cause occasional dirty pages.
-
-    #### Workload **C** (`client_ycsb_c`)
-    - **100% READ** -- pure read workload, no writes.
-    - **Zipfian** key distribution, constant **0.99**.
-    - **16-byte keys**, **1024-byte values**, 8 threads.
-    - Purely cache-hit sensitive; no dirty pages from this client.
-
-    #### Workload **F** (`client_ycsb_f`)
-    - **50% READ, 50% READ-MODIFY-WRITE** -- each RMW is a read-modify-write sequence.
-    - **Zipfian** key distribution, constant **0.99**.
-    - **16-byte keys**, **1024-byte values**, 8 threads.
-    - Heavy write amplification; creates many dirty pages and cache pressure.
-
-    ### Active traces (three dual-client pairings)
-
-    All three use the **schedule_2_b** step pattern (milder amplitude).
-    The schedule repeats a 5-step staircase **4 times in 120 s** (6 s/step,
-    24 s per cycle), with the two clients in phase-offset complement:
-    - Client 1 (port 9100): **350 -> 1050 -> 1400 -> 1050 -> 350** ops/s
-    - Client 2 (port 9101): **1400 -> 1050 -> 350 -> 1050 -> 1400** ops/s
-
-    1. **`ycsb_b_a_schedule_2_b`**: B (95% read) vs A (50/50 read/update)
-       - Read-dominant client competes with an update-heavy client; dirty-page
-         pressure from A's updates can push B's hot reads out of cache.
-    2. **`ycsb_c_a_schedule_2_b`**: C (100% read) vs A (50/50 read/update)
-       - Pure reader vs mixed reader/writer; similar dynamics to B+A but C has
-         zero writes, making it purely sensitive to eviction of its cached pages.
-    3. **`ycsb_c_f_schedule_2_b`**: C (100% read) vs F (50% read / 50% RMW)
-       - Pure reader vs RMW-heavy client; F generates the most write pressure
-         of all workloads, creating strong dirty-page eviction tension.
-
-    **Design intent:** three workload pairings that vary the write-pressure
-    gradient (B light-write, A medium-write, F heavy-RMW) against read-only or
-    read-heavy opponents, all with time-varying asymmetric offered load.
-    Eviction logic should be **network-adaptive** (congestion/latency worsens ->
-    misses more expensive -> protect working set) and ideally
-    **client-tag-aware** (use `meta->client_tag` to differentiate folios from
-    the read-heavy vs write-heavy client).
-
-
-    ## Listener Configuration API
-    You configure listeners per-feature using `gf_configs[]`, an array of
-    `struct vulcan_feature_config` with one entry per global feature:
-
+    ## Listener config syntax (important)
+    `gf_configs[]` entry type:
     ```c
     struct vulcan_feature_config {
-        u32 listener_mask;  // OR of VULCAN_LISTENER_* flags
-        u32 ewma_alpha;     // [0..1000], only used if EWMA enabled
-        u32 rw_size;        // [1..16],   only used if RW enabled
+        u32 listener_mask;  // OR of VULCAN_LISTENER_* bits
+        u32 ewma_alpha;     // [0..1000] when EWMA is enabled
+        u32 rw_size;        // [1..16] when RW is enabled
     };
     ```
 
-    Listener bitmask flags (OR together in .listener_mask):
-      VULCAN_LISTENER_MINMAX  — enable MinMax (tracks min/max over time)
-      VULCAN_LISTENER_EWMA    — enable EWMA (set .ewma_alpha)
-      VULCAN_LISTENER_AVG     — enable running Average
-      VULCAN_LISTENER_RW      — enable RollingWindow (set .rw_size)
-      VULCAN_LISTENER_ALL     — shorthand for all four
-
-    Example configuration:
+    `folio_cfg` type:
     ```c
-    static const struct vulcan_feature_config gf_configs[VULCAN_NUM_GLOBAL_FEATURES] = {
-        [GF_SRTT_US]     = { .listener_mask = VULCAN_LISTENER_EWMA | VULCAN_LISTENER_RW,
-                             .ewma_alpha = 200, .rw_size = 8 },
-        [GF_LOST]        = { .listener_mask = VULCAN_LISTENER_MINMAX },
-        [GF_SND_CWND]    = { .listener_mask = VULCAN_LISTENER_EWMA, .ewma_alpha = 100 },
-        // features with .listener_mask = 0 have no listeners (zero overhead)
+    struct vulcan_folio_config {
+        u32 listener_mask;  // per-folio interval listeners
+        u32 ewma_alpha;     // [0..1000] for per-folio EWMA
     };
     ```
 
-    Important: the example snippet above is only a template to show *syntax*.
-    Do NOT copy these listener masks/parameters verbatim. You must reason
-    about which listeners to enable and why for the current trace set and
-    scoring objective, and set `.listener_mask`, `.ewma_alpha`, and `.rw_size`
-    accordingly.
+    Listener bitmask flags (OR them in `listener_mask`):
+    - `VULCAN_LISTENER_MINMAX`
+    - `VULCAN_LISTENER_EWMA`
+    - `VULCAN_LISTENER_AVG`
+    - `VULCAN_LISTENER_RW`
+    - `VULCAN_LISTENER_ALL`
 
-    Per-folio configuration (struct vulcan_folio_config):
-    ```c
-    static const struct vulcan_folio_config folio_cfg = {
-        .listener_mask = VULCAN_LISTENER_MINMAX | VULCAN_LISTENER_EWMA,
-        .ewma_alpha    = 200,  // smoothing for per-folio interval tracking
-    };
-    ```
-    Call vulcan_folio_on_access(meta, now, &folio_cfg) in folio_accessed.
+    Per-client_tag accessors in scoring (return 0 if listener not enabled or
+    `meta->client_tag == 0`). Use them **only** with these feature ids (the ones
+    configured in `LLM.h` `gf_configs`):
+    - `GF_SEGS_IN`, `GF_SEGS_OUT` — TCP segment totals (in/out load)
+    - `GF_BYTES_RECEIVED`, `GF_BYTES_ACKED` — bytes in / bytes acknowledged out
+    - `GF_CLIENT_TAG` — tag stream from folio hooks (not sampled in `tcp_recvmsg`)
+    - APIs: `vulcan_tag_get_min/max/ewma/avg/latest/kth_recent/window_avg/window_count`
+      — args `(meta->client_tag, GF_*)` plus `k` for `kth_recent`.
 
-    ## Global Feature Accessor API
-    Use these inside bpf_score_fn to query listener state. An accessor
-    returns 0 if the corresponding listener is not enabled for that feature.
-    All return s64.
+    Do not design scoring around other `GF_*` enum values; they are not present in
+    the evolved `gf_configs` table. Avoid `vulcan_get_*` global accessors for eviction
+    (host-wide TCP blend); use `vulcan_tag_get_*` with `meta->client_tag` and the ids above.
 
-      vulcan_get_min(GF_xxx)           — minimum observed value  (needs MINMAX)
-      vulcan_get_max(GF_xxx)           — maximum observed value  (needs MINMAX)
-      vulcan_get_ewma(GF_xxx)          — EWMA smoothed value     (needs EWMA)
-      vulcan_get_avg(GF_xxx)           — running arithmetic avg  (needs AVG)
-      vulcan_get_latest(GF_xxx)        — most recent value       (needs RW)
-      vulcan_get_kth_recent(GF_xxx, k) — k-th most recent        (needs RW)
-      vulcan_get_window_avg(GF_xxx)    — rolling-window average  (needs RW)
-      vulcan_get_window_count(GF_xxx)  — entries in window        (needs RW)
+    ## Folio metadata and helper usage
+    `folio_metadata_map` value has fields such as:
+    - `access_count`, `last_access_ts`, `prev_access_ts`
+    - `interval_minmax.min_val/max_val`, `interval_ewma.value`
+    - `client_tag`
 
-    ### Global Feature IDs
-      GF_SRTT_US        — smoothed RTT in usec (kernel stores srtt<<3)
-      GF_MDEV_US        — RTT mean deviation / jitter (usec)
-      GF_SND_CWND       — congestion window (segments)
-      GF_SND_SSTHRESH   — slow-start threshold (segments)
-      GF_RCV_WND        — advertised receive window (bytes)
-      GF_PACKETS_OUT    — packets currently in flight
-      GF_TOTAL_RETRANS  — lifetime retransmissions
-      GF_RETRANS_OUT    — retransmits currently in flight
-      GF_LOST           — segments considered lost
-      GF_SEGS_IN        — total TCP segments received
-      GF_SEGS_OUT       — total TCP segments sent
-      GF_DELIVERED      — total packets delivered
-      GF_BYTES_RECEIVED — total bytes received
-      GF_BYTES_ACKED    — total bytes acknowledged
-      GF_INTER_ARRIVAL  — inter-packet arrival time (ns)
-      GF_RECV_COUNT     — total tcp_recvmsg calls
-      GF_CLIENT_TAG     — client tag of folio on each access (fed by folio hooks)
+    Use in hooks:
+    - initialize with `vulcan_folio_init(now)`
+    - update on access with `vulcan_folio_on_access(meta, now, &folio_cfg)`
 
-    Raw globals are also available directly: net_srtt_us, net_mdev_us, etc.
+    ## Safety / verifier constraints (critical)
+    - No floating point.
+    - Avoid expensive or unverifiable patterns (large loops/stack).
+    - Do NOT use signed division in BPF score math.
+      - Bad: `(s64_a * 100) / s64_b`
+      - Good: prove non-negative, cast to `u64`, then divide; or use shifts.
+    - Prefer overflow-safe integer arithmetic and guard zero denominators.
+    - Use `S64_MAX` (or `~0ULL` where appropriate), not `UINT64_MAX` in score logic.
+    - Never output `<<<<<<<`, `=======`, or `>>>>>>>`.
 
-    ## Per-Folio Metadata
-    Stored in folio_metadata_map, keyed by (u64)folio pointer.
-    struct vulcan_folio_metadata fields:
-      access_count            — number of accesses (u32)
-      last_access_ts          — timestamp of last access (u64 ns)
-      prev_access_ts          — timestamp of prior access (u64 ns)
-      interval_minmax.min_val — minimum inter-access interval (s64 ns)
-      interval_minmax.max_val — maximum inter-access interval (s64 ns)
-      interval_ewma.value     — EWMA of inter-access intervals (s64 ns)
+    ## Compile-error guards:
+    These patterns caused `clang` BPF compile failures; do not repeat them.
 
-    Per-folio helper (call from folio hooks):
-      vulcan_folio_on_access(meta, now, &folio_cfg)
-        — updates only the per-folio listeners enabled in folio_cfg
+    - **Global accessor arity** — `vulcan_get_min`, `vulcan_get_max`, `vulcan_get_ewma`,
+      `vulcan_get_avg`, and the other `vulcan_get_*` helpers each take **exactly one**
+      argument: `u32 feature_id` (a `GF_*` constant). They do **not** accept `meta`,
+      folio pointers, or a second numeric argument.
+      - Bad (rejected: `too many arguments to function call, expected single argument 'feature_id'`):
+        `vulcan_get_ewma(meta, 0)` or `vulcan_get_ewma(something, GF_BYTES_RECEIVED)` with a non-feature first arg.
+      - Good (single `feature_id` arg only): `vulcan_get_ewma(GF_BYTES_RECEIVED)`.
+      - Preferred for this task: `vulcan_tag_get_ewma(meta->client_tag, GF_BYTES_RECEIVED)`
+        (and only the five `GF_*` ids listed above).
 
-    ## Available BPF APIs
-    - bpf_cache_ext_list_add(list, folio) / _add_tail
-    - bpf_cache_ext_list_del(folio)
-    - bpf_cache_ext_list_move(list, folio, tail)
-    - bpf_cache_ext_list_sample(memcg, list, score_fn, &opts, ctx)
-    - bpf_cache_ext_list_iterate(memcg, list, cb, ctx)
-    - bpf_cache_ext_ds_registry_new_list(memcg)
-    - folio_test_dirty/writeback/unevictable/uptodate/lru(folio)
-    - folio_nr_pages(folio), folio_index(folio)
-    - bpf_ktime_get_ns()
+    - **Per-client_tag network metrics** — use **`vulcan_tag_get_*`** with **two** args
+      `(meta->client_tag, GF_*)` (plus `k` for `vulcan_tag_get_kth_recent`), not `vulcan_get_*`.
 
-    ## How to use network metrics in eviction decisions
-    The listener accessors give you processed views of real-time metrics:
-    - **Smoothed RTT**: `vulcan_get_ewma(GF_SRTT_US)` is more stable than
-      raw `net_srtt_us`. When elevated, each cache miss is expensive —
-      protect frequently accessed folios more aggressively.
-    - **RTT trend**: compare `vulcan_get_latest(GF_SRTT_US)` vs
-      `vulcan_get_kth_recent(GF_SRTT_US, 3)` to detect improving/degrading
-      network conditions.
-    - **Loss detection**: `vulcan_get_max(GF_LOST)` > 0 or
-      `vulcan_get_ewma(GF_RETRANS_OUT)` > 0 indicates network degradation.
-    - **Congestion pressure**: `vulcan_get_ewma(GF_PACKETS_OUT)` vs
-      `vulcan_get_ewma(GF_SND_CWND)` — if in-flight > cwnd, protect
-      working set more aggressively.
-    - **Burst detection**: `vulcan_get_latest(GF_INTER_ARRIVAL)` drops
-      during bursts — protect working set during bursts.
-    - **Per-folio heat**: combine `meta->access_count` with
-      `meta->interval_ewma.value` — low interval EWMA = hot (frequent).
+    - **Per-folio interval EWMA / minmax** — read from **`meta`** fields updated by
+      `vulcan_folio_on_access` when `folio_cfg` enables those listeners, e.g.
+      `meta->interval_ewma.value`, `meta->interval_minmax.min_val`. Do not call
+      `vulcan_get_ewma` for per-folio intervals; that API is for **global** feature IDs only.
 
-    ## Constraints
-    - **Baseline is LFU** — start from it; evolve eviction logic only. But be
-      creative and think outside the box. You do should not just stick to LFU.
-    - **Do NOT modify** code outside EVOLVE-BLOCK (kprobe, network globals,
-      map definitions, struct_ops registration, includes).
-    - No floating point in BPF. Use integer arithmetic only.
-    - `bpf_score_fn` receives `struct cache_ext_list_node *node` with `node->folio`.
-    - Kernel minimizes score per batch — low score = evict, S64_MAX = protect.
-    - Call `bpf_cache_ext_list_sample(memcg, main_list, bpf_score_fn, &opts, ctx)`
-      from `evict_folios` (reference: `policies/cache_ext_sampling.bpf.c`).
-    - BPF verifier limits loop iterations and stack size (512 bytes).
-    - Do not use UINT64_MAX. Use S64_MAX or (~0ULL) instead.
-    - Output ONLY valid C code for the EVOLVE-BLOCK. Never emit conflict
-      markers or search/replace markers.
-    - You MUST keep `gf_configs[VULCAN_NUM_GLOBAL_FEATURES]` and `folio_cfg`
-      defined, because the kprobe (outside EVOLVE-BLOCK) references them.
-    - Only call accessors (e.g. vulcan_get_ewma) for listeners you have
-      enabled in gf_configs — disabled listeners return 0 safely but the
-      values are meaningless.
-    - Do not submit policies that are effectively network-agnostic. If network
-      terms never change victim ordering under realistic ranges, the policy is
-      too close to LFU and should be revised.
-    - Avoid conservative micro-edits every generation. Each new proposal
-      should differ meaningfully from recent attempts in at least one
-      dimension: listener subset, listener parameters (alpha/window),
-      scoring function shape/thresholds, or sample-size/list organization.
-    - When score plateaus, prioritize structurally different hypotheses over
-      tiny coefficient tweaks.
-
-    ## Eviction strategies to explore
-    - **Recency + frequency**: protect folios with high access_count AND
-      recent access; evict cold, infrequent folios
-    - **Network-adaptive thresholds**: widen protection windows when
-      RTT/loss is high (each miss is expensive under congestion)
-    - **Burst-aware**: detect request bursts via inter-arrival time and
-      temporarily raise protection of working-set folios
-    - **Per-folio heat map**: use interval EWMA (lower = hotter) to
-      distinguish genuinely hot folios from one-shot accesses
-    - **Adaptive decay**: use access_count decay or tier demotion for
-      folios that were hot but have gone cold
-    - **Selective listeners**: only enable listeners you actually use -
-      fewer listeners = less per-packet overhead
-    - **Per-feature tuning**: different EWMA alphas for different metrics
-      (e.g. fast-reactive for RTT, slow-smooth for cwnd)
-    - **Multi-list**: allocate separate hot/cold lists; run sampling on the
-      cold list or use list_move to promote/demote folios
-    - **MGLRU-inspired (adapt to score fn)**: multi-generation aging (young
-      vs old by recency), tier-based protection by access_count (order_base_2
-      or thresholds), refault-aware scoring (protect folios likely to be
-      re-accessed soon).
+    ## Feature usage guidance (only these five `GF_*` ids)
+    - **Required:** non-zero `listener_mask` on all five rows above (networking must
+      stay on — see Scope). Choose listener bits and params deliberately.
+    - Read per-client data with `vulcan_tag_get_* (meta->client_tag, GF_*, ...)` using
+      those same ids only.
+    - Disabled listeners return 0; avoid relying on meaningless zeros.
+    - Within each required row, enable only the `VULCAN_LISTENER_*` bits you read in
+      `bpf_score_fn` (each row must stay non-zero overall so collection stays active).
+    - `client_tag` on folios aligns with kprobe port→tag routing for the four TCP-backed ids.
+    - Be creative with scoring functions, do not just use the default LFU scoring.

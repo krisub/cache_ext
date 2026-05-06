@@ -7,7 +7,7 @@ database:
 # Workload Parameters
 workload:
   nr_warmup_op: 0
-  nr_op: 10000000
+  nr_op: 100000000
   nr_thread: 16
   next_op_interval_ns: 0  # use 50000 on mars
   operation_proportion:
