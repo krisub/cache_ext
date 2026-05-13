@@ -10,3 +10,6 @@
 [submodule "rocksdb"]
 	path = rocksdb
 	url = https://github.com/cache-ext/rocksdb.git
+[submodule "vulcan_bpf"]
+	path = vulcan_bpf
+	url = https://github.com/krisub/vulcan_bpf.git
